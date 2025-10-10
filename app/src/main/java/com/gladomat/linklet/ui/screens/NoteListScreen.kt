@@ -11,12 +11,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -35,6 +42,7 @@ import com.gladomat.linklet.ui.theme.LinkLetAppTheme
 @Composable
 fun NoteListRoute(
     onOpenNote: (String) -> Unit,
+    onOpenSettings: () -> Unit,
     viewModel: NoteListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -42,28 +50,44 @@ fun NoteListRoute(
         state = state,
         onOpenNote = onOpenNote,
         onRetry = viewModel::refresh,
+        onOpenSettings = onOpenSettings,
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NoteListScreen(
     state: NoteListUiState,
     onOpenNote: (String) -> Unit,
     onRetry: () -> Unit,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    when (state) {
-        NoteListUiState.Loading -> LoadingState(modifier)
-        is NoteListUiState.Success -> SuccessState(
-            notes = state.notes,
-            onOpenNote = onOpenNote,
-            modifier = modifier,
-        )
-        is NoteListUiState.Error -> ErrorState(
-            message = state.message,
-            onRetry = onRetry,
-            modifier = modifier,
-        )
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(text = "Notes") },
+                actions = {
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(imageVector = Icons.Filled.Settings, contentDescription = "Open settings")
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        when (state) {
+            NoteListUiState.Loading -> LoadingState(modifier.padding(padding))
+            is NoteListUiState.Success -> SuccessState(
+                notes = state.notes,
+                onOpenNote = onOpenNote,
+                modifier = modifier.padding(padding),
+            )
+            is NoteListUiState.Error -> ErrorState(
+                message = state.message,
+                onRetry = onRetry,
+                modifier = modifier.padding(padding),
+            )
+        }
     }
 }
 
@@ -166,6 +190,7 @@ private fun NoteListLoadingPreview() {
                 state = NoteListUiState.Loading,
                 onOpenNote = {},
                 onRetry = {},
+                onOpenSettings = {},
             )
         }
     }
@@ -185,6 +210,7 @@ private fun NoteListSuccessPreview() {
                 ),
                 onOpenNote = {},
                 onRetry = {},
+                onOpenSettings = {},
             )
         }
     }
@@ -199,6 +225,7 @@ private fun NoteListErrorPreview() {
                 state = NoteListUiState.Error("Something went wrong"),
                 onOpenNote = {},
                 onRetry = {},
+                onOpenSettings = {},
             )
         }
     }

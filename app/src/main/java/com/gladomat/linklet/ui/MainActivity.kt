@@ -15,6 +15,7 @@ import androidx.navigation.navArgument
 import com.gladomat.linklet.ui.screens.NoteListRoute
 import com.gladomat.linklet.ui.screens.note.NoteViewRoute
 import com.gladomat.linklet.ui.screens.noteedit.NoteEditRoute
+import com.gladomat.linklet.ui.screens.settings.SettingsRoute
 import com.gladomat.linklet.ui.theme.LinkLetAppTheme
 import com.gladomat.linklet.viewmodel.note.NoteViewViewModel
 import com.gladomat.linklet.viewmodel.noteedit.NoteEditViewModel
@@ -39,6 +40,9 @@ class MainActivity : ComponentActivity() {
                                     navController.navigate("${Routes.NOTE_VIEW}/${Uri.encode(path)}") {
                                         launchSingleTop = true
                                     }
+                                },
+                                onOpenSettings = {
+                                    navController.navigate(Routes.SETTINGS)
                                 },
                             )
                         }
@@ -83,6 +87,12 @@ class MainActivity : ComponentActivity() {
                                 },
                             )
                         }
+
+                        composable(route = Routes.SETTINGS) {
+                            SettingsRoute(
+                                onNavigateBack = { navController.popBackStack() },
+                            )
+                        }
                     }
                 }
             }
@@ -95,4 +105,5 @@ private object Routes {
     const val NOTE_VIEW = "note_view"
     const val NOTE_EDIT = "note_edit"
     const val NOTE_EDIT_PATH = NoteEditViewModel.NoteArgs.NOTE_PATH
+    const val SETTINGS = "settings"
 }

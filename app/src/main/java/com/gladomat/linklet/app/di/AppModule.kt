@@ -5,7 +5,8 @@ import androidx.room.Room
 import com.gladomat.linklet.data.index.NoteDatabase
 import com.gladomat.linklet.data.parser.IParser
 import com.gladomat.linklet.data.parser.RegexParser
-import com.gladomat.linklet.data.storage.FileStorageImpl
+import com.gladomat.linklet.data.settings.FolderSettingsRepository
+import com.gladomat.linklet.data.storage.DocumentTreeStorageImpl
 import com.gladomat.linklet.data.storage.IStorage
 import com.gladomat.linklet.domain.repository.INoteRepository
 import com.gladomat.linklet.domain.repository.NoteRepositoryImpl
@@ -14,7 +15,6 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import java.io.File
 import javax.inject.Singleton
 
 @Module
@@ -29,10 +29,8 @@ object AppModule {
     @Singleton
     fun provideStorage(
         @ApplicationContext context: Context,
-    ): IStorage {
-        val baseDir = File(context.filesDir, "notes")
-        return FileStorageImpl(baseDir = baseDir)
-    }
+        folderSettingsRepository: FolderSettingsRepository,
+    ): IStorage = DocumentTreeStorageImpl(context, folderSettingsRepository)
 
     @Provides
     @Singleton
