@@ -6,6 +6,7 @@ data class NoteListItemUiModel(
     val id: NoteId,
     val title: String,
     val path: String,
+    val snippet: String? = null,
 )
 
 sealed interface NoteListUiState {

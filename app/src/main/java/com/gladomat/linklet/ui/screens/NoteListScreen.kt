@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -20,6 +22,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -46,8 +49,12 @@ fun NoteListRoute(
     viewModel: NoteListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val query by viewModel.query.collectAsStateWithLifecycle()
     NoteListScreen(
         state = state,
+        query = query,
+        onQueryChange = viewModel::updateSearchQuery,
+        onClearQuery = viewModel::clearSearchQuery,
         onOpenNote = onOpenNote,
         onRetry = viewModel::refresh,
         onOpenSettings = onOpenSettings,
@@ -58,6 +65,9 @@ fun NoteListRoute(
 @Composable
 fun NoteListScreen(
     state: NoteListUiState,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onClearQuery: () -> Unit,
     onOpenNote: (String) -> Unit,
     onRetry: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -75,18 +85,35 @@ fun NoteListScreen(
             )
         },
     ) { padding ->
-        when (state) {
-            NoteListUiState.Loading -> LoadingState(modifier.padding(padding))
-            is NoteListUiState.Success -> SuccessState(
-                notes = state.notes,
-                onOpenNote = onOpenNote,
-                modifier = modifier.padding(padding),
+        Column(
+            modifier = modifier
+                .padding(padding)
+                .fillMaxSize(),
+        ) {
+            NoteSearchBar(
+                query = query,
+                onQueryChange = onQueryChange,
+                onClearQuery = onClearQuery,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
             )
-            is NoteListUiState.Error -> ErrorState(
-                message = state.message,
-                onRetry = onRetry,
-                modifier = modifier.padding(padding),
-            )
+
+            when (state) {
+                NoteListUiState.Loading -> LoadingState(
+                    modifier = Modifier.weight(1f),
+                )
+                is NoteListUiState.Success -> SuccessState(
+                    notes = state.notes,
+                    onOpenNote = onOpenNote,
+                    modifier = Modifier.weight(1f),
+                )
+                is NoteListUiState.Error -> ErrorState(
+                    message = state.message,
+                    onRetry = onRetry,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
     }
 }
@@ -134,6 +161,14 @@ private fun SuccessState(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                note.snippet?.let { snippet ->
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = snippet,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
             }
             HorizontalDivider()
         }
@@ -188,6 +223,9 @@ private fun NoteListLoadingPreview() {
         Surface {
             NoteListScreen(
                 state = NoteListUiState.Loading,
+                query = "",
+                onQueryChange = {},
+                onClearQuery = {},
                 onOpenNote = {},
                 onRetry = {},
                 onOpenSettings = {},
@@ -204,10 +242,22 @@ private fun NoteListSuccessPreview() {
             NoteListScreen(
                 state = NoteListUiState.Success(
                     notes = listOf(
-                        NoteListItemUiModel(id = com.gladomat.linklet.data.model.NoteId("notes/sample.org"), title = "Sample Note", path = "notes/sample.org"),
-                        NoteListItemUiModel(id = com.gladomat.linklet.data.model.NoteId("notes/ideas.org"), title = "Ideas", path = "notes/ideas.org"),
+                        NoteListItemUiModel(
+                            id = NoteId("notes/sample.org"),
+                            title = "Sample Note",
+                            path = "notes/sample.org",
+                            snippet = "This is a sample snippet showing where the query matched…",
+                        ),
+                        NoteListItemUiModel(
+                            id = NoteId("notes/ideas.org"),
+                            title = "Ideas",
+                            path = "notes/ideas.org",
+                        ),
                     ),
                 ),
+                query = "sample",
+                onQueryChange = {},
+                onClearQuery = {},
                 onOpenNote = {},
                 onRetry = {},
                 onOpenSettings = {},
@@ -223,10 +273,45 @@ private fun NoteListErrorPreview() {
         Surface {
             NoteListScreen(
                 state = NoteListUiState.Error("Something went wrong"),
+                query = "",
+                onQueryChange = {},
+                onClearQuery = {},
                 onOpenNote = {},
                 onRetry = {},
                 onOpenSettings = {},
             )
         }
     }
+}
+
+@Composable
+private fun NoteSearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onClearQuery: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        modifier = modifier,
+        singleLine = true,
+        leadingIcon = {
+            Icon(
+                imageVector = Icons.Filled.Search,
+                contentDescription = "Search notes",
+            )
+        },
+        trailingIcon = {
+            if (query.isNotEmpty()) {
+                IconButton(onClick = onClearQuery) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Clear search",
+                    )
+                }
+            }
+        },
+        placeholder = { Text(text = "Search notes") },
+    )
 }

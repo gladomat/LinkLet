@@ -96,4 +96,54 @@ class NoteListViewModelTests {
         val notes = (state as NoteListUiState.Success).notes
         assertTrue(notes.isEmpty())
     }
+
+    @Test
+    fun `search query filters notes and produces snippet`() = runTest {
+        val notes = MutableStateFlow<List<Note>>(
+            listOf(
+                Note(
+                    id = NoteId("a.org"),
+                    title = "Kotlin Coroutines",
+                    content = """
+                        #+title: Kotlin Coroutines
+                        #+filetags: :kotlin:async:
+
+                        This note talks about structured concurrency and coroutine scopes.
+                    """.trimIndent(),
+                    links = emptyList(),
+                ),
+                Note(
+                    id = NoteId("b.org"),
+                    title = "Random Thoughts",
+                    content = "Nothing related here.",
+                    links = emptyList(),
+                ),
+            ),
+        )
+
+        val repository = object : INoteRepository {
+            override fun observeNotes() = notes
+            override suspend fun listNotes(): Result<List<Note>> = Result.success(notes.value)
+            override suspend fun getNote(path: String): Result<Note> = Result.failure(RuntimeException("unused"))
+            override suspend fun reindex(): Result<Unit> = Result.success(Unit)
+            override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(emptyList())
+            override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
+        }
+
+        val viewModel = NoteListViewModel(repository)
+
+        advanceUntilIdle()
+
+        viewModel.updateSearchQuery("coroutines")
+
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertTrue(state is NoteListUiState.Success)
+        val items = (state as NoteListUiState.Success).notes
+        assertEquals(1, items.size)
+        val item = items.first()
+        assertEquals("a.org", item.path)
+        assertTrue(!item.snippet.isNullOrBlank())
+    }
 }

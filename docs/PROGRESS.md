@@ -22,6 +22,11 @@
 - Formatting toolbar operates on selections (bold/italic/src/heading), and the editor now offers a Cancel action beside Save.
 - Keyboard-aware editor: IME insets now keep the note body visible while a floating toolbar shows inline Org formatting actions (headings, bold/italic, lists, indent/outdent, source block) plus a new undo button, all rendered as icon-only touch targets with ripple feedback instead of rounded text buttons.
 
+## Global Search (M6)
+- Note list now includes a persistent search bar with a clear (`×`) action; queries are applied live as you type.
+- Search matches against note titles, full text bodies, and `#+filetags:` declarations, returning a filtered note list.
+- Each matching note shows a short body snippet around the first hit so you can see the context of the match directly in the list.
+
 
 ## Settings & Folder Picker (M7)
 - Added SAF-based folder picker, DataStore persistence, and DocumentTree storage backing.

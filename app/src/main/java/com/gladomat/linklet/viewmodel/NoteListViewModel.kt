@@ -20,16 +20,34 @@ class NoteListViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val errorState = MutableStateFlow<String?>(null)
+    private val searchQuery = MutableStateFlow("")
     private val hasLoaded = MutableStateFlow(false)
 
     val state: StateFlow<NoteListUiState> = combine(
         repository.observeNotes(),
+        searchQuery,
         errorState,
         hasLoaded,
-    ) { notes, error, loaded ->
+    ) { notes, query, error, loaded ->
         when {
             error != null -> NoteListUiState.Error(error)
-            loaded -> NoteListUiState.Success(notes.map { it.toUiModel() })
+            loaded -> {
+                val trimmedQuery = query.trim()
+                val filteredNotes = if (trimmedQuery.isEmpty()) {
+                    notes
+                } else {
+                    notes.filter { it.matchesQuery(trimmedQuery) }
+                }
+                val uiModels = filteredNotes.map { note ->
+                    val snippet = if (trimmedQuery.isEmpty()) {
+                        null
+                    } else {
+                        note.buildSnippet(trimmedQuery)
+                    }
+                    note.toUiModel(snippet)
+                }
+                NoteListUiState.Success(uiModels)
+            }
             else -> NoteListUiState.Loading
         }
     }
@@ -38,6 +56,8 @@ class NoteListViewModel @Inject constructor(
             started = SharingStarted.Eagerly,
             initialValue = NoteListUiState.Loading,
         )
+
+    val query: StateFlow<String> = searchQuery
 
     init {
         refresh()
@@ -55,9 +75,63 @@ class NoteListViewModel @Inject constructor(
         }
     }
 
-    private fun Note.toUiModel(): NoteListItemUiModel = NoteListItemUiModel(
+    fun updateSearchQuery(value: String) {
+        searchQuery.value = value
+    }
+
+    fun clearSearchQuery() {
+        searchQuery.value = ""
+    }
+
+    private fun Note.matchesQuery(rawQuery: String): Boolean {
+        val query = rawQuery.lowercase()
+        if (title.contains(query, ignoreCase = true)) return true
+        if (content.lowercase().contains(query)) return true
+        val tags = extractTagsFromContent(content)
+        if (tags.any { it.contains(query, ignoreCase = true) }) return true
+        return false
+    }
+
+    private fun Note.buildSnippet(rawQuery: String): String? {
+        if (content.isEmpty()) return null
+        val contentLower = content.lowercase()
+        val queryLower = rawQuery.lowercase()
+        val index = contentLower.indexOf(queryLower)
+        if (index == -1) return null
+
+        val radius = 40
+        val start = (index - radius).coerceAtLeast(0)
+        val end = (index + rawQuery.length + radius).coerceAtMost(content.length)
+        var snippet = content.substring(start, end).replace('\n', ' ')
+
+        if (start > 0) {
+            snippet = "…$snippet"
+        }
+        if (end < content.length) {
+            snippet = "$snippet…"
+        }
+
+        return snippet
+    }
+
+    private fun extractTagsFromContent(content: String): List<String> {
+        val prefix = "#+filetags:"
+        val line = content.lineSequence()
+            .firstOrNull { it.trimStart().startsWith(prefix, ignoreCase = true) }
+            ?: return emptyList()
+        val raw = line.substringAfter(":").trim()
+        if (raw.isEmpty()) return emptyList()
+        return raw
+            .trim(':')
+            .split(':')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+    }
+
+    private fun Note.toUiModel(snippet: String? = null): NoteListItemUiModel = NoteListItemUiModel(
         id = id,
         title = title,
         path = id.path,
+        snippet = snippet,
     )
 }
