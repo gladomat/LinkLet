@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.gladomat.linklet.domain.repository.LinkEntityDto
+import java.util.LinkedHashMap
 
 @Composable
 fun BacklinkList(
@@ -17,7 +18,8 @@ fun BacklinkList(
     onOpenNote: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (backlinks.isEmpty()) return
+    val distinctBacklinks = dedupeBacklinks(backlinks)
+    if (distinctBacklinks.isEmpty()) return
 
     Column(modifier = modifier.padding(top = 24.dp)) {
         Text(
@@ -25,9 +27,10 @@ fun BacklinkList(
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(bottom = 8.dp),
         )
-        backlinks.forEach { backlink ->
+        distinctBacklinks.forEach { backlink ->
+            val displayText = backlink.sourceTitle ?: backlink.alias ?: backlink.source
             Text(
-                text = backlink.alias ?: backlink.source,
+                text = displayText,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier
@@ -37,4 +40,22 @@ fun BacklinkList(
             )
         }
     }
+}
+
+fun dedupeBacklinks(backlinks: List<LinkEntityDto>): List<LinkEntityDto> {
+    if (backlinks.isEmpty()) return emptyList()
+    val ordered = LinkedHashMap<String, LinkEntityDto>()
+    backlinks.forEach { backlink ->
+        val existing = ordered[backlink.source]
+        if (existing == null) {
+            ordered[backlink.source] = backlink
+        } else {
+            val updated = existing.copy(
+                sourceTitle = existing.sourceTitle ?: backlink.sourceTitle,
+                alias = existing.alias ?: backlink.alias,
+            )
+            ordered[backlink.source] = updated
+        }
+    }
+    return ordered.values.toList()
 }

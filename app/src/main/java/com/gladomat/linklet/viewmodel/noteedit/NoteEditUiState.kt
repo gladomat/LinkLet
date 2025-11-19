@@ -1,9 +1,11 @@
 package com.gladomat.linklet.viewmodel.noteedit
 
+import androidx.compose.ui.text.input.TextFieldValue
+
 sealed interface NoteEditUiState {
     data object Loading : NoteEditUiState
     data class Editing(
-        val content: String,
+        val value: TextFieldValue,
         val isSaving: Boolean = false,
         val errorMessage: String? = null,
     ) : NoteEditUiState

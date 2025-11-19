@@ -22,6 +22,23 @@ interface NoteDao {
     @Query("SELECT * FROM notes ORDER BY title COLLATE NOCASE")
     suspend fun getAllNotes(): List<NoteEntity>
 
-    @Query("SELECT source, target, alias FROM links WHERE target = :path")
-    suspend fun getBacklinks(path: String): List<LinkEntity>
+    @Query(
+        """
+        SELECT links.source AS source,
+               links.target AS target,
+               links.alias AS alias,
+               notes.title AS sourceTitle
+        FROM links
+        INNER JOIN notes ON notes.path = links.source
+        WHERE links.target = :path
+        """,
+    )
+    suspend fun getBacklinks(path: String): List<LinkWithSourceTitle>
 }
+
+data class LinkWithSourceTitle(
+    val source: String,
+    val target: String,
+    val alias: String?,
+    val sourceTitle: String?,
+)

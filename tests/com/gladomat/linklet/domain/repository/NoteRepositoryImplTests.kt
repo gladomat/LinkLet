@@ -7,6 +7,7 @@ import com.gladomat.linklet.data.index.NoteDatabase
 import com.gladomat.linklet.data.model.Note
 import com.gladomat.linklet.data.parser.RegexParser
 import com.gladomat.linklet.data.storage.IStorage
+import com.gladomat.linklet.data.model.LinkTarget
 import java.io.IOException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -84,9 +85,47 @@ class NoteRepositoryImplTests {
         val backlink = backlinks.first()
         assertEquals("a.org", backlink.source)
         assertEquals("Alias", backlink.alias)
+        assertEquals("A", backlink.sourceTitle)
 
         val notes = repository.observeNotes().first()
         assertEquals(2, notes.size)
+        val resolvedLink = notes.first { it.id.path == "a.org" }.links.first()
+        assertEquals("b.org", resolvedLink.resolvedPath)
+    }
+
+    @Test
+    fun `reindex resolves id links to note paths`() = runTest(dispatcher) {
+        val storage = FakeStorage(
+            mutableMapOf(
+                "a.org" to """
+                    #+title: Note A
+                    :PROPERTIES:
+                    :ID: note-a
+                    :END:
+                    [[id:note-b][Alias]]
+                """.trimIndent(),
+                "b.org" to """
+                    #+title: Note B
+                    :PROPERTIES:
+                    :ID: note-b
+                    :END:
+                    Content
+                """.trimIndent(),
+            ),
+        )
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), dispatcher)
+
+        repository.reindex().getOrThrow()
+
+        val backlinks = repository.getBacklinks("b.org").getOrThrow()
+        assertEquals(1, backlinks.size)
+        assertEquals("a.org", backlinks.first().source)
+        assertEquals("Note A", backlinks.first().sourceTitle)
+
+        val note = repository.getNote("a.org").getOrThrow()
+        val firstLink = note.links.first()
+        assertTrue(firstLink.target is LinkTarget.Id)
+        assertEquals("b.org", firstLink.resolvedPath)
     }
 
     private class FakeStorage(

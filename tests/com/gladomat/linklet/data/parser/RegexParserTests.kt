@@ -1,6 +1,7 @@
 package com.gladomat.linklet.data.parser
 
 import com.gladomat.linklet.data.model.NoteId
+import com.gladomat.linklet.data.model.LinkTarget
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -42,11 +43,32 @@ class RegexParserTests {
         assertEquals(2, note.links.size)
         val first = note.links.first()
         assertEquals(NoteId("notes/source.org"), first.fromId)
-        assertEquals("target.org", first.toPath)
+        val firstTarget = first.target as LinkTarget.Path
+        assertEquals("target.org", firstTarget.value)
         assertEquals("Alias", first.label)
 
         val second = note.links.last()
-        assertEquals("other.org", second.toPath)
+        val secondTarget = second.target as LinkTarget.Path
+        assertEquals("other.org", secondTarget.value)
         assertNull(second.label)
+    }
+
+    @Test
+    fun `parse extracts org id property and id links`() {
+        val content = """
+            :PROPERTIES:
+            :ID: abc-123
+            :END:
+            [[id:abc-123][Self]]
+        """.trimIndent()
+
+        val note = parser.parse(content, path = "notes/sample.org")
+
+        assertEquals("abc-123", note.orgId)
+        assertEquals(1, note.links.size)
+        val link = note.links.first()
+        val target = link.target as LinkTarget.Id
+        assertEquals("abc-123", target.value)
+        assertEquals("Self", link.label)
     }
 }

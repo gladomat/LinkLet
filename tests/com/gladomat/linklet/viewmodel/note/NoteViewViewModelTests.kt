@@ -37,7 +37,14 @@ class NoteViewViewModelTests {
             override suspend fun reindex(): Result<Unit> = Result.success(Unit)
 
             override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(
-                listOf(LinkEntityDto(source = "other", target = path, alias = null)),
+                listOf(
+                    LinkEntityDto(
+                        source = "other",
+                        target = path,
+                        alias = null,
+                        sourceTitle = "Other",
+                    ),
+                ),
             )
 
             override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
@@ -75,5 +82,77 @@ class NoteViewViewModelTests {
 
         val state = viewModel.state.value
         assertTrue(state is NoteViewUiState.Error)
+    }
+
+    @Test
+    fun `openNote updates saved path and reloads note`() = runTest {
+        val repository = RecordingRepository()
+        val savedStateHandle = SavedStateHandle(
+            mapOf(NoteViewViewModel.NoteArgs.NOTE_PATH to "first.org"),
+        )
+
+        val viewModel = NoteViewViewModel(
+            repository = repository,
+            savedStateHandle = savedStateHandle,
+        )
+
+        advanceUntilIdle()
+        viewModel.openNote("second.org")
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertTrue(state is NoteViewUiState.Success)
+        state as NoteViewUiState.Success
+        assertEquals("second.org", state.note.id.path)
+        assertEquals(listOf("first.org", "second.org"), repository.requestedPaths)
+        assertEquals("second.org", savedStateHandle[NoteViewViewModel.NoteArgs.NOTE_PATH])
+    }
+
+    @Test
+    fun `handleBackPress loads previous note when history exists`() = runTest {
+        val repository = RecordingRepository()
+        val savedStateHandle = SavedStateHandle(
+            mapOf(NoteViewViewModel.NoteArgs.NOTE_PATH to "first.org"),
+        )
+
+        val viewModel = NoteViewViewModel(repository, savedStateHandle)
+
+        advanceUntilIdle()
+        viewModel.openNote("second.org")
+        advanceUntilIdle()
+        val handled = viewModel.handleBackPress()
+        advanceUntilIdle()
+
+        assertTrue(handled)
+        val state = viewModel.state.value
+        assertTrue(state is NoteViewUiState.Success)
+        state as NoteViewUiState.Success
+        assertEquals("first.org", state.note.id.path)
+    }
+
+    private class RecordingRepository : INoteRepository {
+        val requestedPaths = mutableListOf<String>()
+
+        override fun observeNotes() = kotlinx.coroutines.flow.MutableStateFlow(emptyList<Note>())
+
+        override suspend fun listNotes(): Result<List<Note>> = Result.success(emptyList())
+
+        override suspend fun getNote(path: String): Result<Note> {
+            requestedPaths += path
+            return Result.success(
+                Note(
+                    id = NoteId(path),
+                    title = "Title for $path",
+                    content = "body",
+                    links = emptyList(),
+                ),
+            )
+        }
+
+        override suspend fun reindex(): Result<Unit> = Result.success(Unit)
+
+        override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(emptyList())
+
+        override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
     }
 }

@@ -1,38 +1,21 @@
 package com.gladomat.linklet.ui.theme
 
 import android.app.Activity
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 @Composable
 fun LinkLetAppTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
     content: @Composable () -> Unit,
 ) {
-    val context = LocalContext.current
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val activity = context as? Activity
-            if (activity != null) {
-                if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-            } else {
-                if (darkTheme) DarkColorScheme else LightColorScheme
-            }
-        }
-
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
+    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
@@ -50,13 +33,31 @@ fun LinkLetAppTheme(
 }
 
 private val DarkColorScheme = androidx.compose.material3.darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80,
+    primary = AmberGold,
+    onPrimary = Color.Black,
+    secondary = MagentaBloom,
+    onSecondary = Color.White,
+    tertiary = RichCerulean,
+    onTertiary = Color.White,
+    background = Charcoal,
+    onBackground = PaperSurface,
+    surface = MidnightSurface,
+    onSurface = PaperSurface,
+    surfaceVariant = SeaGreen.copy(alpha = 0.45f),
+    onSurfaceVariant = SeaGreen,
 )
 
 private val LightColorScheme = androidx.compose.material3.lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40,
+    primary = AmberGold,
+    onPrimary = Color.Black,
+    secondary = MagentaBloom,
+    onSecondary = Color.White,
+    tertiary = RichCerulean,
+    onTertiary = Color.White,
+    background = SnowDrift,
+    onBackground = Color(0xFF1A1200),
+    surface = Color.White,
+    onSurface = Color(0xFF1A1200),
+    surfaceVariant = SeaGreen.copy(alpha = 0.18f),
+    onSurfaceVariant = SeaGreen,
 )

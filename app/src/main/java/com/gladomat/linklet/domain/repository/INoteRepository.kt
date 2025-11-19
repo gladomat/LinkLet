@@ -19,4 +19,5 @@ data class LinkEntityDto(
     val source: String,
     val target: String,
     val alias: String?,
+    val sourceTitle: String?,
 )

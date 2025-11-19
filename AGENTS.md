@@ -5,6 +5,64 @@ testing, etc.
 Use this as your guiding rules whenever you generate files, refactor, or
 respond to human prompts in this repo.
 
+# Mindset
+
+You are a senior architect with 20 years of experience across all software domains.
+
+- Gather thorough information with tools before solving
+- Work in explicit steps - ask clarifying questions when uncertain
+- BE CRITICAL - validate assumptions, don't trust code blindly
+- MINIMALISM ABOVE ALL - less code is better code
+
+# Search Protocol
+
+- Use ChunkHound's Code Research tool to learn the surrounding code style, architecture and module responsibilities
+- PREFER THE CODE RESEARCH TOOL OVER ALL SUB AGENTS
+- Use Context7 to read documentation and research relevant background for the task
+- Search for best practices, prior art, and technical context with research_iteratively
+- Use `search_semantic` and `search_regex` with small, focused queries
+- Multiple targeted searches > one broad search
+
+# Architecture First
+
+LEARN THE SURROUNDING ARCHITECTURE BEFORE CODING.
+
+- Understand the big picture and how components fit
+- Find and reuse existing code - never duplicate
+- When finding duplicate responsibilities, refactor to shared core
+- Match surrounding patterns and style
+
+# Coding Standards
+
+KISS - Keep It Simple:
+
+- Write minimal code that compiles and lints cleanly
+- Fix bugs by deleting code when possible
+- Optimize for readability and maintenance
+- No over-engineering, no temporary compatibility layers
+- No silent errors - failures must be explicit and visible
+- Run tests after major changes
+- Document inline when necessary
+
+# Operational Rules
+
+- Time-box operations that could hang
+- Use `uuidgen` for unique strings
+- Use `date +"%Y-%m-%dT%H:%M:%S%z" | sed -E 's/([+-][0-9]{2})([0-9]{2})$/\1:\2/'` for ISO-8601
+- Use flat directories with grep-friendly naming
+- Point out unproductive paths directly
+
+# Critical Constraints
+
+- NEVER Commit without explicit request
+- NEVER Leave temporary/backup files (we have version control)
+- NEVER Hardcode keys or credentials
+- NEVER Assume your code works - always verify
+- ALWAYS Clean up after completing tasks
+- ALWAYS Produce clean code first time - no temporary backwards compatibility
+- ALWAYS Use sleep for waiting, not polling
+
+
 ## 1. Purpose & Scope
 
 -   You assist the human developer (me) in implementing features,
@@ -108,6 +166,12 @@ Naming and file conventions:
     cover new behavior or guard regressions.
 
 ## 5. Commit & Pull Request Conventions
+
+Commits are done after each big change. So after you've implemented a small
+feature, you commit the code immediately.
+
+All commits will be first done to the `dev` branch. Once the app is functional
+a pull request will be made to the master/main branch.
 
 We follow **Conventional Commits** as a baseline. Every commit message
 should follow:

@@ -280,4 +280,32 @@ Acceptance Criteria
 EOF
 )"
 
+# Backlog: Backlinks usability & navigation
+create_issue \
+  "M3: Make backlinks clickable in note view" \
+  "M3 - Backlink Index" \
+  "backlog,fix,index,repository,ui,viewmodel,P1" \
+  "$(cat <<'EOF'
+Description
+Backlinks are listed in the note view but tapping them does not reliably open the referenced note. Ensure backlinks are fully clickable and navigate to the correct target note.
+
+Context
+- Backlinks UI: BacklinkList composable (app/src/main/java/com/gladomat/linklet/ui/components/BacklinkList.kt) renders backlink rows and calls onOpenNote(sourcePath) on click.
+- Note view: NoteViewScreen (app/src/main/java/com/gladomat/linklet/ui/screens/note/NoteViewScreen.kt) passes backlinks + onOpenLink callback into BacklinkList.
+- Navigation: MainActivity (app/src/main/java/com/gladomat/linklet/ui/MainActivity.kt) wires onOpenLink to navigate to NOTE_VIEW with the encoded path.
+
+Tasks
+- Verify LinkEntityDto fields (source/target/alias) map correctly to file paths used by navigation.
+- Confirm repository.getBacklinks(notePath) returns source paths that match the NoteList / NoteView routing scheme.
+- Adjust BacklinkList / NoteViewScreen / navigation wiring if necessary so clicks use the correct path (e.g., source vs. target, relative vs. absolute).
+- Add or extend unit tests for repository.getBacklinks and NoteViewViewModel to ensure backlinks surface the right identifiers.
+- Add UI or integration-style tests (following existing patterns) that simulate clicking a backlink and asserting the navigation callback receives the expected path.
+
+Acceptance Criteria
+- Backlinks in the note view are visibly clickable (primary color) and respond to taps.
+- Tapping a backlink navigates to the correct target note using the same route as list → view navigation.
+- Tests cover backlink path mapping and the ViewModel/UI wiring used for navigation.
+EOF
+)"
+
 echo "Done."

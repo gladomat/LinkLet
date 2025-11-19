@@ -56,13 +56,14 @@ class MainActivity : ComponentActivity() {
                             ),
                         ) {
                             NoteViewRoute(
-                                onOpenLink = { target ->
-                                    navController.navigate("${Routes.NOTE_VIEW}/${Uri.encode(target)}") {
-                                        launchSingleTop = true
-                                    }
-                                },
                                 onEditNote = { path ->
                                     navController.navigate("${Routes.NOTE_EDIT}/${Uri.encode(path)}")
+                                },
+                                onNavigateHome = {
+                                    navController.popBackStack(Routes.NOTE_LIST, false)
+                                },
+                                onExitToList = {
+                                    navController.popBackStack()
                                 },
                             )
                         }
