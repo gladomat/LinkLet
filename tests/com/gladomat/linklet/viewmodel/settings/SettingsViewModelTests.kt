@@ -5,6 +5,9 @@ import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import com.gladomat.linklet.data.model.Note
 import com.gladomat.linklet.data.settings.FolderSettingsRepository
+import com.gladomat.linklet.data.sync.SyncEngine
+import com.gladomat.linklet.data.sync.SyncSummary
+import com.gladomat.linklet.data.sync.WebDavRemoteSyncProvider
 import com.gladomat.linklet.domain.repository.INoteRepository
 import com.gladomat.linklet.domain.repository.LinkEntityDto
 import com.gladomat.linklet.testing.MainDispatcherRule
@@ -13,6 +16,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import io.mockk.coEvery
+import io.mockk.mockk
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -54,7 +59,20 @@ class SettingsViewModelTests {
             override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(emptyList())
             override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
         }
-        val viewModel = SettingsViewModel(folderSettingsRepository, repository)
+        val syncEngine = mockk<SyncEngine>()
+        val provider = mockk<WebDavRemoteSyncProvider>()
+        coEvery { provider.isReadyForSync() } returns true
+        coEvery { syncEngine.run(provider) } returns Result.success(
+            SyncSummary(
+                totalLocalNotes = 1,
+                totalRemoteNotes = 1,
+                pendingUploads = 0,
+                pendingDownloads = 0,
+                pendingDeletes = 0,
+                conflicts = 0,
+            ),
+        )
+        val viewModel = SettingsViewModel(folderSettingsRepository, repository, syncEngine, provider)
 
         val folder = tempDir.newFolder("notes")
         folderSettingsRepository.setFolderUri(Uri.fromFile(folder))
@@ -64,7 +82,7 @@ class SettingsViewModelTests {
         advanceUntilIdle()
 
         val state = viewModel.state.value
-        assertTrue(state.message?.contains("Sync complete") == true)
+        assertTrue("message was ${state.message}", state.message?.startsWith("Sync complete") == true)
         viewModel.clearMessage()
     }
 
@@ -79,7 +97,13 @@ class SettingsViewModelTests {
             override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(emptyList())
             override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
         }
-        val viewModel = SettingsViewModel(folderSettingsRepository, repository)
+        val syncEngine = mockk<SyncEngine>()
+        val provider = mockk<WebDavRemoteSyncProvider>()
+        coEvery { provider.isReadyForSync() } returns true
+        coEvery { syncEngine.run(provider) } returns Result.success(
+            SyncSummary(0, 0, 0, 0, 0, 0),
+        )
+        val viewModel = SettingsViewModel(folderSettingsRepository, repository, syncEngine, provider)
 
         val folder = tempDir.newFolder("notes")
         folderSettingsRepository.setFolderUri(Uri.fromFile(folder))
@@ -89,7 +113,38 @@ class SettingsViewModelTests {
         advanceUntilIdle()
 
         val state = viewModel.state.value
-        assertEquals("boom", state.message)
+        assertTrue(state.message?.contains("Sync failed") == true)
+        viewModel.clearMessage()
+    }
+
+    @Test
+    fun `requestManualSync runs local reindex when WebDAV disabled`() = runTest {
+        val notes = MutableStateFlow<List<Note>>(emptyList())
+        val repository = object : INoteRepository {
+            override fun observeNotes() = notes
+            override suspend fun listNotes(): Result<List<Note>> = Result.success(emptyList())
+            override suspend fun getNote(path: String): Result<Note> = Result.failure(RuntimeException("unused"))
+            override suspend fun reindex(): Result<Unit> = Result.success(Unit)
+            override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(emptyList())
+            override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
+        }
+        val syncEngine = mockk<SyncEngine>(relaxed = true)
+        val provider = mockk<WebDavRemoteSyncProvider>()
+        coEvery { provider.isReadyForSync() } returns false
+        val viewModel = SettingsViewModel(folderSettingsRepository, repository, syncEngine, provider)
+
+        val folder = tempDir.newFolder("notes")
+        folderSettingsRepository.setFolderUri(Uri.fromFile(folder))
+        advanceUntilIdle()
+
+        viewModel.requestManualSync()
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertTrue(
+            "message was ${state.message}",
+            state.message?.startsWith("Local reindex complete") == true,
+        )
         viewModel.clearMessage()
     }
 }

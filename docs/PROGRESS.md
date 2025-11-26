@@ -27,6 +27,13 @@
 - Search matches against note titles, full text bodies, and `#+filetags:` declarations, returning a filtered note list.
 - Each matching note shows a short body snippet around the first hit so you can see the context of the match directly in the list.
 
+## Sync Roadmap (Upcoming)
+- Sync engine groundwork is in place (Room-backed hashes + pending actions) and the WebDAV/Nextcloud provider now issues PROPFIND/GET/PUT/DELETE requests with Basic/digest auth hand-offs, secure credentials, and post-upload ETag verification.
+- Dedicated WebDAV settings screen lets users enter the base URL, folder path, credentials, enablement toggle, and run a dispatcher-backed “Test connection” probe; manual sync from Settings now orchestrates the provider via `SyncEngine` and reports standardized “Sync failed” messages with logs.
+- Connectivity plumbing was hardened: INTERNET permission is declared, OkHttp + dispatcher bindings are provided through Hilt, and both manual sync and connection tests emit actionable snackbar/log output when something goes wrong.
+- Dropbox integration remains outstanding (REST API + token storage).
+- Future work: WorkManager jobs for background sync + conflict UI once Dropbox lands.
+
 
 ## Settings & Folder Picker (M7)
 - Added SAF-based folder picker, DataStore persistence, and DocumentTree storage backing.

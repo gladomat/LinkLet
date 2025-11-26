@@ -16,6 +16,7 @@ import com.gladomat.linklet.ui.screens.NoteListRoute
 import com.gladomat.linklet.ui.screens.note.NoteViewRoute
 import com.gladomat.linklet.ui.screens.noteedit.NoteEditRoute
 import com.gladomat.linklet.ui.screens.settings.SettingsRoute
+import com.gladomat.linklet.ui.screens.settings.WebDavSettingsRoute
 import com.gladomat.linklet.ui.theme.LinkLetAppTheme
 import com.gladomat.linklet.viewmodel.note.NoteViewViewModel
 import com.gladomat.linklet.viewmodel.noteedit.NoteEditViewModel
@@ -92,6 +93,15 @@ class MainActivity : ComponentActivity() {
                         composable(route = Routes.SETTINGS) {
                             SettingsRoute(
                                 onNavigateBack = { navController.popBackStack() },
+                                onOpenWebDavSettings = {
+                                    navController.navigate(Routes.WEB_DAV_SETTINGS)
+                                },
+                            )
+                        }
+
+                        composable(route = Routes.WEB_DAV_SETTINGS) {
+                            WebDavSettingsRoute(
+                                onNavigateBack = { navController.popBackStack() },
                             )
                         }
                     }
@@ -107,4 +117,5 @@ private object Routes {
     const val NOTE_EDIT = "note_edit"
     const val NOTE_EDIT_PATH = NoteEditViewModel.NoteArgs.NOTE_PATH
     const val SETTINGS = "settings"
+    const val WEB_DAV_SETTINGS = "webdav_settings"
 }

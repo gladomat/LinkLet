@@ -3,6 +3,7 @@ package com.gladomat.linklet.app.di
 import android.content.Context
 import androidx.room.Room
 import com.gladomat.linklet.data.index.NoteDatabase
+import com.gladomat.linklet.data.index.SyncStateDao
 import com.gladomat.linklet.data.parser.IParser
 import com.gladomat.linklet.data.parser.RegexParser
 import com.gladomat.linklet.data.settings.FolderSettingsRepository
@@ -16,6 +17,9 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import okhttp3.OkHttpClient
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -39,6 +43,19 @@ object AppModule {
         parser: IParser,
         database: NoteDatabase,
     ): INoteRepository = NoteRepositoryImpl(storage, parser, database.noteDao())
+
+    @Provides
+    fun provideSyncStateDao(
+        database: NoteDatabase,
+    ): SyncStateDao = database.syncStateDao()
+
+    @Provides
+    @Singleton
+    fun provideCoroutineDispatcher(): CoroutineDispatcher = Dispatchers.IO
+
+    @Provides
+    @Singleton
+    fun provideOkHttpClient(): OkHttpClient = OkHttpClient.Builder().build()
 
     @Provides
     @Singleton

@@ -3,9 +3,12 @@ package com.gladomat.linklet.viewmodel.settings
 import android.content.ContentResolver
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gladomat.linklet.data.settings.FolderSettingsRepository
+import com.gladomat.linklet.data.sync.SyncEngine
+import com.gladomat.linklet.data.sync.WebDavRemoteSyncProvider
 import com.gladomat.linklet.domain.repository.INoteRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -20,6 +23,8 @@ import kotlinx.coroutines.launch
 class SettingsViewModel @Inject constructor(
     private val folderSettingsRepository: FolderSettingsRepository,
     private val noteRepository: INoteRepository,
+    private val syncEngine: SyncEngine,
+    private val webDavRemoteSyncProvider: WebDavRemoteSyncProvider,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsUiState())
@@ -29,7 +34,11 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             folderSettingsRepository.folderUriFlow.collectLatest { uri ->
                 _state.update { current ->
-                    current.copy(selectedFolder = uri, message = null)
+                    if (current.selectedFolder != uri) {
+                        current.copy(selectedFolder = uri, message = null)
+                    } else {
+                        current
+                    }
                 }
             }
         }
@@ -63,17 +72,45 @@ class SettingsViewModel @Inject constructor(
     }
 
     private suspend fun triggerSync() {
-        _state.update { it.copy(isSyncing = true, message = null) }
-        val result = noteRepository.reindex()
-        _state.update { current ->
-            if (result.isSuccess) {
-                current.copy(isSyncing = false, message = "Sync complete")
-            } else {
-                current.copy(
-                    isSyncing = false,
-                    message = result.exceptionOrNull()?.message ?: "Sync failed",
-                )
+        val folderUri = _state.value.selectedFolder ?: folderSettingsRepository.currentFolderUri().also { uri ->
+            if (uri != null) {
+                _state.update { it.copy(selectedFolder = uri) }
             }
+        }
+        if (folderUri == null) {
+            _state.update { it.copy(message = "Select a folder before syncing") }
+            return
+        }
+        _state.update { it.copy(isSyncing = true, message = null) }
+        val remoteReady = webDavRemoteSyncProvider.isReadyForSync()
+        val syncResult = if (remoteReady) {
+            runCatching {
+                val summary = syncEngine.run(webDavRemoteSyncProvider).getOrThrow()
+                noteRepository.reindex().getOrThrow()
+                summary
+            }
+        } else {
+            runCatching {
+                noteRepository.reindex().getOrThrow()
+                null
+            }
+        }
+        _state.update { current ->
+            syncResult.fold(
+                onSuccess = { summary ->
+                    val status = when {
+                        remoteReady && summary != null ->
+                            "Sync complete (uploads pending: ${summary.pendingUploads}, downloads pending: ${summary.pendingDownloads})"
+                        remoteReady -> "Sync complete"
+                        else -> "Local reindex complete. Configure WebDAV sync to push remote changes."
+                    }
+                    current.copy(isSyncing = false, message = status)
+                },
+                onFailure = { error ->
+                    Log.e("SettingsViewModel", "Sync failed", error)
+                    current.copy(isSyncing = false, message = "Sync failed")
+                },
+            )
         }
     }
 }

@@ -41,6 +41,7 @@ import com.gladomat.linklet.viewmodel.settings.SettingsViewModel
 @Composable
 fun SettingsRoute(
     onNavigateBack: () -> Unit,
+    onOpenWebDavSettings: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -62,6 +63,7 @@ fun SettingsRoute(
     SettingsScreen(
         state = state,
         onNavigateBack = onNavigateBack,
+        onOpenWebDavSettings = onOpenWebDavSettings,
         onPickFolder = { launcher.launch(state.selectedFolder) },
         onManualSync = viewModel::requestManualSync,
         snackbarHostState = snackbarHostState,
@@ -73,6 +75,7 @@ fun SettingsRoute(
 fun SettingsScreen(
     state: SettingsUiState,
     onNavigateBack: () -> Unit,
+    onOpenWebDavSettings: () -> Unit,
     onPickFolder: () -> Unit,
     onManualSync: () -> Unit,
     snackbarHostState: SnackbarHostState,
@@ -111,6 +114,13 @@ fun SettingsScreen(
             }
             Spacer(modifier = Modifier.height(16.dp))
             Button(
+                onClick = onOpenWebDavSettings,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(text = "WebDAV settings")
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(
                 onClick = onManualSync,
                 enabled = !state.isSyncing && state.selectedFolder != null,
                 modifier = Modifier.fillMaxWidth(),
@@ -140,6 +150,7 @@ private fun SettingsScreenPreview() {
             SettingsScreen(
                 state = SettingsUiState(),
                 onNavigateBack = {},
+                onOpenWebDavSettings = {},
                 onPickFolder = {},
                 onManualSync = {},
                 snackbarHostState = SnackbarHostState(),
