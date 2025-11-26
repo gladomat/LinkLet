@@ -70,6 +70,7 @@ class SettingsViewModelTests {
                 pendingDownloads = 0,
                 pendingDeletes = 0,
                 conflicts = 0,
+                resolvedConflicts = 0,
             ),
         )
         val viewModel = SettingsViewModel(folderSettingsRepository, repository, syncEngine, provider)
@@ -101,7 +102,7 @@ class SettingsViewModelTests {
         val provider = mockk<WebDavRemoteSyncProvider>()
         coEvery { provider.isReadyForSync() } returns true
         coEvery { syncEngine.run(provider) } returns Result.success(
-            SyncSummary(0, 0, 0, 0, 0, 0),
+            SyncSummary(0, 0, 0, 0, 0, 0, 0),
         )
         val viewModel = SettingsViewModel(folderSettingsRepository, repository, syncEngine, provider)
 

@@ -176,6 +176,65 @@ class SyncEngineTests {
         assertEquals(SyncPendingAction.DELETE, states.first().pendingAction)
     }
 
+    @Test
+    fun `conflict resolution creates copy and updates original`() = runTest(dispatcher) {
+        val storage = FakeStorage(
+            mutableMapOf("notes/a.org" to "local-updated"),
+        )
+        val dao = database.syncStateDao()
+        // Initial state: synced at etag-1, but local changed
+        dao.upsert(
+            SyncStateEntity(
+                path = "notes/a.org",
+                remoteId = "remote-1",
+                remoteFingerprint = "etag-1",
+                lastKnownHash = NoteHashCalculator.compute("old-local"),
+                pendingAction = SyncPendingAction.NONE,
+            ),
+        )
+
+        engine = SyncEngine(storage, dao, dispatcher)
+
+        // Remote has changed to etag-2
+        val provider = FakeRemoteSyncProvider(
+            metadata = listOf(
+                RemoteNoteMetadata(
+                    remoteId = "remote-1",
+                    path = "notes/a.org",
+                    fingerprint = "etag-2",
+                    lastModifiedEpochMillis = null,
+                ),
+            ),
+            remoteFiles = mapOf("remote-1" to "remote-content")
+        )
+
+        // 1. Run sync -> should detect conflict
+        val summary = engine.run(provider).getOrThrow()
+
+        // 2. Verify conflict resolved
+        assertEquals(1, summary.resolvedConflicts)
+        assertEquals(0, summary.conflicts) // pending conflicts should be 0 after resolution
+
+        // 3. Verify storage
+        // Original file should be overwritten by remote content
+        assertEquals("remote-content", storage.files["notes/a.org"])
+
+        // Conflict copy should exist with local content
+        val conflictFile = storage.files.keys.find { it.contains("(Conflicted Copy") }
+        assertTrue("Conflict copy created", conflictFile != null)
+        assertEquals("local-updated", storage.files[conflictFile])
+
+        // 4. Verify DB state
+        // Original state should be synced
+        val originalState = dao.getState("notes/a.org")
+        assertEquals(SyncPendingAction.NONE, originalState?.pendingAction)
+        assertEquals("etag-2", originalState?.remoteFingerprint)
+
+        // Conflict state should be pending upload
+        val conflictState = dao.getState(conflictFile!!)
+        assertEquals(SyncPendingAction.UPLOAD, conflictState?.pendingAction)
+    }
+
     private class FakeStorage(
         val files: MutableMap<String, String>,
     ) : IStorage {
@@ -192,13 +251,16 @@ class SyncEngineTests {
 
     private class FakeRemoteSyncProvider(
         var metadata: List<RemoteNoteMetadata> = emptyList(),
+        val remoteFiles: Map<String, String> = emptyMap(),
     ) : RemoteSyncProvider {
         override val name: String = "fake"
 
         override suspend fun listRemoteNotes(): Result<List<RemoteNoteMetadata>> = Result.success(metadata)
 
         override suspend fun download(path: String, remoteId: String): Result<java.io.InputStream> =
-            Result.failure(UnsupportedOperationException())
+            remoteFiles[remoteId]?.let {
+                Result.success(java.io.ByteArrayInputStream(it.toByteArray()))
+            } ?: Result.failure(java.io.IOException("Not found"))
 
         override suspend fun upload(
             path: String,

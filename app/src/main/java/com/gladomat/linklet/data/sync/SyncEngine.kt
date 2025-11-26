@@ -19,8 +19,9 @@ class SyncEngine @Inject constructor(
     suspend fun run(provider: RemoteSyncProvider): Result<SyncSummary> = withContext(dispatcher) {
         runCatching {
             sync(provider).getOrThrow()
-            processPending(provider)
-            sync(provider).getOrThrow()
+            val resolved = processPending(provider)
+            val summary = sync(provider).getOrThrow()
+            summary.copy(resolvedConflicts = resolved)
         }
     }
 
@@ -57,20 +58,89 @@ class SyncEngine @Inject constructor(
                 pendingDownloads = pendingStates.count { it.pendingAction == SyncPendingAction.DOWNLOAD },
                 pendingDeletes = pendingStates.count { it.pendingAction == SyncPendingAction.DELETE },
                 conflicts = pendingStates.count { it.pendingAction == SyncPendingAction.CONFLICT },
+                resolvedConflicts = 0,
             )
         }
     }
 
-    private suspend fun processPending(provider: RemoteSyncProvider) {
+    private suspend fun processPending(provider: RemoteSyncProvider): Int {
         val pendingStates = syncStateDao.getPendingStates()
+        var resolvedConflicts = 0
         for (state in pendingStates) {
             when (state.pendingAction) {
                 SyncPendingAction.UPLOAD -> handleUpload(state, provider)
                 SyncPendingAction.DOWNLOAD -> handleDownload(state, provider)
                 SyncPendingAction.DELETE -> handleDelete(state, provider)
+                SyncPendingAction.CONFLICT -> {
+                    if (handleConflict(state, provider)) {
+                        resolvedConflicts++
+                    }
+                }
                 else -> Unit
             }
         }
+        return resolvedConflicts
+    }
+
+    private suspend fun handleConflict(state: SyncStateEntity, provider: RemoteSyncProvider): Boolean {
+        return runCatching {
+            // 1. Read local note content
+            val localContent = storage.readNote(state.path).getOrThrow()
+
+            // 2. Generate conflict-copy filename
+            val conflictPath = createConflictPath(state.path)
+
+            // 3. Write conflict copy to disk
+            storage.writeNote(conflictPath, localContent).getOrThrow()
+
+            // 4. Create sync state for the conflict copy
+            val conflictHash = NoteHashCalculator.compute(localContent)
+            val conflictState = SyncStateEntity(
+                path = conflictPath,
+                lastKnownHash = conflictHash,
+                remoteId = null,
+                remoteFingerprint = null,
+                pendingAction = SyncPendingAction.UPLOAD,
+                lastError = null,
+                lastSyncedAtEpochMillis = 0L,
+            )
+            syncStateDao.upsert(conflictState)
+
+            // 5. Download remote version for the original path
+            if (state.remoteId == null) error("Missing remoteId for conflict resolution")
+            val inputStream = provider.download(state.path, state.remoteId).getOrThrow()
+            val remoteContent = inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            storage.writeNote(state.path, remoteContent).getOrThrow()
+
+            // 6. Update original sync state
+            val newHash = NoteHashCalculator.compute(remoteContent)
+            val updatedState = state.copy(
+                lastKnownHash = newHash,
+                pendingAction = SyncPendingAction.NONE,
+                lastError = null,
+                lastSyncedAtEpochMillis = System.currentTimeMillis(),
+            )
+            syncStateDao.upsert(updatedState)
+            
+            true
+        }.getOrElse {
+            syncStateDao.updatePendingAction(state.path, SyncPendingAction.CONFLICT, it.message)
+            false
+        }
+    }
+
+    private fun createConflictPath(originalPath: String): String {
+        val dir = originalPath.substringBeforeLast('/', "")
+        val filename = originalPath.substringAfterLast('/')
+        val name = filename.substringBeforeLast('.')
+        val extension = if (filename.contains('.')) "." + filename.substringAfterLast('.') else ""
+        
+        val timestamp = java.text.SimpleDateFormat("yyyy-MM-dd HH-mm", java.util.Locale.US)
+            .format(java.util.Date())
+        
+        val conflictName = "$name (Conflicted Copy $timestamp)$extension"
+        
+        return if (dir.isNotEmpty()) "$dir/$conflictName" else conflictName
     }
 
     private suspend fun handleUpload(state: SyncStateEntity, provider: RemoteSyncProvider) {
@@ -230,4 +300,5 @@ data class SyncSummary(
     val pendingDownloads: Int,
     val pendingDeletes: Int,
     val conflicts: Int,
+    val resolvedConflicts: Int,
 )

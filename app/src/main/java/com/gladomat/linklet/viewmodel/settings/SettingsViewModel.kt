@@ -99,6 +99,8 @@ class SettingsViewModel @Inject constructor(
             syncResult.fold(
                 onSuccess = { summary ->
                     val status = when {
+                        summary != null && summary.resolvedConflicts > 0 ->
+                            "Sync complete. ${summary.resolvedConflicts} conflict(s) resolved (check file list)."
                         remoteReady && summary != null ->
                             "Sync complete (uploads pending: ${summary.pendingUploads}, downloads pending: ${summary.pendingDownloads})"
                         remoteReady -> "Sync complete"
