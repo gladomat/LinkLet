@@ -65,5 +65,8 @@ object AppModule {
         context,
         NoteDatabase::class.java,
         "linklet-notes.db",
-    ).fallbackToDestructiveMigration().build()
+    )
+        .addMigrations(NoteDatabase.MIGRATION_2_3)
+        .fallbackToDestructiveMigration()
+        .build()
 }

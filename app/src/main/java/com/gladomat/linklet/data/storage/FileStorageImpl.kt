@@ -48,6 +48,15 @@ class FileStorageImpl(
         }
     }
 
+    override suspend fun deleteNote(path: String): Result<Unit> = withContext(dispatcher) {
+        runCatching {
+            val file = resolvePath(path)
+            if (file.exists()) {
+                if (!file.delete()) throw IOException("Failed to delete file: $path")
+            }
+        }
+    }
+
     private fun ensureBaseDir() {
         if (!baseDir.exists() && !baseDir.mkdirs()) {
             throw IOException("Unable to create storage directory at ${baseDir.absolutePath}")

@@ -37,18 +37,28 @@ class WebDavRemoteSyncProvider @Inject constructor(
     override val name: String = "webdav"
 
     // 1. The container for the captured ETag.
-    // Using ThreadLocal to avoid cross-talk if you eventually run parallel syncs on different threads.
     private val capturedPutEtag = ThreadLocal<String>()
+    
+    // Container for the optional "If-Match" header for the next request (optimistic locking)
+    private val nextRequestIfMatch = ThreadLocal<String>()
 
     // 2. The Interceptor logic.
-    // This passively listens for a successful PUT and grabs the header.
     private val etagInterceptor = Interceptor { chain ->
-        val request = chain.request()
+        var request = chain.request()
+        
+        // Inject "If-Match" if requested
+        val ifMatch = nextRequestIfMatch.get()
+        if (ifMatch != null) {
+            Log.d(TAG, "Injecting If-Match: $ifMatch for ${request.method} ${request.url}")
+            request = request.newBuilder()
+                .header("If-Match", ifMatch)
+                .build()
+        }
+
         val response = chain.proceed(request)
 
         // Only capture if it is a PUT and it succeeded (2xx)
         if (request.method == "PUT" && response.isSuccessful) {
-            // Grab the raw header. We normalize/trim it later to keep logic in one place.
             response.header("ETag")?.let { rawEtag ->
                 Log.d(TAG, "Captured ETag from PUT response: $rawEtag")
                 capturedPutEtag.set(rawEtag)
@@ -59,6 +69,9 @@ class WebDavRemoteSyncProvider @Inject constructor(
 
     override suspend fun listRemoteNotes(): Result<List<RemoteNoteMetadata>> = withContext(dispatcher) {
         runCatching {
+            // Ensure we don't leak headers into unrelated requests
+            nextRequestIfMatch.remove()
+            
             val settings = ensureSettings()
             val sardine = createSardine(settings)
             val url = buildUrl(settings, "")
@@ -82,6 +95,7 @@ class WebDavRemoteSyncProvider @Inject constructor(
 
     override suspend fun download(path: String, remoteId: String): Result<InputStream> = withContext(dispatcher) {
         runCatching {
+            nextRequestIfMatch.remove()
             val settings = ensureSettings()
             val sardine = createSardine(settings)
             val url = buildUrl(settings, remoteId)
@@ -108,11 +122,25 @@ class WebDavRemoteSyncProvider @Inject constructor(
                     content.copyTo(output)
                 }
 
-                // 1. SAFETY: Clear any stale state from previous operations on this thread
                 capturedPutEtag.remove()
+                nextRequestIfMatch.remove()
+                
+                // We could optionally use If-Match here too for safe overwrites, 
+                // but the requirements focused on Safe-Delete.
+                // If expectedFingerprint is provided, we could set it.
+                if (expectedFingerprint != null) {
+                     nextRequestIfMatch.set(expectedFingerprint) // Or weak ETag format?
+                     // WebDAV If-Match usually requires strong ETags (quoted).
+                     // We'll stick to the basics for upload unless requested.
+                     // Actually, for safety, let's NOT enable it for upload yet to avoid blocking valid edits 
+                     // if logic is slightly off, unless explicitly asked.
+                     // The user requirement specifically said "Safe-Delete ... use WebDAV's If-Match headers".
+                     // It didn't explicitly demand safe-overwrite, but it's good practice. 
+                     // However, sticking to the explicit plan: Delete only.
+                     nextRequestIfMatch.remove() 
+                }
 
                 // 2. EXECUTE: Perform the upload
-                // If this throws (network error), we exit before checking ETags.
                 sardine.put(url, tempFile, "application/octet-stream")
 
                 // 3. OPTIMIZATION: Try to get the ETag from the interceptor
@@ -121,8 +149,6 @@ class WebDavRemoteSyncProvider @Inject constructor(
                 // 4. FALLBACK: If server didn't send ETag on PUT, use PROPFIND
                 if (finalEtag.isNullOrBlank()) {
                     Log.w(TAG, "No ETag on PUT for $path, falling back to PROPFIND")
-
-                    // Perform the list (depth 0 to get just the file)
                     val resources = sardine.list(url, 0)
                     val resource = resources.firstOrNull()
                         ?: throw IOException("Upload verification failed: File not found on server after PUT")
@@ -130,7 +156,6 @@ class WebDavRemoteSyncProvider @Inject constructor(
                     finalEtag = normalizeEtag(resource.etag)
                 }
 
-                // 5. VALIDATION: If we still don't have an ETag, we cannot safely sync.
                 if (finalEtag.isNullOrBlank()) {
                     throw IOException("Upload verification failed: Server returned no ETag via PUT or PROPFIND")
                 }
@@ -141,6 +166,7 @@ class WebDavRemoteSyncProvider @Inject constructor(
                 )
             } finally {
                 tempFile.delete()
+                nextRequestIfMatch.remove()
             }
         }
     }
@@ -150,7 +176,33 @@ class WebDavRemoteSyncProvider @Inject constructor(
             val settings = ensureSettings()
             val sardine = createSardine(settings)
             val url = buildUrl(settings, remoteId)
-            sardine.delete(url)
+            
+            // Set the If-Match header if we have a fingerprint (ETag)
+            if (!fingerprint.isNullOrBlank()) {
+                // WebDAV requires the ETag to be quoted usually.
+                // normalizeEtag removes quotes. We might need to add them back.
+                // However, some servers are picky.
+                // Standard HTTP If-Match: "etag_value"
+                val headerValue = if (fingerprint.startsWith("\"")) fingerprint else "\"$fingerprint\""
+                nextRequestIfMatch.set(headerValue)
+            } else {
+                nextRequestIfMatch.remove()
+            }
+            
+            try {
+                Log.d(TAG, "Deleting $path with If-Match: ${nextRequestIfMatch.get()}")
+                sardine.delete(url)
+            } catch (e: Exception) {
+                // Check for 412 Precondition Failed
+                // Sardine usually throws SardineException which has statusCode
+                val message = e.message ?: ""
+                if (message.contains("412") || (e is com.thegrizzlylabs.sardineandroid.impl.SardineException && e.statusCode == 412)) {
+                     throw IOException("Safe-Delete failed: Remote file has changed (HTTP 412). Resync required.")
+                }
+                throw e
+            } finally {
+                nextRequestIfMatch.remove()
+            }
         }
     }
 

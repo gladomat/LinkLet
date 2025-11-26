@@ -48,10 +48,20 @@ class DocumentTreeStorageImpl @Inject constructor(
                 existing
             } else {
                 existing?.takeIf { it.isFile }?.delete()
-                parent.createFile("text/plain", fileName)
+                // "text/plain" causes some SAF providers to append .txt if extension is not .txt
+                // "text/org" or "application/octet-stream" is safer for preserving .org extension.
+                parent.createFile("text/org", fileName)
                     ?: throw IOException("Unable to create file: $path")
             }
             writeToDocument(target, content)
+        }
+    }
+
+    override suspend fun deleteNote(path: String): Result<Unit> = withContext(dispatcher) {
+        runCatching {
+            val target = resolveFile(path)
+            target?.delete()
+            Unit
         }
     }
 

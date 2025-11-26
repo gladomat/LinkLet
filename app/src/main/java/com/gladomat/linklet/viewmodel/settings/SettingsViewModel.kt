@@ -6,7 +6,11 @@ import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.gladomat.linklet.data.index.SyncStateDao
 import com.gladomat.linklet.data.settings.FolderSettingsRepository
+import com.gladomat.linklet.data.sync.CatastrophicDeleteException
+import com.gladomat.linklet.data.sync.RequiresConfirmationException
+import com.gladomat.linklet.data.sync.SyncDirectoryChangedException
 import com.gladomat.linklet.data.sync.SyncEngine
 import com.gladomat.linklet.data.sync.WebDavRemoteSyncProvider
 import com.gladomat.linklet.domain.repository.INoteRepository
@@ -27,6 +31,7 @@ class SettingsViewModel @Inject constructor(
     private val noteRepository: INoteRepository,
     private val syncEngine: SyncEngine,
     private val webDavRemoteSyncProvider: WebDavRemoteSyncProvider,
+    private val syncStateDao: SyncStateDao,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsUiState())
@@ -73,6 +78,27 @@ class SettingsViewModel @Inject constructor(
         _state.update { it.copy(message = null) }
     }
 
+    fun dismissDirectoryChangeDialog() {
+        _state.update { it.copy(directoryChangeDialog = null) }
+    }
+
+    fun clearSyncStateAndRetry() {
+        viewModelScope.launch {
+            runCatching {
+                syncStateDao.clearAllStates()
+                _state.update { it.copy(directoryChangeDialog = null) }
+                triggerSync()
+            }.onFailure { error ->
+                _state.update { current ->
+                    current.copy(
+                        directoryChangeDialog = null,
+                        message = "Failed to clear sync state: ${error.message}"
+                    )
+                }
+            }
+        }
+    }
+
     private suspend fun triggerSync() {
         Log.i(TAG, "Manual sync requested")
         val folderUri = _state.value.selectedFolder ?: folderSettingsRepository.currentFolderUri().also { uri ->
@@ -114,7 +140,26 @@ class SettingsViewModel @Inject constructor(
                 },
                 onFailure = { error ->
                     Log.e(TAG, "Sync failed", error)
-                    current.copy(isSyncing = false, message = "Sync failed: ${error.localizedMessage}")
+                    when (error) {
+                        is SyncDirectoryChangedException -> {
+                            // Show dialog instead of error message
+                            current.copy(
+                                isSyncing = false,
+                                directoryChangeDialog = DirectoryChangeDialogState(
+                                    oldPath = error.oldPath,
+                                    newPath = error.newPath,
+                                )
+                            )
+                        }
+                        else -> {
+                            val errorMessage = when (error) {
+                                is CatastrophicDeleteException -> "Sync aborted: ${error.message}"
+                                is RequiresConfirmationException -> "Sync paused: ${error.message} Please review."
+                                else -> "Sync failed: ${error.localizedMessage}"
+                            }
+                            current.copy(isSyncing = false, message = errorMessage)
+                        }
+                    }
                 },
             )
         }

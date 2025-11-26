@@ -17,6 +17,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import com.gladomat.linklet.data.sync.CatastrophicDeleteException
+import com.gladomat.linklet.data.sync.RequiresConfirmationException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -233,6 +235,74 @@ class SyncEngineTests {
         // Conflict state should be pending upload
         val conflictState = dao.getState(conflictFile!!)
         assertEquals(SyncPendingAction.UPLOAD, conflictState?.pendingAction)
+    }
+
+    @Test
+    fun `catastrophic delete throws exception`() = runTest(dispatcher) {
+        val storage = FakeStorage(mutableMapOf()) // Empty local storage
+        val dao = database.syncStateDao()
+
+        // Seed many existing states, implying they were once local/synced but are now gone
+        val remoteNotes = (1..10).map {
+            RemoteNoteMetadata(
+                remoteId = "remote-$it",
+                path = "notes/$it.org",
+                fingerprint = "etag-$it",
+                lastModifiedEpochMillis = null,
+            )
+        }
+        remoteNotes.forEach {
+            dao.upsert(
+                SyncStateEntity(
+                    path = it.path,
+                    remoteId = it.remoteId,
+                    remoteFingerprint = it.fingerprint,
+                    lastKnownHash = NoteHashCalculator.compute("some content"),
+                ),
+            )
+        }
+
+        // Simulate that all these files are now missing remotely
+        val provider = FakeRemoteSyncProvider(metadata = emptyList())
+
+        engine = SyncEngine(storage, dao, dispatcher)
+        val result = engine.run(provider)
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is CatastrophicDeleteException)
+    }
+
+    @Test
+    fun `threshold delete throws confirmation exception`() = runTest(dispatcher) {
+        val storage = FakeStorage(mutableMapOf()) // Empty local storage
+        val dao = database.syncStateDao()
+
+        // Seed 6 existing states, so they will be marked for remote deletion
+        val remoteNotes = (1..6).map {
+            RemoteNoteMetadata(
+                remoteId = "remote-$it",
+                path = "notes/$it.org",
+                fingerprint = "etag-$it",
+                lastModifiedEpochMillis = null,
+            )
+        }
+        remoteNotes.forEach {
+            dao.upsert(
+                SyncStateEntity(
+                    path = it.path,
+                    remoteId = it.remoteId,
+                    remoteFingerprint = it.fingerprint,
+                    lastKnownHash = NoteHashCalculator.compute("some content"),
+                ),
+            )
+        }
+
+        // Simulate that these 6 files are now missing remotely (triggering 6 deletes)
+        val provider = FakeRemoteSyncProvider(metadata = emptyList())
+
+        engine = SyncEngine(storage, dao, dispatcher)
+        val result = engine.run(provider)
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is RequiresConfirmationException)
     }
 
     private class FakeStorage(

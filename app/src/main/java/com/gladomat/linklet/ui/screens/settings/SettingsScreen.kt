@@ -34,6 +34,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.gladomat.linklet.ui.components.SyncDirectoryChangeDialog
 import com.gladomat.linklet.ui.theme.LinkLetAppTheme
 import com.gladomat.linklet.viewmodel.settings.SettingsUiState
 import com.gladomat.linklet.viewmodel.settings.SettingsViewModel
@@ -58,6 +59,17 @@ fun SettingsRoute(
             snackbarHostState.showSnackbar(message)
             viewModel.clearMessage()
         }
+    }
+
+    // Show directory change dialog if needed
+    state.directoryChangeDialog?.let { dialogState ->
+        SyncDirectoryChangeDialog(
+            oldPath = dialogState.oldPath,
+            newPath = dialogState.newPath,
+            onClearAndContinue = viewModel::clearSyncStateAndRetry,
+            onCancel = viewModel::dismissDirectoryChangeDialog,
+            onDismiss = viewModel::dismissDirectoryChangeDialog,
+        )
     }
 
     SettingsScreen(

@@ -18,4 +18,9 @@ interface IStorage {
      * Writes note content at the given path, creating intermediary directories if needed.
      */
     suspend fun writeNote(path: String, content: String): Result<Unit>
+
+    /**
+     * Deletes the note at the given path.
+     */
+    suspend fun deleteNote(path: String): Result<Unit>
 }

@@ -24,6 +24,7 @@ data class WebDavSettings(
     val username: String,
     val password: String,
     val enabled: Boolean,
+    val lastSyncedRootPath: String? = null,
 ) {
     val normalizedRootPath: String
         get() = rootPath.trim().ifEmpty { "/" }
@@ -64,6 +65,7 @@ class WebDavSettingsRepository @Inject constructor(
         const val USERNAME = "webdav_username"
         const val PASSWORD = "webdav_password"
         const val ENABLED = "webdav_enabled"
+        const val LAST_SYNCED_ROOT_PATH = "webdav_last_synced_root_path"
     }
 
     val settingsFlow: Flow<WebDavSettings?> = callbackFlow {
@@ -81,6 +83,7 @@ class WebDavSettingsRepository @Inject constructor(
         val password = sharedPreferences.getString(Keys.PASSWORD, null) ?: return null
         val root = sharedPreferences.getString(Keys.ROOT_PATH, "/") ?: "/"
         val enabled = sharedPreferences.getBoolean(Keys.ENABLED, false)
+        val lastSyncedPath = sharedPreferences.getString(Keys.LAST_SYNCED_ROOT_PATH, null)
 
         return WebDavSettings(
             baseUrl = baseUrl,
@@ -88,6 +91,7 @@ class WebDavSettingsRepository @Inject constructor(
             username = username,
             password = password,
             enabled = enabled,
+            lastSyncedRootPath = lastSyncedPath,
         )
     }
 
@@ -118,4 +122,10 @@ class WebDavSettingsRepository @Inject constructor(
     }
 
     suspend fun currentSettings(): WebDavSettings? = settingsFlow.firstOrNull()
+
+    suspend fun updateLastSyncedPath(path: String) {
+        sharedPreferences.edit()
+            .putString(Keys.LAST_SYNCED_ROOT_PATH, path)
+            .apply()
+    }
 }

@@ -43,4 +43,10 @@ interface SyncStateDao {
 
     @Query("SELECT * FROM sync_state")
     suspend fun getAllStates(): List<SyncStateEntity>
+
+    @Query("SELECT COUNT(*) FROM sync_state")
+    suspend fun count(): Int
+
+    @Query("DELETE FROM sync_state")
+    suspend fun clearAllStates()
 }
