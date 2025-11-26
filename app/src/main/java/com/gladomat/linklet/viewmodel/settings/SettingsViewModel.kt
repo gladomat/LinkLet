@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+private const val TAG = "SettingsViewModel"
+
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val folderSettingsRepository: FolderSettingsRepository,
@@ -72,6 +74,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     private suspend fun triggerSync() {
+        Log.i(TAG, "Manual sync requested")
         val folderUri = _state.value.selectedFolder ?: folderSettingsRepository.currentFolderUri().also { uri ->
             if (uri != null) {
                 _state.update { it.copy(selectedFolder = uri) }
@@ -106,11 +109,12 @@ class SettingsViewModel @Inject constructor(
                         remoteReady -> "Sync complete"
                         else -> "Local reindex complete. Configure WebDAV sync to push remote changes."
                     }
+                    Log.i(TAG, "Sync finished successfully: $status")
                     current.copy(isSyncing = false, message = status)
                 },
                 onFailure = { error ->
-                    Log.e("SettingsViewModel", "Sync failed", error)
-                    current.copy(isSyncing = false, message = "Sync failed")
+                    Log.e(TAG, "Sync failed", error)
+                    current.copy(isSyncing = false, message = "Sync failed: ${error.localizedMessage}")
                 },
             )
         }

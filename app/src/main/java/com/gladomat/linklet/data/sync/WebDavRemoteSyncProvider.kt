@@ -1,5 +1,6 @@
 package com.gladomat.linklet.data.sync
 
+import android.util.Log
 import com.burgstaller.okhttp.AuthenticationCacheInterceptor
 import com.burgstaller.okhttp.CachingAuthenticatorDecorator
 import com.burgstaller.okhttp.DispatchingAuthenticator
@@ -25,6 +26,8 @@ import kotlinx.coroutines.withContext
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 
+private const val TAG = "WebDavSync"
+
 @Singleton
 class WebDavRemoteSyncProvider @Inject constructor(
     private val settingsRepository: WebDavSettingsRepository,
@@ -47,6 +50,7 @@ class WebDavRemoteSyncProvider @Inject constructor(
         if (request.method == "PUT" && response.isSuccessful) {
             // Grab the raw header. We normalize/trim it later to keep logic in one place.
             response.header("ETag")?.let { rawEtag ->
+                Log.d(TAG, "Captured ETag from PUT response: $rawEtag")
                 capturedPutEtag.set(rawEtag)
             }
         }
@@ -58,6 +62,7 @@ class WebDavRemoteSyncProvider @Inject constructor(
             val settings = ensureSettings()
             val sardine = createSardine(settings)
             val url = buildUrl(settings, "")
+            Log.d(TAG, "Listing remote notes from: $url")
             val resources = sardine.list(url, 1)
             
             resources.mapNotNull { resource ->
@@ -80,6 +85,7 @@ class WebDavRemoteSyncProvider @Inject constructor(
             val settings = ensureSettings()
             val sardine = createSardine(settings)
             val url = buildUrl(settings, remoteId)
+            Log.d(TAG, "Downloading file from: $url")
             sardine.get(url)
         }
     }
@@ -95,6 +101,7 @@ class WebDavRemoteSyncProvider @Inject constructor(
             val sardine = createSardine(settings)
             val url = buildUrl(settings, path)
             
+            Log.d(TAG, "Uploading file to: $url")
             val tempFile = java.io.File.createTempFile("upload", ".tmp")
             try {
                 tempFile.outputStream().use { output ->
@@ -113,8 +120,7 @@ class WebDavRemoteSyncProvider @Inject constructor(
 
                 // 4. FALLBACK: If server didn't send ETag on PUT, use PROPFIND
                 if (finalEtag.isNullOrBlank()) {
-                    // Log this if you want to know which servers are "misbehaving"
-                    // Timber.d("No ETag on PUT for $path, falling back to PROPFIND")
+                    Log.w(TAG, "No ETag on PUT for $path, falling back to PROPFIND")
 
                     // Perform the list (depth 0 to get just the file)
                     val resources = sardine.list(url, 0)

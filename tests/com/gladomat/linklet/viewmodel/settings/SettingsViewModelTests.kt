@@ -20,6 +20,7 @@ import io.mockk.coEvery
 import io.mockk.mockk
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -137,6 +138,8 @@ class SettingsViewModelTests {
         val folder = tempDir.newFolder("notes")
         folderSettingsRepository.setFolderUri(Uri.fromFile(folder))
         advanceUntilIdle()
+
+        assertNotNull("Folder should be selected before sync", viewModel.state.value.selectedFolder)
 
         viewModel.requestManualSync()
         advanceUntilIdle()

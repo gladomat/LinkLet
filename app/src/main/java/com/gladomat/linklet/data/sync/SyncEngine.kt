@@ -1,5 +1,6 @@
 package com.gladomat.linklet.data.sync
 
+import android.util.Log
 import com.gladomat.linklet.data.index.SyncStateDao
 import com.gladomat.linklet.data.storage.IStorage
 import javax.inject.Inject
@@ -9,6 +10,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.text.Charsets
 
+private const val TAG = "SyncEngine"
+
 @Singleton
 class SyncEngine @Inject constructor(
     private val storage: IStorage,
@@ -17,20 +20,27 @@ class SyncEngine @Inject constructor(
 ) {
 
     suspend fun run(provider: RemoteSyncProvider): Result<SyncSummary> = withContext(dispatcher) {
+        Log.i(TAG, "Starting sync run with provider: ${provider.name}")
         runCatching {
             sync(provider).getOrThrow()
             val resolved = processPending(provider)
             val summary = sync(provider).getOrThrow()
+            Log.i(TAG, "Sync run completed successfully. Summary: $summary")
             summary.copy(resolvedConflicts = resolved)
+        }.onFailure {
+            Log.e(TAG, "Sync run failed", it)
         }
     }
 
     suspend fun sync(provider: RemoteSyncProvider): Result<SyncSummary> = withContext(dispatcher) {
+        Log.d(TAG, "Starting sync cycle (indexing & state update)")
         runCatching {
             val localPaths = storage.listNotes().getOrThrow()
             val existingStates = syncStateDao.getAllStates().associateBy { it.path }
             val remoteNotes = provider.listRemoteNotes().getOrThrow()
             val remoteByPath = remoteNotes.associateBy { it.path }
+
+            Log.d(TAG, "Found ${localPaths.size} local notes and ${remoteNotes.size} remote notes")
 
             updateLocalStates(
                 localPaths = localPaths,
@@ -51,7 +61,7 @@ class SyncEngine @Inject constructor(
             )
 
             val pendingStates = syncStateDao.getPendingStates()
-            SyncSummary(
+            val summary = SyncSummary(
                 totalLocalNotes = localPaths.size,
                 totalRemoteNotes = remoteNotes.size,
                 pendingUploads = pendingStates.count { it.pendingAction == SyncPendingAction.UPLOAD },
@@ -60,11 +70,16 @@ class SyncEngine @Inject constructor(
                 conflicts = pendingStates.count { it.pendingAction == SyncPendingAction.CONFLICT },
                 resolvedConflicts = 0,
             )
+            Log.d(TAG, "Sync cycle analyzed. Pending: Uploads=${summary.pendingUploads}, Downloads=${summary.pendingDownloads}, Deletes=${summary.pendingDeletes}, Conflicts=${summary.conflicts}")
+            summary
         }
     }
 
     private suspend fun processPending(provider: RemoteSyncProvider): Int {
         val pendingStates = syncStateDao.getPendingStates()
+        if (pendingStates.isNotEmpty()) {
+            Log.i(TAG, "Processing ${pendingStates.size} pending actions")
+        }
         var resolvedConflicts = 0
         for (state in pendingStates) {
             when (state.pendingAction) {
@@ -83,12 +98,14 @@ class SyncEngine @Inject constructor(
     }
 
     private suspend fun handleConflict(state: SyncStateEntity, provider: RemoteSyncProvider): Boolean {
+        Log.i(TAG, "Resolving conflict for ${state.path}")
         return runCatching {
             // 1. Read local note content
             val localContent = storage.readNote(state.path).getOrThrow()
 
             // 2. Generate conflict-copy filename
             val conflictPath = createConflictPath(state.path)
+            Log.d(TAG, "Created conflict copy path: $conflictPath")
 
             // 3. Write conflict copy to disk
             storage.writeNote(conflictPath, localContent).getOrThrow()
@@ -121,9 +138,11 @@ class SyncEngine @Inject constructor(
                 lastSyncedAtEpochMillis = System.currentTimeMillis(),
             )
             syncStateDao.upsert(updatedState)
-            
+
+            Log.i(TAG, "Conflict resolved successfully for ${state.path}")
             true
         }.getOrElse {
+            Log.e(TAG, "Conflict resolution failed for ${state.path}", it)
             syncStateDao.updatePendingAction(state.path, SyncPendingAction.CONFLICT, it.message)
             false
         }
@@ -134,17 +153,19 @@ class SyncEngine @Inject constructor(
         val filename = originalPath.substringAfterLast('/')
         val name = filename.substringBeforeLast('.')
         val extension = if (filename.contains('.')) "." + filename.substringAfterLast('.') else ""
-        
+
         val timestamp = java.text.SimpleDateFormat("yyyy-MM-dd HH-mm", java.util.Locale.US)
             .format(java.util.Date())
-        
+
         val conflictName = "$name (Conflicted Copy $timestamp)$extension"
-        
+
         return if (dir.isNotEmpty()) "$dir/$conflictName" else conflictName
     }
 
     private suspend fun handleUpload(state: SyncStateEntity, provider: RemoteSyncProvider) {
+        Log.d(TAG, "Uploading ${state.path}")
         val content = storage.readNote(state.path).getOrElse {
+            Log.e(TAG, "Failed to read local note for upload: ${state.path}", it)
             syncStateDao.updatePendingAction(state.path, SyncPendingAction.UPLOAD, it.message)
             return
         }
@@ -165,14 +186,19 @@ class SyncEngine @Inject constructor(
                 lastError = null,
             )
             syncStateDao.upsert(updated)
+            Log.d(TAG, "Upload success: ${state.path}")
         }.onFailure {
+            Log.e(TAG, "Upload failed: ${state.path}", it)
             syncStateDao.updatePendingAction(state.path, SyncPendingAction.UPLOAD, it.message)
         }
     }
 
     private suspend fun handleDownload(state: SyncStateEntity, provider: RemoteSyncProvider) {
+        Log.d(TAG, "Downloading ${state.path}")
         if (state.remoteId == null) {
-            syncStateDao.updatePendingAction(state.path, SyncPendingAction.DOWNLOAD, "Missing remote id")
+            val msg = "Missing remote id for download: ${state.path}"
+            Log.e(TAG, msg)
+            syncStateDao.updatePendingAction(state.path, SyncPendingAction.DOWNLOAD, msg)
             return
         }
         runCatching {
@@ -187,17 +213,22 @@ class SyncEngine @Inject constructor(
                 lastError = null,
             )
             syncStateDao.upsert(updated)
+            Log.d(TAG, "Download success: ${state.path}")
         }.onFailure {
+            Log.e(TAG, "Download failed: ${state.path}", it)
             syncStateDao.updatePendingAction(state.path, SyncPendingAction.DOWNLOAD, it.message)
         }
     }
 
     private suspend fun handleDelete(state: SyncStateEntity, provider: RemoteSyncProvider) {
+        Log.d(TAG, "Deleting remote ${state.path}")
         val remoteId = state.remoteId ?: state.path
         runCatching {
             provider.delete(state.path, remoteId, state.remoteFingerprint).getOrThrow()
             syncStateDao.deleteState(state.path)
+            Log.d(TAG, "Remote delete success: ${state.path}")
         }.onFailure {
+            Log.e(TAG, "Remote delete failed: ${state.path}", it)
             syncStateDao.updatePendingAction(state.path, SyncPendingAction.DELETE, it.message)
         }
     }
