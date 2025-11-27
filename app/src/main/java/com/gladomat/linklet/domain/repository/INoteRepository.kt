@@ -13,6 +13,7 @@ interface INoteRepository {
     suspend fun reindex(): Result<Unit>
     suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>>
     suspend fun saveNote(path: String, content: String): Result<Unit>
+    suspend fun deleteNote(path: String): Result<Unit>
 }
 
 data class LinkEntityDto(

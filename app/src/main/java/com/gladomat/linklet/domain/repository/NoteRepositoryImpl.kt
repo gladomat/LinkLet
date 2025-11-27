@@ -8,6 +8,7 @@ import com.gladomat.linklet.data.model.NoteLink
 import com.gladomat.linklet.data.parser.IParser
 import com.gladomat.linklet.data.storage.IStorage
 import com.gladomat.linklet.data.model.LinkTarget
+import com.gladomat.linklet.data.sync.SyncScheduler
 import com.gladomat.linklet.domain.repository.LinkEntityDto
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +27,7 @@ class NoteRepositoryImpl(
     private val storage: IStorage,
     private val parser: IParser,
     private val noteDao: NoteDao,
+    private val syncScheduler: SyncScheduler,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : INoteRepository {
 
@@ -111,6 +113,15 @@ class NoteRepositoryImpl(
         runCatching {
             storage.writeNote(path, content).getOrThrow()
             reindex().getOrThrow()
+            syncScheduler.scheduleImmediate()
+        }
+    }
+
+    override suspend fun deleteNote(path: String): Result<Unit> = withContext(ioDispatcher) {
+        runCatching {
+            storage.deleteNote(path).getOrThrow()
+            reindex().getOrThrow()
+            syncScheduler.scheduleImmediate()
         }
     }
 
