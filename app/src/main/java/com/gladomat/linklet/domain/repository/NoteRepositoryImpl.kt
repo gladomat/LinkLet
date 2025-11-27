@@ -56,6 +56,9 @@ class NoteRepositoryImpl(
 
     override suspend fun reindex(): Result<Unit> = withContext(ioDispatcher) {
         runCatching {
+            // Invalidate storage cache to ensure we see newly synced files
+            storage.invalidateCache()
+            
             val notePaths = storage.listNotes().getOrThrow()
             val parsedNotes = notePaths.map { path ->
                 val content = storage.readNote(path).getOrThrow()

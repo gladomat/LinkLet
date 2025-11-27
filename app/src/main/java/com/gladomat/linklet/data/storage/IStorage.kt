@@ -23,4 +23,11 @@ interface IStorage {
      * Deletes the note at the given path.
      */
     suspend fun deleteNote(path: String): Result<Unit>
+
+    /**
+     * Invalidates any cached directory listings or file metadata.
+     * This should be called after external operations (like sync) that modify
+     * the storage without going through this interface.
+     */
+    suspend fun invalidateCache()
 }

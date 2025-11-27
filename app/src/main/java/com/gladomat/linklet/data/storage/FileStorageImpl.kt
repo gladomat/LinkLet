@@ -57,6 +57,10 @@ class FileStorageImpl(
         }
     }
 
+    override suspend fun invalidateCache() {
+        // No-op: File-based storage doesn't cache directory listings
+    }
+
     private fun ensureBaseDir() {
         if (!baseDir.exists() && !baseDir.mkdirs()) {
             throw IOException("Unable to create storage directory at ${baseDir.absolutePath}")

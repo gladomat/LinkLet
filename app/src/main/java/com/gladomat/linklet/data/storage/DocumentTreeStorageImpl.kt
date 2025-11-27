@@ -22,6 +22,12 @@ class DocumentTreeStorageImpl @Inject constructor(
 ) : IStorage {
 
     private val contentResolver: ContentResolver = context.contentResolver
+    
+    // Cache for the base DocumentFile to avoid repeated lookups
+    // This cache is invalidated when external operations modify storage
+    @Volatile
+    private var cachedBaseDocumentFile: DocumentFile? = null
+    private var cachedFolderUri: Uri? = null
 
     override suspend fun listNotes(): Result<List<String>> = withContext(dispatcher) {
         runCatching {
@@ -67,10 +73,21 @@ class DocumentTreeStorageImpl @Inject constructor(
 
     private suspend fun baseDocumentFile(): DocumentFile? {
         val uri: Uri = folderSettingsRepository.currentFolderUri() ?: return null
-        return when (uri.scheme) {
+        
+        // Return cached instance if URI hasn't changed
+        if (cachedFolderUri == uri && cachedBaseDocumentFile != null) {
+            return cachedBaseDocumentFile
+        }
+        
+        // Create new DocumentFile and cache it
+        val documentFile = when (uri.scheme) {
             ContentResolver.SCHEME_FILE -> DocumentFile.fromFile(File(uri.path!!))
             else -> DocumentFile.fromTreeUri(context, uri)
         }
+        
+        cachedFolderUri = uri
+        cachedBaseDocumentFile = documentFile
+        return documentFile
     }
 
     private suspend fun resolveFile(path: String): DocumentFile? {
@@ -158,5 +175,11 @@ class DocumentTreeStorageImpl @Inject constructor(
                 throw IllegalArgumentException("Invalid path segment: $segment")
             }
         }
+    }
+
+    override suspend fun invalidateCache() {
+        // Clear the cached DocumentFile to force fresh directory listings
+        cachedBaseDocumentFile = null
+        cachedFolderUri = null
     }
 }
