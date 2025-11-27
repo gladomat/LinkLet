@@ -197,7 +197,7 @@ class WebDavRemoteSyncProvider @Inject constructor(
                 // Sardine usually throws SardineException which has statusCode
                 val message = e.message ?: ""
                 if (message.contains("412") || (e is com.thegrizzlylabs.sardineandroid.impl.SardineException && e.statusCode == 412)) {
-                     throw IOException("Safe-Delete failed: Remote file has changed (HTTP 412). Resync required.")
+                     throw RemoteChangedException("Safe-Delete failed: Remote file has changed (HTTP 412). Resync required.")
                 }
                 throw e
             } finally {
