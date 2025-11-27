@@ -19,6 +19,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import com.gladomat.linklet.data.sync.CatastrophicDeleteException
 import com.gladomat.linklet.data.sync.RequiresConfirmationException
+import com.gladomat.linklet.data.settings.WebDavSettingsRepository
+import io.mockk.mockk
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -48,9 +50,10 @@ class SyncEngineTests {
             mutableMapOf("notes/a.org" to "Hello world"),
         )
         val provider = FakeRemoteSyncProvider()
-        engine = SyncEngine(storage, database.syncStateDao(), dispatcher)
+        val settingsRepo = mockk<WebDavSettingsRepository>(relaxed = true)
+        engine = SyncEngine(storage, database.syncStateDao(), settingsRepo, dispatcher)
 
-        val summary = engine.sync(provider).getOrThrow()
+        val summary = engine.run(provider).getOrThrow()
 
         assertEquals(1, summary.pendingUploads)
         assertEquals(0, summary.pendingDownloads)
@@ -72,9 +75,10 @@ class SyncEngineTests {
                 ),
             ),
         )
-        engine = SyncEngine(storage, database.syncStateDao(), dispatcher)
+        val settingsRepo = mockk<WebDavSettingsRepository>(relaxed = true)
+        engine = SyncEngine(storage, database.syncStateDao(), settingsRepo, dispatcher)
 
-        val summary = engine.sync(provider).getOrThrow()
+        val summary = engine.run(provider).getOrThrow()
 
         assertEquals(1, summary.pendingDownloads)
         val states = database.syncStateDao().getPendingStates()
@@ -98,7 +102,8 @@ class SyncEngineTests {
             ),
         )
 
-        engine = SyncEngine(storage, dao, dispatcher)
+        val settingsRepo = mockk<WebDavSettingsRepository>(relaxed = true)
+        engine = SyncEngine(storage, dao, settingsRepo, dispatcher)
 
         // Remote unchanged -> expect upload due to local delta
         val providerUpload = FakeRemoteSyncProvider(
@@ -111,7 +116,7 @@ class SyncEngineTests {
                 ),
             ),
         )
-        val summaryUpload = engine.sync(providerUpload).getOrThrow()
+        val summaryUpload = engine.run(providerUpload).getOrThrow()
         assertEquals(1, summaryUpload.pendingUploads)
 
         // Remote changed but local content unchanged -> expect download
@@ -126,7 +131,7 @@ class SyncEngineTests {
             ),
         )
         storage.files["notes/a.org"] = "local" // ensure same hash
-        val summaryDownload = engine.sync(providerDownload).getOrThrow()
+        val summaryDownload = engine.run(providerDownload).getOrThrow()
         assertEquals(1, summaryDownload.pendingDownloads)
 
         // Remote and local both changed -> conflict
@@ -141,7 +146,7 @@ class SyncEngineTests {
                 ),
             ),
         )
-        val summaryConflict = engine.sync(providerConflict).getOrThrow()
+        val summaryConflict = engine.run(providerConflict).getOrThrow()
         assertEquals(1, summaryConflict.conflicts)
         val states = dao.getPendingStates()
         assertTrue(states.any { it.pendingAction == SyncPendingAction.CONFLICT })
@@ -170,8 +175,9 @@ class SyncEngineTests {
             ),
         )
 
-        engine = SyncEngine(storage, dao, dispatcher)
-        val summary = engine.sync(provider).getOrThrow()
+        val settingsRepo = mockk<WebDavSettingsRepository>(relaxed = true)
+        engine = SyncEngine(storage, dao, settingsRepo, dispatcher)
+        val summary = engine.run(provider).getOrThrow()
 
         assertEquals(1, summary.pendingDeletes)
         val states = dao.getPendingStates()
@@ -195,7 +201,8 @@ class SyncEngineTests {
             ),
         )
 
-        engine = SyncEngine(storage, dao, dispatcher)
+        val settingsRepo = mockk<WebDavSettingsRepository>(relaxed = true)
+        engine = SyncEngine(storage, dao, settingsRepo, dispatcher)
 
         // Remote has changed to etag-2
         val provider = FakeRemoteSyncProvider(
@@ -265,7 +272,8 @@ class SyncEngineTests {
         // Simulate that all these files are now missing remotely
         val provider = FakeRemoteSyncProvider(metadata = emptyList())
 
-        engine = SyncEngine(storage, dao, dispatcher)
+        val settingsRepo = mockk<WebDavSettingsRepository>(relaxed = true)
+        engine = SyncEngine(storage, dao, settingsRepo, dispatcher)
         val result = engine.run(provider)
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull() is CatastrophicDeleteException)
@@ -299,7 +307,8 @@ class SyncEngineTests {
         // Simulate that these 6 files are now missing remotely (triggering 6 deletes)
         val provider = FakeRemoteSyncProvider(metadata = emptyList())
 
-        engine = SyncEngine(storage, dao, dispatcher)
+        val settingsRepo = mockk<WebDavSettingsRepository>(relaxed = true)
+        engine = SyncEngine(storage, dao, settingsRepo, dispatcher)
         val result = engine.run(provider)
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull() is RequiresConfirmationException)
@@ -316,6 +325,15 @@ class SyncEngineTests {
         override suspend fun writeNote(path: String, content: String): Result<Unit> {
             files[path] = content
             return Result.success(Unit)
+        }
+
+        override suspend fun deleteNote(path: String): Result<Unit> {
+            files.remove(path)
+            return Result.success(Unit)
+        }
+
+        override suspend fun invalidateCache() {
+            // No-op
         }
     }
 

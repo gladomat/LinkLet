@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import com.gladomat.linklet.data.model.Note
+import com.gladomat.linklet.data.index.SyncStateDao
 import com.gladomat.linklet.data.settings.FolderSettingsRepository
 import com.gladomat.linklet.data.sync.SyncEngine
 import com.gladomat.linklet.data.sync.SyncSummary
@@ -62,6 +63,7 @@ class SettingsViewModelTests {
         }
         val syncEngine = mockk<SyncEngine>()
         val provider = mockk<WebDavRemoteSyncProvider>()
+        val syncStateDao = mockk<SyncStateDao>(relaxed = true)
         coEvery { provider.isReadyForSync() } returns true
         coEvery { syncEngine.run(provider) } returns Result.success(
             SyncSummary(
@@ -74,7 +76,7 @@ class SettingsViewModelTests {
                 resolvedConflicts = 0,
             ),
         )
-        val viewModel = SettingsViewModel(folderSettingsRepository, repository, syncEngine, provider)
+        val viewModel = SettingsViewModel(folderSettingsRepository, repository, syncEngine, provider, syncStateDao)
 
         val folder = tempDir.newFolder("notes")
         folderSettingsRepository.setFolderUri(Uri.fromFile(folder))
@@ -101,11 +103,12 @@ class SettingsViewModelTests {
         }
         val syncEngine = mockk<SyncEngine>()
         val provider = mockk<WebDavRemoteSyncProvider>()
+        val syncStateDao = mockk<SyncStateDao>(relaxed = true)
         coEvery { provider.isReadyForSync() } returns true
         coEvery { syncEngine.run(provider) } returns Result.success(
             SyncSummary(0, 0, 0, 0, 0, 0, 0),
         )
-        val viewModel = SettingsViewModel(folderSettingsRepository, repository, syncEngine, provider)
+        val viewModel = SettingsViewModel(folderSettingsRepository, repository, syncEngine, provider, syncStateDao)
 
         val folder = tempDir.newFolder("notes")
         folderSettingsRepository.setFolderUri(Uri.fromFile(folder))
@@ -132,8 +135,9 @@ class SettingsViewModelTests {
         }
         val syncEngine = mockk<SyncEngine>(relaxed = true)
         val provider = mockk<WebDavRemoteSyncProvider>()
+        val syncStateDao = mockk<SyncStateDao>(relaxed = true)
         coEvery { provider.isReadyForSync() } returns false
-        val viewModel = SettingsViewModel(folderSettingsRepository, repository, syncEngine, provider)
+        val viewModel = SettingsViewModel(folderSettingsRepository, repository, syncEngine, provider, syncStateDao)
 
         val folder = tempDir.newFolder("notes")
         folderSettingsRepository.setFolderUri(Uri.fromFile(folder))

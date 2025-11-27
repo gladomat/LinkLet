@@ -140,5 +140,14 @@ class NoteRepositoryImplTests {
             files[path] = content
             return Result.success(Unit)
         }
+
+        override suspend fun deleteNote(path: String): Result<Unit> {
+            files.remove(path)
+            return Result.success(Unit)
+        }
+
+        override suspend fun invalidateCache() {
+            // No-op for fake
+        }
     }
 }

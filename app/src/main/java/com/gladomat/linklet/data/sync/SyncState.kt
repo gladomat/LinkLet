@@ -26,6 +26,7 @@ data class SyncStateEntity(
     val deletedAt: Long? = null,
     val pendingAction: SyncPendingAction = SyncPendingAction.NONE,
     val lastError: String? = null,
+    val base_content: String? = null, // Shadow copy of last successful sync
 )
 
 enum class SyncPendingAction {
@@ -49,6 +50,7 @@ data class SyncState(
     val lastSyncedAtEpochMillis: Long?,
     val pendingAction: SyncPendingAction,
     val lastError: String?,
+    val base_content: String?,
 )
 
 fun SyncStateEntity.toDomain(): SyncState = SyncState(
@@ -61,6 +63,7 @@ fun SyncStateEntity.toDomain(): SyncState = SyncState(
     lastSyncedAtEpochMillis = lastSyncedAtEpochMillis,
     pendingAction = pendingAction,
     lastError = lastError,
+    base_content = base_content,
 )
 
 class SyncStateTypeConverters {

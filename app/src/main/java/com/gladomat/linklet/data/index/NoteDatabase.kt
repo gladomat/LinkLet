@@ -10,7 +10,7 @@ import com.gladomat.linklet.data.sync.SyncStateTypeConverters
 
 @Database(
     entities = [NoteEntity::class, LinkEntity::class, SyncStateEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 @TypeConverters(SyncStateTypeConverters::class)
@@ -42,6 +42,12 @@ abstract class NoteDatabase : RoomDatabase() {
                     )
                     """.trimIndent()
                 )
+            }
+        }
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE `sync_state` ADD COLUMN `base_content` TEXT")
             }
         }
     }
