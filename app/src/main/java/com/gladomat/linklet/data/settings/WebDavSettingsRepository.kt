@@ -2,21 +2,28 @@ package com.gladomat.linklet.data.settings
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import dagger.Module
+import dagger.Provides
+import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dagger.hilt.components.SingletonComponent
+import javax.crypto.AEADBadTagException
 import javax.inject.Inject
+import javax.inject.Named
 import javax.inject.Singleton
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.firstOrNull
 
-import dagger.Module
-import dagger.Provides
-import dagger.hilt.InstallIn
-import dagger.hilt.components.SingletonComponent
-import javax.inject.Named
+private const val TAG = "WebDavSettings"
+private const val WEB_DAV_PREFS_NAME = "webdav_secure_prefs"
+private const val MASTER_KEY_ALIAS = "linklet_webdav_master_key"
+private const val MASTER_KEYSET_PREFS = "androidx.security.crypto.master_keyset"
+private const val ENCRYPTED_PREFS_KEYSET_PREFS = "androidx.security.crypto.encrypted_prefs_keyset"
 
 data class WebDavSettings(
     val baseUrl: String,
@@ -40,16 +47,46 @@ object WebDavSettingsModule {
     @Singleton
     @Named("webdav_prefs")
     fun provideWebDavSharedPreferences(@ApplicationContext context: Context): SharedPreferences {
-        val masterKey = MasterKey.Builder(context)
+        return try {
+            createEncryptedPrefs(context)
+        } catch (error: AEADBadTagException) {
+            Log.e(TAG, "Failed to open encrypted WebDAV preferences. Resetting.", error)
+            resetEncryptedPreferences(context)
+            val freshPrefs = createEncryptedPrefs(context)
+            freshPrefs.edit()
+                .putBoolean(WebDavSettingsRepository.Keys.RESET_DUE_TO_ERROR, true)
+                .apply()
+            freshPrefs
+        }
+    }
+
+    private fun createEncryptedPrefs(context: Context): SharedPreferences {
+        val masterKey = MasterKey.Builder(context, MASTER_KEY_ALIAS)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()
         return EncryptedSharedPreferences.create(
             context,
-            "webdav_secure_prefs",
+            WEB_DAV_PREFS_NAME,
             masterKey,
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
         )
+    }
+
+    private fun resetEncryptedPreferences(context: Context) {
+        // 1. Delete the encrypted prefs file
+        context.deleteSharedPreferences(WEB_DAV_PREFS_NAME)
+
+        // 2. Clear the Tink keyset storage used by EncryptedSharedPreferences
+        context.getSharedPreferences(MASTER_KEYSET_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+
+        context.getSharedPreferences(ENCRYPTED_PREFS_KEYSET_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
     }
 }
 
@@ -59,13 +96,14 @@ class WebDavSettingsRepository @Inject constructor(
     @Named("webdav_prefs") private val sharedPreferences: SharedPreferences,
 ) {
 
-    private object Keys {
+    internal object Keys {
         const val BASE_URL = "webdav_base_url"
         const val ROOT_PATH = "webdav_root_path"
         const val USERNAME = "webdav_username"
         const val PASSWORD = "webdav_password"
         const val ENABLED = "webdav_enabled"
         const val LAST_SYNCED_ROOT_PATH = "webdav_last_synced_root_path"
+        const val RESET_DUE_TO_ERROR = "webdav_reset_due_to_error"
     }
 
     val settingsFlow: Flow<WebDavSettings?> = callbackFlow {
@@ -75,6 +113,20 @@ class WebDavSettingsRepository @Inject constructor(
         sharedPreferences.registerOnSharedPreferenceChangeListener(listener)
         trySend(readSettings())
         awaitClose { sharedPreferences.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
+    /**
+     * Returns true if encrypted WebDAV settings were reset due to a crypto error.
+     * The flag is cleared after being read once.
+     */
+    fun consumeResetDueToErrorFlag(): Boolean {
+        val wasReset = sharedPreferences.getBoolean(Keys.RESET_DUE_TO_ERROR, false)
+        if (wasReset) {
+            sharedPreferences.edit()
+                .putBoolean(Keys.RESET_DUE_TO_ERROR, false)
+                .apply()
+        }
+        return wasReset
     }
 
     private fun readSettings(): WebDavSettings? {

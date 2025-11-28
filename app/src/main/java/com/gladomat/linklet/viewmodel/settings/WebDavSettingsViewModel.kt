@@ -36,6 +36,13 @@ class WebDavSettingsViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            if (settingsRepository.consumeResetDueToErrorFlag()) {
+                _state.update {
+                    it.copy(
+                        message = "WebDAV settings were reset due to an internal error. Please re-enter them.",
+                    )
+                }
+            }
             settingsRepository.settingsFlow.collectLatest { settings ->
                 if (settings != null) {
                     _state.update {

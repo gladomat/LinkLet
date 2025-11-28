@@ -9,6 +9,7 @@ import com.gladomat.linklet.data.parser.RegexParser
 import com.gladomat.linklet.data.settings.FolderSettingsRepository
 import com.gladomat.linklet.data.storage.DocumentTreeStorageImpl
 import com.gladomat.linklet.data.storage.IStorage
+import com.gladomat.linklet.data.sync.SyncScheduler
 import com.gladomat.linklet.domain.repository.INoteRepository
 import com.gladomat.linklet.domain.repository.NoteRepositoryImpl
 import dagger.Module
@@ -42,7 +43,14 @@ object AppModule {
         storage: IStorage,
         parser: IParser,
         database: NoteDatabase,
-    ): INoteRepository = NoteRepositoryImpl(storage, parser, database.noteDao())
+        syncScheduler: SyncScheduler,
+    ): INoteRepository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler)
+
+    @Provides
+    @Singleton
+    fun provideSyncScheduler(
+        @ApplicationContext context: Context,
+    ): SyncScheduler = SyncScheduler(context)
 
     @Provides
     fun provideSyncStateDao(
