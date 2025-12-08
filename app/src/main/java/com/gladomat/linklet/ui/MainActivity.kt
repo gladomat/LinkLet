@@ -45,6 +45,11 @@ class MainActivity : ComponentActivity() {
                                 onOpenSettings = {
                                     navController.navigate(Routes.SETTINGS)
                                 },
+                                onCreateNote = {
+                                    navController.navigate("${Routes.NOTE_EDIT}/${Uri.encode(Routes.NEW_NOTE_PATH)}") {
+                                        launchSingleTop = true
+                                    }
+                                },
                             )
                         }
 
@@ -116,6 +121,7 @@ private object Routes {
     const val NOTE_VIEW = "note_view"
     const val NOTE_EDIT = "note_edit"
     const val NOTE_EDIT_PATH = NoteEditViewModel.NoteArgs.NOTE_PATH
+    const val NEW_NOTE_PATH = NoteEditViewModel.NEW_NOTE_PATH
     const val SETTINGS = "settings"
     const val WEB_DAV_SETTINGS = "webdav_settings"
 }

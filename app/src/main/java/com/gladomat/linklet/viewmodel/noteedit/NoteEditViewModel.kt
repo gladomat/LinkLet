@@ -21,6 +21,7 @@ class NoteEditViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val notePath: String = checkNotNull(savedStateHandle[NoteArgs.NOTE_PATH])
+    private val isNewNote: Boolean = notePath == NEW_NOTE_PATH
 
     private val _state = MutableStateFlow<NoteEditUiState>(NoteEditUiState.Loading)
     val state: StateFlow<NoteEditUiState> = _state.asStateFlow()
@@ -28,11 +29,23 @@ class NoteEditViewModel @Inject constructor(
     private val history = ArrayDeque<TextFieldValue>()
     private var suppressHistory = false
 
+    // Track the actual path for new notes (generated on first save)
+    private var actualPath: String? = if (isNewNote) null else notePath
+
     init {
         loadNote()
     }
 
     fun loadNote() {
+        if (isNewNote) {
+            // For new notes, start with empty editing state
+            history.clear()
+            _state.value = NoteEditUiState.Editing(
+                value = TextFieldValue(text = NEW_NOTE_TEMPLATE, selection = TextRange(NEW_NOTE_TEMPLATE.length)),
+            )
+            return
+        }
+
         viewModelScope.launch {
             _state.value = NoteEditUiState.Loading
             val result = repository.getNote(notePath)
@@ -66,14 +79,24 @@ class NoteEditViewModel @Inject constructor(
         if (current !is NoteEditUiState.Editing || current.isSaving) return
         viewModelScope.launch {
             _state.value = current.copy(isSaving = true, errorMessage = null)
-            val result = repository.saveNote(notePath, current.value.text)
+
+            // Generate path for new notes if not already set
+            val savePath = actualPath ?: generateNewNotePath().also { actualPath = it }
+
+            val result = repository.saveNote(savePath, current.value.text)
             _state.value = result.fold(
-                onSuccess = { NoteEditUiState.Saved(notePath) },
+                onSuccess = { NoteEditUiState.Saved(savePath) },
                 onFailure = { error ->
                     current.copy(isSaving = false, errorMessage = error.message ?: "Failed to save note")
                 },
             )
         }
+    }
+
+    private fun generateNewNotePath(): String {
+        val timestamp = java.time.LocalDateTime.now()
+            .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
+        return "$timestamp-untitled.org"
     }
 
     fun undo() {
@@ -203,5 +226,7 @@ class NoteEditViewModel @Inject constructor(
 
     companion object {
         private const val HISTORY_LIMIT = 100
+        const val NEW_NOTE_PATH = "__new__"
+        private const val NEW_NOTE_TEMPLATE = ":PROPERTIES:\n:ID:\n:END:\n#+title: \n\n"
     }
 }

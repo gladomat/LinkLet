@@ -128,10 +128,33 @@ class NoteListViewModel @Inject constructor(
             .filter { it.isNotEmpty() }
     }
 
+    /**
+     * Extracts conflict info from a filename if it contains a "conflicted copy" pattern.
+     * Example: "20220228152819-meetstar (conflicted copy 2025-11-27 18-06).org"
+     * Returns ConflictInfo with timestamp "2025-11-27 18-06" or null if not a conflict.
+     */
+    private fun extractConflictInfo(path: String): ConflictInfo? {
+        val filename = path.substringAfterLast("/")
+        val regex = Regex("""\(conflicted copy (\d{4}-\d{2}-\d{2} \d{2}-\d{2})\)""", RegexOption.IGNORE_CASE)
+        val match = regex.find(filename) ?: return null
+        return ConflictInfo(timestamp = match.groupValues[1])
+    }
+
+    /**
+     * Extracts clean filename without conflict suffix for display.
+     */
+    private fun extractCleanFilename(path: String): String {
+        val filename = path.substringAfterLast("/")
+        // Remove conflict suffix if present
+        val regex = Regex("""\s*\(conflicted copy \d{4}-\d{2}-\d{2} \d{2}-\d{2}\)""", RegexOption.IGNORE_CASE)
+        return filename.replace(regex, "")
+    }
+
     private fun Note.toUiModel(snippet: String? = null): NoteListItemUiModel = NoteListItemUiModel(
         id = id,
         title = title,
-        path = id.path,
+        filename = extractCleanFilename(id.path),
         snippet = snippet,
+        conflictInfo = extractConflictInfo(id.path),
     )
 }
