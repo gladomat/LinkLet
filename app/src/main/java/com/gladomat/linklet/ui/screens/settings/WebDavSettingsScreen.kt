@@ -90,7 +90,7 @@ fun WebDavSettingsScreen(
     modifier: Modifier = Modifier,
 ) {
     var passwordVisible by remember { mutableStateOf(false) }
-    var passwordToggleVisible by remember { mutableStateOf(true) }
+    var passwordToggleVisible by remember(state.password) { mutableStateOf(state.password.isEmpty()) }
     var previousIsSaving by remember { mutableStateOf(state.isSaving) }
     LaunchedEffect(state.isSaving) {
         if (previousIsSaving && !state.isSaving) {
