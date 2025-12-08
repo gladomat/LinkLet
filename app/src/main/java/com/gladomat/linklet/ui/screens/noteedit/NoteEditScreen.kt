@@ -1,6 +1,5 @@
 package com.gladomat.linklet.ui.screens.noteedit
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -11,10 +10,14 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -22,7 +25,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatIndentDecrease
 import androidx.compose.material.icons.filled.FormatIndentIncrease
@@ -31,20 +36,23 @@ import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material3.Button
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material.ripple.rememberRipple
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,15 +63,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.core.view.OnApplyWindowInsetsListener
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gladomat.linklet.ui.theme.LinkLetAppTheme
@@ -78,6 +86,12 @@ fun NoteEditRoute(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+
+    val fileName = when (val current = state) {
+        is NoteEditUiState.Editing -> current.fileName
+        is NoteEditUiState.Saved -> current.path
+        else -> null
+    }
 
     when (val current = state) {
         is NoteEditUiState.Saved -> LaunchedEffect(current) {
@@ -94,6 +108,7 @@ fun NoteEditRoute(
     Surface {
         NoteEditScreen(
             state = state,
+            fileName = fileName,
             onContentChange = viewModel::updateContent,
             onSave = viewModel::save,
             onCancel = onNavigateBack,
@@ -113,9 +128,10 @@ fun NoteEditRoute(
 }
 
 @Composable
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 fun NoteEditScreen(
     state: NoteEditUiState,
+    fileName: String?,
     onContentChange: (TextFieldValue) -> Unit,
     onSave: () -> Unit,
     onCancel: () -> Unit,
@@ -132,31 +148,64 @@ fun NoteEditScreen(
     snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier,
 ) {
-    Box(modifier = modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            TopAppBar(
-                title = { Text(text = "Edit Note", style = MaterialTheme.typography.titleLarge) },
+    val isEditing = state is NoteEditUiState.Editing
+    val isSaving = (state as? NoteEditUiState.Editing)?.isSaving == true
+    val isKeyboardVisible = WindowInsets.isImeVisible
+
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        topBar = {
+            NoteEditTopAppBar(
+                title = "Edit note",
+                fileName = fileName,
+                isEditing = isEditing,
+                isSaving = isSaving,
+                onBack = onBack,
+                onUndo = onUndo,
+                onSave = onSave,
             )
-            SnackbarHost(hostState = snackbarHostState)
+        },
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+        bottomBar = {
+            if (state is NoteEditUiState.Editing && isKeyboardVisible) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .imePadding(),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    tonalElevation = 6.dp,
+                    shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp),
+                ) {
+                    FormattingToolbar(
+                        onApplyHeading = onApplyHeading,
+                        onApplyBold = onApplyBold,
+                        onApplyItalic = onApplyItalic,
+                        onApplySrc = onApplySrc,
+                        onApplyUnorderedList = onApplyUnorderedList,
+                        onApplyOrderedList = onApplyOrderedList,
+                        onIncreaseIndentation = onIncreaseIndentation,
+                        onDecreaseIndentation = onDecreaseIndentation,
+                        modifier = Modifier
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                    )
+                }
+            }
+        },
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+        ) {
             when (state) {
                 NoteEditUiState.Loading -> LoadingState()
                 is NoteEditUiState.Error -> ErrorState(state.message, onBack)
                 is NoteEditUiState.Saved -> Unit
-            is NoteEditUiState.Editing -> EditingState(
-                uiState = state,
-                onContentChange = onContentChange,
-                onSave = onSave,
-                onCancel = onCancel,
-                onApplyHeading = onApplyHeading,
-                onApplyBold = onApplyBold,
-                onApplyItalic = onApplyItalic,
-                onApplySrc = onApplySrc,
-                onApplyUnorderedList = onApplyUnorderedList,
-                onApplyOrderedList = onApplyOrderedList,
-                onIncreaseIndentation = onIncreaseIndentation,
-                onDecreaseIndentation = onDecreaseIndentation,
-                onUndo = onUndo,
-            )
+                is NoteEditUiState.Editing -> EditingState(
+                    uiState = state,
+                    onContentChange = onContentChange,
+                )
             }
         }
     }
@@ -193,132 +242,30 @@ private fun ErrorState(message: String, onBack: () -> Unit) {
 private fun EditingState(
     uiState: NoteEditUiState.Editing,
     onContentChange: (TextFieldValue) -> Unit,
-    onSave: () -> Unit,
-    onCancel: () -> Unit,
-    onApplyHeading: (Int) -> Unit,
-    onApplyBold: () -> Unit,
-    onApplyItalic: () -> Unit,
-    onApplySrc: () -> Unit,
-    onApplyUnorderedList: () -> Unit,
-    onApplyOrderedList: () -> Unit,
-    onIncreaseIndentation: () -> Unit,
-    onDecreaseIndentation: () -> Unit,
-    onUndo: () -> Unit,
 ) {
-    val toolbarHeight = 64.dp
-    val density = LocalDensity.current
-    val view = LocalView.current
-    var imeVisible by remember { mutableStateOf(false) }
-    var imeBottomPx by remember { mutableStateOf(0) }
-
-    DisposableEffect(view) {
-        val listener = OnApplyWindowInsetsListener { _, insets ->
-            val imeType = WindowInsetsCompat.Type.ime()
-            imeVisible = insets.isVisible(imeType)
-            imeBottomPx = insets.getInsets(imeType).bottom
-            insets
-        }
-        ViewCompat.setOnApplyWindowInsetsListener(view, listener)
-        onDispose {
-            ViewCompat.setOnApplyWindowInsetsListener(view, null)
-        }
-    }
-
-    val imeBottom = with(density) { imeBottomPx.toDp() }
-    val bottomPadding = if (imeVisible) toolbarHeight else 24.dp
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        Column(
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+    ) {
+        OutlinedTextField(
+            value = uiState.value,
+            onValueChange = onContentChange,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp)
-                .padding(bottom = bottomPadding)
-                .imePadding(),
-        ) {
-            val scrollState = rememberScrollState()
-            OutlinedTextField(
-                value = uiState.value,
-                onValueChange = onContentChange,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .verticalScroll(scrollState),
-                textStyle = MaterialTheme.typography.bodyLarge,
-                singleLine = false,
-                minLines = 8,
-            )
-            if (uiState.errorMessage != null) {
-                Text(
-                    text = uiState.errorMessage,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                OutlinedButton(
-                    onClick = onCancel,
-                    modifier = Modifier.weight(1f),
-                    enabled = !uiState.isSaving,
-                ) {
-                    Text("Cancel")
-                }
-                Button(
-                    onClick = onSave,
-                    enabled = !uiState.isSaving,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    if (uiState.isSaving) {
-                        CircularProgressIndicator(
-                            modifier = Modifier
-                                .padding(end = 8.dp)
-                                .size(18.dp),
-                            strokeWidth = 2.dp,
-                        )
-                    }
-                    Text(text = "Save")
-                }
-            }
-        }
-        Box(
-            modifier = Modifier
-                .fillMaxSize(),
-            contentAlignment = Alignment.BottomCenter,
-        ) {
-            AnimatedVisibility(visible = imeVisible) {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = imeBottom)
-                        .height(toolbarHeight),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    tonalElevation = 6.dp,
-                    shape = RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp),
-                ) {
-                    FormattingToolbar(
-                        onApplyHeading = onApplyHeading,
-                        onApplyBold = onApplyBold,
-                        onApplyItalic = onApplyItalic,
-                        onApplySrc = onApplySrc,
-                        onApplyUnorderedList = onApplyUnorderedList,
-                        onApplyOrderedList = onApplyOrderedList,
-                        onIncreaseIndentation = onIncreaseIndentation,
-                        onDecreaseIndentation = onDecreaseIndentation,
-                        onUndo = onUndo,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                    )
-                }
-            }
-        }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                fontFamily = FontFamily.Monospace,
+            ),
+            singleLine = false,
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.None,
+                autoCorrect = false,
+            ),
+        )
     }
 }
 
+@Suppress("DEPRECATION")
 @Composable
 private fun FormattingToolbar(
     onApplyHeading: (Int) -> Unit,
@@ -329,7 +276,6 @@ private fun FormattingToolbar(
     onApplyOrderedList: () -> Unit,
     onIncreaseIndentation: () -> Unit,
     onDecreaseIndentation: () -> Unit,
-    onUndo: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val toolbarScroll = rememberScrollState()
@@ -337,16 +283,9 @@ private fun FormattingToolbar(
     Row(
         modifier = modifier
             .horizontalScroll(toolbarScroll),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ToolbarIconButton(
-            icon = Icons.Filled.Undo,
-            contentDescription = "Undo changes",
-            tint = iconTint,
-            onClick = onUndo,
-        )
-        ToolbarDivider()
         ToolbarTextButton(text = "H1", onClick = { onApplyHeading(1) })
         ToolbarTextButton(text = "H2", onClick = { onApplyHeading(2) })
         ToolbarTextButton(text = "H3", onClick = { onApplyHeading(3) })
@@ -411,6 +350,7 @@ private fun ToolbarIconButton(
             imageVector = icon,
             contentDescription = contentDescription,
             tint = tint,
+            modifier = Modifier.size(20.dp),
         )
     }
 }
@@ -423,7 +363,7 @@ private fun ToolbarTextButton(
     ToolbarButtonContainer(onClick = onClick) {
         Text(
             text = text,
-            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
             color = MaterialTheme.colorScheme.onSurface,
         )
     }
@@ -437,13 +377,13 @@ private fun ToolbarButtonContainer(
     val interactionSource = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
-            .size(48.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(6.dp))
             .clickable(
                 interactionSource = interactionSource,
-                indication = rememberRipple(bounded = true),
+                indication = rememberRipple(bounded = true, radius = 18.dp),
                 onClick = onClick,
-            ),
+            )
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,
         content = content,
     )
@@ -453,9 +393,88 @@ private fun ToolbarButtonContainer(
 private fun ToolbarDivider() {
     Spacer(
         modifier = Modifier
-            .height(24.dp)
+            .height(20.dp)
             .width(1.dp)
-            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)),
+            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)),
+    )
+}
+
+@Suppress("DEPRECATION")
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun NoteEditTopAppBar(
+    title: String,
+    fileName: String?,
+    isEditing: Boolean,
+    isSaving: Boolean,
+    onBack: () -> Unit,
+    onUndo: () -> Unit,
+    onSave: () -> Unit,
+) {
+    CenterAlignedTopAppBar(
+        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+            actionIconContentColor = MaterialTheme.colorScheme.onSurface,
+        ),
+        navigationIcon = {
+            IconButton(
+                onClick = onBack,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.ArrowBack,
+                    contentDescription = "Navigate back",
+                )
+            }
+        },
+        title = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center,
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (!fileName.isNullOrBlank()) {
+                    Text(
+                        text = fileName,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        },
+        actions = {
+            IconButton(
+                onClick = onUndo,
+                enabled = isEditing && !isSaving,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Undo,
+                    contentDescription = "Undo",
+                )
+            }
+            IconButton(
+                onClick = onSave,
+                enabled = isEditing && !isSaving,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Done,
+                    contentDescription = "Save",
+                )
+            }
+        },
     )
 }
 
@@ -464,7 +483,11 @@ private fun ToolbarDivider() {
 private fun NoteEditScreenPreview() {
     LinkLetAppTheme {
         NoteEditScreen(
-            state = NoteEditUiState.Editing(value = TextFieldValue("Sample")),
+            state = NoteEditUiState.Editing(
+                value = TextFieldValue("* Sample Note\n\nThis is a sample org-mode note with some content."),
+                fileName = "sample_note.org",
+            ),
+            fileName = "sample_note.org",
             onContentChange = {},
             onSave = {},
             onCancel = {},

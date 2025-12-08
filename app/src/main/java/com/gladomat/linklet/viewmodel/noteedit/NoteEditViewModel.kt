@@ -41,7 +41,11 @@ class NoteEditViewModel @Inject constructor(
             // For new notes, start with empty editing state
             history.clear()
             _state.value = NoteEditUiState.Editing(
-                value = TextFieldValue(text = NEW_NOTE_TEMPLATE, selection = TextRange(NEW_NOTE_TEMPLATE.length)),
+                value = TextFieldValue(
+                    text = NEW_NOTE_TEMPLATE,
+                    selection = TextRange(NEW_NOTE_TEMPLATE.length),
+                ),
+                fileName = NEW_NOTE_DISPLAY_NAME,
             )
             return
         }
@@ -53,7 +57,11 @@ class NoteEditViewModel @Inject constructor(
                 onSuccess = { note ->
                     history.clear()
                     NoteEditUiState.Editing(
-                        value = TextFieldValue(text = note.content, selection = TextRange(note.content.length)),
+                        value = TextFieldValue(
+                            text = note.content,
+                            selection = TextRange(note.content.length),
+                        ),
+                        fileName = notePath,
                     )
                 },
                 onFailure = { error ->
@@ -228,5 +236,6 @@ class NoteEditViewModel @Inject constructor(
         private const val HISTORY_LIMIT = 100
         const val NEW_NOTE_PATH = "__new__"
         private const val NEW_NOTE_TEMPLATE = ":PROPERTIES:\n:ID:\n:END:\n#+title: \n\n"
+        private const val NEW_NOTE_DISPLAY_NAME = "New note"
     }
 }
