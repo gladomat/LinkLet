@@ -6,7 +6,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.gladomat.linklet.data.sync.CatastrophicDeleteException
-import com.gladomat.linklet.data.sync.RemoteSyncProvider
+import com.gladomat.linklet.data.sync.LocalStorageMisconfiguredException
 import com.gladomat.linklet.data.sync.SyncEngine
 import com.gladomat.linklet.data.sync.WebDavRemoteSyncProvider
 import com.thegrizzlylabs.sardineandroid.impl.SardineException
@@ -44,6 +44,10 @@ class SyncWorker @AssistedInject constructor(
                 when {
                     error is CatastrophicDeleteException -> {
                         Log.e(TAG, "Catastrophic delete detected. Failing worker to prevent retries.")
+                        Result.failure()
+                    }
+                    error is LocalStorageMisconfiguredException -> {
+                        Log.e(TAG, "Local storage misconfigured. Failing worker to prevent retries.")
                         Result.failure()
                     }
                     error is SardineException && (error.statusCode == 401 || error.statusCode == 403) -> {

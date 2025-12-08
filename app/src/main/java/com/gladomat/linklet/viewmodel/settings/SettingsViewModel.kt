@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.gladomat.linklet.data.index.SyncStateDao
 import com.gladomat.linklet.data.settings.FolderSettingsRepository
 import com.gladomat.linklet.data.sync.CatastrophicDeleteException
+import com.gladomat.linklet.data.sync.LocalStorageMisconfiguredException
 import com.gladomat.linklet.data.sync.RequiresConfirmationException
 import com.gladomat.linklet.data.sync.SyncDirectoryChangedException
 import com.gladomat.linklet.data.sync.SyncEngine
@@ -155,6 +156,8 @@ class SettingsViewModel @Inject constructor(
                             val errorMessage = when (error) {
                                 is CatastrophicDeleteException -> "Sync aborted: ${error.message}"
                                 is RequiresConfirmationException -> "Sync paused: ${error.message} Please review."
+                                is LocalStorageMisconfiguredException -> 
+                                    "Local folder issue: Cannot read notes from local folder. Please re-select the notes folder in Settings."
                                 else -> "Sync failed: ${error.localizedMessage}"
                             }
                             current.copy(isSyncing = false, message = errorMessage)

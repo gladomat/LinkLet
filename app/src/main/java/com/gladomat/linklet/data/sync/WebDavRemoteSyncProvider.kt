@@ -76,20 +76,43 @@ class WebDavRemoteSyncProvider @Inject constructor(
             val sardine = createSardine(settings)
             val url = buildUrl(settings, "")
             Log.d(TAG, "Listing remote notes from: $url")
-            val resources = sardine.list(url, 1)
+            Log.d(TAG, "DEBUG: Settings - baseUrl=${settings.baseUrl}, rootPath=${settings.rootPath}, normalizedRootPath=${settings.normalizedRootPath}")
             
-            resources.mapNotNull { resource ->
-                if (resource.isDirectory) return@mapNotNull null
+            val resources = sardine.list(url, 1)
+            Log.d(TAG, "DEBUG: PROPFIND returned ${resources.size} total resources")
+            
+            val result = resources.mapNotNull { resource ->
+                Log.d(TAG, "DEBUG: Resource href='${resource.href}', isDirectory=${resource.isDirectory}, contentType=${resource.contentType}, etag=${resource.etag}")
+                
+                if (resource.isDirectory) {
+                    Log.d(TAG, "DEBUG: Skipping directory: ${resource.href}")
+                    return@mapNotNull null
+                }
+                
                 val relativePath = relativePathFromUrl(resource.href.toString(), settings)
-                if (relativePath == null || !relativePath.endsWith(".org")) return@mapNotNull null
+                Log.d(TAG, "DEBUG: Calculated relativePath='$relativePath' from href='${resource.href}'")
+                
+                if (relativePath == null) {
+                    Log.w(TAG, "DEBUG: relativePath is null for href='${resource.href}'")
+                    return@mapNotNull null
+                }
+                if (!relativePath.endsWith(".org")) {
+                    Log.d(TAG, "DEBUG: Skipping non-.org file: $relativePath")
+                    return@mapNotNull null
+                }
                 
                 RemoteNoteMetadata(
                     remoteId = relativePath,
                     path = relativePath,
                     fingerprint = normalizeEtag(resource.etag),
                     lastModifiedEpochMillis = resource.modified?.time
-                )
+                ).also {
+                    Log.d(TAG, "DEBUG: Added remote note: path='${it.path}', fingerprint='${it.fingerprint}'")
+                }
             }
+            
+            Log.i(TAG, "DEBUG: listRemoteNotes returning ${result.size} notes")
+            result
         }
     }
 
@@ -272,20 +295,36 @@ class WebDavRemoteSyncProvider @Inject constructor(
             val decodedUrl = URLDecoder.decode(url, "UTF-8")
             val decodedPrefix = URLDecoder.decode(buildUrl(settings, ""), "UTF-8")
             val prefixUri = URI(decodedPrefix)
+            
+            Log.d(TAG, "DEBUG relativePathFromUrl: url='$url', decodedUrl='$decodedUrl'")
+            Log.d(TAG, "DEBUG relativePathFromUrl: decodedPrefix='$decodedPrefix', prefixUri.path='${prefixUri.path}'")
 
             val normalizedUri = when {
                 decodedUrl.startsWith("http://") || decodedUrl.startsWith("https://") -> URI(decodedUrl)
                 decodedUrl.startsWith("/") -> URI("${prefixUri.scheme}://${prefixUri.authority}$decodedUrl")
                 else -> URI("${prefixUri.scheme}://${prefixUri.authority}/${decodedUrl.trimStart('/')}")
             }
+            Log.d(TAG, "DEBUG relativePathFromUrl: normalizedUri='$normalizedUri', path='${normalizedUri.path}'")
 
-            if (normalizedUri.authority != prefixUri.authority) return@runCatching null
+            if (normalizedUri.authority != prefixUri.authority) {
+                Log.w(TAG, "DEBUG relativePathFromUrl: Authority mismatch - ${normalizedUri.authority} vs ${prefixUri.authority}")
+                return@runCatching null
+            }
 
             val prefixPath = prefixUri.path.trimEnd('/')
             val urlPath = normalizedUri.path
-            if (!urlPath.startsWith(prefixPath)) return@runCatching null
+            Log.d(TAG, "DEBUG relativePathFromUrl: prefixPath='$prefixPath', urlPath='$urlPath'")
+            
+            if (!urlPath.startsWith(prefixPath)) {
+                Log.w(TAG, "DEBUG relativePathFromUrl: Path doesn't start with prefix - '$urlPath' doesn't start with '$prefixPath'")
+                return@runCatching null
+            }
 
-            urlPath.removePrefix(prefixPath).trim('/').ifEmpty { null }
+            val result = urlPath.removePrefix(prefixPath).trim('/').ifEmpty { null }
+            Log.d(TAG, "DEBUG relativePathFromUrl: result='$result'")
+            result
+        }.onFailure { e ->
+            Log.e(TAG, "DEBUG relativePathFromUrl: Exception while processing url='$url'", e)
         }.getOrNull()
     }
 
