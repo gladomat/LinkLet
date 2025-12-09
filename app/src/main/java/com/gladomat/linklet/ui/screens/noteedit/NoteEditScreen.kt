@@ -43,6 +43,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -50,6 +51,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material.ripple.rememberRipple
 import androidx.compose.runtime.Composable
@@ -86,6 +88,7 @@ fun NoteEditRoute(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    var showUnsavedChangesDialog by remember { mutableStateOf(false) }
 
     val fileName = when (val current = state) {
         is NoteEditUiState.Editing -> current.fileName
@@ -93,8 +96,17 @@ fun NoteEditRoute(
         else -> null
     }
 
+    // Dismiss dialog when save completes
+    LaunchedEffect(state) {
+        if (state is NoteEditUiState.Saved) {
+            android.util.Log.d("NoteEditRoute", "State changed to Saved, dismissing dialog")
+            showUnsavedChangesDialog = false
+        }
+    }
+
     when (val current = state) {
         is NoteEditUiState.Saved -> LaunchedEffect(current) {
+            android.util.Log.d("NoteEditRoute", "Save completed, calling onDone()")
             onDone(current.path)
         }
 
@@ -105,14 +117,30 @@ fun NoteEditRoute(
         else -> Unit
     }
 
+    val handleBackPress: () -> Unit = {
+        val hasChanges = viewModel.hasUnsavedChanges()
+        val isSaving = (state as? NoteEditUiState.Editing)?.isSaving == true
+        android.util.Log.d("NoteEditRoute", "Back pressed: hasChanges=$hasChanges, isSaving=$isSaving")
+        
+        if (isSaving) {
+            // Do nothing while saving is in progress
+            android.util.Log.d("NoteEditRoute", "Back pressed ignored - save in progress")
+        } else if (hasChanges) {
+            android.util.Log.d("NoteEditRoute", "Showing unsaved changes dialog")
+            showUnsavedChangesDialog = true
+        } else {
+            android.util.Log.d("NoteEditRoute", "No changes, navigating back")
+            onNavigateBack()
+        }
+    }
+
     Surface {
         NoteEditScreen(
             state = state,
             fileName = fileName,
             onContentChange = viewModel::updateContent,
             onSave = viewModel::save,
-            onCancel = onNavigateBack,
-            onBack = onNavigateBack,
+            onBack = handleBackPress,
             onApplyHeading = { level -> viewModel.insertHeading(level) },
             onApplyBold = viewModel::insertBold,
             onApplyItalic = viewModel::insertItalic,
@@ -124,6 +152,22 @@ fun NoteEditRoute(
             onUndo = viewModel::undo,
             snackbarHostState = snackbarHostState,
         )
+
+        // Only show dialog if we're in Editing state (not Saved, Loading, or Error)
+        if (showUnsavedChangesDialog && state is NoteEditUiState.Editing) {
+            android.util.Log.d("NoteEditRoute", "Rendering unsaved changes dialog")
+            UnsavedChangesDialog(
+                onDismiss = { 
+                    android.util.Log.d("NoteEditRoute", "Dialog dismissed by user")
+                    showUnsavedChangesDialog = false 
+                },
+                onDiscard = {
+                    android.util.Log.d("NoteEditRoute", "User chose to discard changes")
+                    showUnsavedChangesDialog = false
+                    onNavigateBack()
+                },
+            )
+        }
     }
 }
 
@@ -134,7 +178,6 @@ fun NoteEditScreen(
     fileName: String?,
     onContentChange: (TextFieldValue) -> Unit,
     onSave: () -> Unit,
-    onCancel: () -> Unit,
     onBack: () -> Unit,
     onApplyHeading: (Int) -> Unit,
     onApplyBold: () -> Unit,
@@ -263,6 +306,32 @@ private fun EditingState(
             ),
         )
     }
+}
+
+@Composable
+private fun UnsavedChangesDialog(
+    onDismiss: () -> Unit,
+    onDiscard: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("Unsaved changes")
+        },
+        text = {
+            Text("You have unsaved changes. Are you sure you want to discard them?")
+        },
+        confirmButton = {
+            TextButton(onClick = onDiscard) {
+                Text("Discard")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+    )
 }
 
 @Suppress("DEPRECATION")
@@ -490,7 +559,6 @@ private fun NoteEditScreenPreview() {
             fileName = "sample_note.org",
             onContentChange = {},
             onSave = {},
-            onCancel = {},
             onBack = {},
             onApplyHeading = {},
             onApplyBold = {},

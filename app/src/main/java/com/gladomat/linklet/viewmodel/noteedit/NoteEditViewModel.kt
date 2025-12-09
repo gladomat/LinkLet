@@ -41,6 +41,9 @@ class NoteEditViewModel @Inject constructor(
     // Track whether the note has been saved at least once (ID has been assigned)
     private var hasBeenSaved: Boolean = !isNewNote
 
+    // Track the initial content to detect changes
+    private var initialContent: String = ""
+
     init {
         loadNote()
     }
@@ -50,6 +53,7 @@ class NoteEditViewModel @Inject constructor(
             // For new notes, start with minimal template and track creation time
             createdAt = LocalDateTime.now()
             history.clear()
+            initialContent = NEW_NOTE_TEMPLATE
             _state.value = NoteEditUiState.Editing(
                 value = TextFieldValue(
                     text = NEW_NOTE_TEMPLATE,
@@ -66,6 +70,7 @@ class NoteEditViewModel @Inject constructor(
             _state.value = result.fold(
                 onSuccess = { note ->
                     history.clear()
+                    initialContent = note.content
                     // Use parsed title for display, fallback to path
                     val displayName = OrgFileUtils.getDisplayName(note.content, notePath)
                     NoteEditUiState.Editing(
@@ -157,6 +162,10 @@ class NoteEditViewModel @Inject constructor(
             _state.value = result.fold(
                 onSuccess = {
                     Log.d(TAG, "Save successful for path='$savePath'")
+                    // Update initial content to match what was saved
+                    // This prevents the unsaved changes dialog from appearing after save
+                    Log.d(TAG, "Updating initialContent to contentToSave (length=${contentToSave.length})")
+                    initialContent = contentToSave
                     NoteEditUiState.Saved(savePath)
                 },
                 onFailure = { error ->
@@ -185,6 +194,24 @@ class NoteEditViewModel @Inject constructor(
             )
             suppressHistory = false
         }
+    }
+
+    /**
+     * Check if the current content has unsaved changes compared to the initial content.
+     * Returns true if there are changes, false otherwise.
+     */
+    fun hasUnsavedChanges(): Boolean {
+        val current = _state.value
+        val hasChanges = if (current is NoteEditUiState.Editing) {
+            current.value.text != initialContent
+        } else {
+            false
+        }
+        Log.d(TAG, "hasUnsavedChanges(): $hasChanges (state=${current::class.simpleName})")
+        if (current is NoteEditUiState.Editing && hasChanges) {
+            Log.d(TAG, "  Current length: ${current.value.text.length}, Initial length: ${initialContent.length}")
+        }
+        return hasChanges
     }
 
     fun insertHeading(level: Int) {
