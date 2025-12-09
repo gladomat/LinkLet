@@ -48,6 +48,7 @@ class NoteViewViewModelTests {
             )
 
             override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
+            override suspend fun deleteNote(path: String): Result<Unit> = Result.success(Unit)
         }
         val viewModel = NoteViewViewModel(
             repository = repository,
@@ -72,6 +73,7 @@ class NoteViewViewModelTests {
             override suspend fun reindex(): Result<Unit> = Result.success(Unit)
             override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(emptyList())
             override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
+            override suspend fun deleteNote(path: String): Result<Unit> = Result.success(Unit)
         }
         val viewModel = NoteViewViewModel(
             repository = repository,
@@ -154,5 +156,7 @@ class NoteViewViewModelTests {
         override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(emptyList())
 
         override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
+
+        override suspend fun deleteNote(path: String): Result<Unit> = Result.success(Unit)
     }
 }

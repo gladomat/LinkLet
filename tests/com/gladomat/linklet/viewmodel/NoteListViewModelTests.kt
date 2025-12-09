@@ -42,6 +42,7 @@ class NoteListViewModelTests {
             }
             override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(emptyList())
             override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
+            override suspend fun deleteNote(path: String): Result<Unit> = Result.success(Unit)
         }
 
         val viewModel = NoteListViewModel(repository)
@@ -52,7 +53,7 @@ class NoteListViewModelTests {
         assertTrue(state is NoteListUiState.Success)
         val notes = (state as NoteListUiState.Success).notes
         assertEquals(1, notes.size)
-        assertEquals("note.org", notes.first().path)
+        assertEquals("note.org", notes.first().id.path)
     }
 
     @Test
@@ -65,6 +66,7 @@ class NoteListViewModelTests {
             override suspend fun reindex(): Result<Unit> = Result.failure(RuntimeException("index failure"))
             override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(emptyList())
             override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
+            override suspend fun deleteNote(path: String): Result<Unit> = Result.success(Unit)
         }
 
         val viewModel = NoteListViewModel(repository)
@@ -85,6 +87,7 @@ class NoteListViewModelTests {
             override suspend fun reindex(): Result<Unit> = Result.success(Unit)
             override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(emptyList())
             override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
+            override suspend fun deleteNote(path: String): Result<Unit> = Result.success(Unit)
         }
 
         val viewModel = NoteListViewModel(repository)
@@ -128,6 +131,7 @@ class NoteListViewModelTests {
             override suspend fun reindex(): Result<Unit> = Result.success(Unit)
             override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(emptyList())
             override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
+            override suspend fun deleteNote(path: String): Result<Unit> = Result.success(Unit)
         }
 
         val viewModel = NoteListViewModel(repository)
@@ -143,7 +147,7 @@ class NoteListViewModelTests {
         val items = (state as NoteListUiState.Success).notes
         assertEquals(1, items.size)
         val item = items.first()
-        assertEquals("a.org", item.path)
+        assertEquals("a.org", item.id.path)
         assertTrue(!item.snippet.isNullOrBlank())
     }
 }

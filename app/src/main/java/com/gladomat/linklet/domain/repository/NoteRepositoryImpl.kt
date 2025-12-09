@@ -1,5 +1,6 @@
 package com.gladomat.linklet.domain.repository
 
+import android.util.Log
 import com.gladomat.linklet.data.index.LinkEntity
 import com.gladomat.linklet.data.index.NoteDao
 import com.gladomat.linklet.data.index.NoteEntity
@@ -111,9 +112,14 @@ class NoteRepositoryImpl(
 
     override suspend fun saveNote(path: String, content: String): Result<Unit> = withContext(ioDispatcher) {
         runCatching {
+            Log.d(TAG, "saveNote() - Writing note to storage: path='$path'")
             storage.writeNote(path, content).getOrThrow()
+            Log.d(TAG, "saveNote() - Note written successfully, starting reindex")
             reindex().getOrThrow()
+            Log.d(TAG, "saveNote() - Reindex complete, scheduling immediate sync")
             syncScheduler.scheduleImmediate()
+            Log.d(TAG, "saveNote() - Immediate sync scheduled for path='$path'")
+            Unit  // Explicitly return Unit since Log.d returns Int
         }
     }
 
@@ -133,4 +139,8 @@ class NoteRepositoryImpl(
             } ?: return@mapNotNull null
             link.copy(resolvedPath = resolvedPath)
         }
+
+    companion object {
+        private const val TAG = "NoteRepositoryImpl"
+    }
 }

@@ -1,12 +1,15 @@
 package com.gladomat.linklet.viewmodel.noteedit
 
+import android.util.Log
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.gladomat.linklet.data.utils.OrgFileUtils
 import com.gladomat.linklet.domain.repository.INoteRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.LocalDateTime
 import javax.inject.Inject
 import kotlin.collections.ArrayDeque
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,13 +35,20 @@ class NoteEditViewModel @Inject constructor(
     // Track the actual path for new notes (generated on first save)
     private var actualPath: String? = if (isNewNote) null else notePath
 
+    // Track creation time for new notes (used for ID generation and filename)
+    private var createdAt: LocalDateTime? = null
+
+    // Track whether the note has been saved at least once (ID has been assigned)
+    private var hasBeenSaved: Boolean = !isNewNote
+
     init {
         loadNote()
     }
 
     fun loadNote() {
         if (isNewNote) {
-            // For new notes, start with empty editing state
+            // For new notes, start with minimal template and track creation time
+            createdAt = LocalDateTime.now()
             history.clear()
             _state.value = NoteEditUiState.Editing(
                 value = TextFieldValue(
@@ -56,12 +66,14 @@ class NoteEditViewModel @Inject constructor(
             _state.value = result.fold(
                 onSuccess = { note ->
                     history.clear()
+                    // Use parsed title for display, fallback to path
+                    val displayName = OrgFileUtils.getDisplayName(note.content, notePath)
                     NoteEditUiState.Editing(
                         value = TextFieldValue(
                             text = note.content,
                             selection = TextRange(note.content.length),
                         ),
-                        fileName = notePath,
+                        fileName = displayName,
                     )
                 },
                 onFailure = { error ->
@@ -78,7 +90,21 @@ class NoteEditViewModel @Inject constructor(
                 pushHistory(current.value)
             }
             suppressHistory = false
-            _state.value = current.copy(value = newValue, errorMessage = null)
+
+            // Update display name reactively based on parsed title
+            val newDisplayName = if (isNewNote && actualPath == null) {
+                // New note that hasn't been saved yet
+                OrgFileUtils.getDisplayName(newValue.text, NEW_NOTE_DISPLAY_NAME)
+            } else {
+                // Existing note or already-saved new note
+                OrgFileUtils.getDisplayName(newValue.text, current.fileName)
+            }
+
+            _state.value = current.copy(
+                value = newValue,
+                fileName = newDisplayName,
+                errorMessage = null,
+            )
         }
     }
 
@@ -86,25 +112,59 @@ class NoteEditViewModel @Inject constructor(
         val current = _state.value
         if (current !is NoteEditUiState.Editing || current.isSaving) return
         viewModelScope.launch {
+            Log.d(TAG, "save() called - starting save operation")
             _state.value = current.copy(isSaving = true, errorMessage = null)
 
-            // Generate path for new notes if not already set
-            val savePath = actualPath ?: generateNewNotePath().also { actualPath = it }
+            val contentToSave: String
+            val savePath: String
 
-            val result = repository.saveNote(savePath, current.value.text)
+            if (isNewNote && actualPath == null) {
+                // First save of a new note: generate ID, insert into drawer, generate filename
+                val noteCreatedAt = createdAt ?: LocalDateTime.now()
+                val title = OrgFileUtils.extractTitle(current.value.text)
+                val noteId = OrgFileUtils.generateNoteId(title, noteCreatedAt)
+
+                Log.d(TAG, "First save of new note - title='$title', id='$noteId'")
+
+                // Insert ID into properties drawer (plain text manipulation)
+                contentToSave = OrgFileUtils.ensureIdInProperties(current.value.text, noteId)
+
+                // Generate filename from timestamp + slugified title
+                savePath = OrgFileUtils.generateFilename(title, noteCreatedAt)
+                actualPath = savePath
+                hasBeenSaved = true
+                Log.d(TAG, "Generated filename: $savePath")
+            } else {
+                // Subsequent save: use existing path, ensure ID not overwritten
+                savePath = actualPath ?: notePath
+                Log.d(TAG, "Subsequent save - path='$savePath'")
+                contentToSave = if (!hasBeenSaved && !OrgFileUtils.hasExistingId(current.value.text)) {
+                    // Edge case: note loaded but missing ID - generate one
+                    val noteId = OrgFileUtils.generateNoteId(
+                        OrgFileUtils.extractTitle(current.value.text),
+                        LocalDateTime.now(),
+                    )
+                    hasBeenSaved = true
+                    Log.d(TAG, "Adding missing ID to existing note: $noteId")
+                    OrgFileUtils.ensureIdInProperties(current.value.text, noteId)
+                } else {
+                    current.value.text
+                }
+            }
+
+            Log.d(TAG, "Calling repository.saveNote() for path='$savePath'")
+            val result = repository.saveNote(savePath, contentToSave)
             _state.value = result.fold(
-                onSuccess = { NoteEditUiState.Saved(savePath) },
+                onSuccess = {
+                    Log.d(TAG, "Save successful for path='$savePath'")
+                    NoteEditUiState.Saved(savePath)
+                },
                 onFailure = { error ->
+                    Log.e(TAG, "Save failed for path='$savePath': ${error.message}", error)
                     current.copy(isSaving = false, errorMessage = error.message ?: "Failed to save note")
                 },
             )
         }
-    }
-
-    private fun generateNewNotePath(): String {
-        val timestamp = java.time.LocalDateTime.now()
-            .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
-        return "$timestamp-untitled.org"
     }
 
     fun undo() {
@@ -112,7 +172,17 @@ class NoteEditViewModel @Inject constructor(
         if (current is NoteEditUiState.Editing) {
             val previous = history.removeLastOrNull() ?: return
             suppressHistory = true
-            _state.value = current.copy(value = previous, errorMessage = null)
+            // Update display name based on restored content
+            val displayName = if (isNewNote && actualPath == null) {
+                OrgFileUtils.getDisplayName(previous.text, NEW_NOTE_DISPLAY_NAME)
+            } else {
+                OrgFileUtils.getDisplayName(previous.text, current.fileName)
+            }
+            _state.value = current.copy(
+                value = previous,
+                fileName = displayName,
+                errorMessage = null,
+            )
             suppressHistory = false
         }
     }
@@ -198,7 +268,17 @@ class NoteEditViewModel @Inject constructor(
                 pushHistory(current.value)
             }
             val updated = transform(current.value)
-            _state.value = current.copy(value = updated, errorMessage = null)
+            // Update display name based on transformed content
+            val displayName = if (isNewNote && actualPath == null) {
+                OrgFileUtils.getDisplayName(updated.text, NEW_NOTE_DISPLAY_NAME)
+            } else {
+                OrgFileUtils.getDisplayName(updated.text, current.fileName)
+            }
+            _state.value = current.copy(
+                value = updated,
+                fileName = displayName,
+                errorMessage = null,
+            )
             suppressHistory = false
         }
     }
@@ -233,9 +313,11 @@ class NoteEditViewModel @Inject constructor(
     }
 
     companion object {
+        private const val TAG = "NoteEditViewModel"
         private const val HISTORY_LIMIT = 100
         const val NEW_NOTE_PATH = "__new__"
-        private const val NEW_NOTE_TEMPLATE = ":PROPERTIES:\n:ID:\n:END:\n#+title: \n\n"
+        // Minimal template - drawer will be added on first save with generated ID
+        private const val NEW_NOTE_TEMPLATE = "#+title: \n\n"
         private const val NEW_NOTE_DISPLAY_NAME = "New note"
     }
 }

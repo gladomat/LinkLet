@@ -24,8 +24,12 @@ class SyncWorker @AssistedInject constructor(
     private val webDavRemoteSyncProvider: WebDavRemoteSyncProvider,
 ) : CoroutineWorker(appContext, workerParams) {
 
+    init {
+        Log.d(TAG, "SyncWorker constructor called - instance created successfully")
+    }
+
     override suspend fun doWork(): Result {
-        Log.i(TAG, "SyncWorker started")
+        Log.i(TAG, "SyncWorker.doWork() started - about to check WebDAV configuration")
 
         if (!webDavRemoteSyncProvider.isReadyForSync()) {
             Log.i(TAG, "WebDAV not configured or enabled. Skipping sync.")

@@ -1,12 +1,12 @@
 package com.gladomat.linklet.data.sync
 
 import android.content.Context
+import android.util.Log
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
-import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkManager
 import com.gladomat.linklet.data.sync.worker.SyncWorker
@@ -43,19 +43,25 @@ class SyncScheduler @Inject constructor(
     }
 
     fun scheduleImmediate() {
+        Log.d(TAG, "scheduleImmediate() called - creating sync work request")
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
 
         val immediateRequest = OneTimeWorkRequest.Builder(SyncWorker::class.java)
             .setConstraints(constraints)
-            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .build()
 
+        Log.d(TAG, "Enqueuing immediate sync work with id: ${immediateRequest.id}")
         workManager.enqueueUniqueWork(
             "LinkletImmediateSync",
-            ExistingWorkPolicy.APPEND_OR_REPLACE,
+            ExistingWorkPolicy.REPLACE,  // Use REPLACE to ensure latest sync runs
             immediateRequest
         )
+        Log.d(TAG, "Immediate sync work enqueued successfully")
+    }
+
+    companion object {
+        private const val TAG = "SyncScheduler"
     }
 }

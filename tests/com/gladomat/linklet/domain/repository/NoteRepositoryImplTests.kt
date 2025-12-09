@@ -8,6 +8,8 @@ import com.gladomat.linklet.data.model.Note
 import com.gladomat.linklet.data.parser.RegexParser
 import com.gladomat.linklet.data.storage.IStorage
 import com.gladomat.linklet.data.model.LinkTarget
+import com.gladomat.linklet.data.sync.SyncScheduler
+import io.mockk.mockk
 import java.io.IOException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -29,6 +31,7 @@ class NoteRepositoryImplTests {
 
     private val parser = RegexParser()
     private val dispatcher = StandardTestDispatcher()
+    private val syncScheduler = mockk<SyncScheduler>(relaxed = true)
 
     private lateinit var database: NoteDatabase
 
@@ -48,7 +51,7 @@ class NoteRepositoryImplTests {
     @Test
     fun `getNote returns parsed note when storage succeeds`() = runTest(dispatcher) {
         val storage = FakeStorage(mutableMapOf("path.org" to "#+title: Sample\nBody"))
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
 
         val result = repository.getNote("path.org")
 
@@ -61,7 +64,7 @@ class NoteRepositoryImplTests {
     @Test
     fun `getNote propagates storage failure`() = runTest(dispatcher) {
         val storage = FakeStorage(mutableMapOf())
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
 
         val result = repository.getNote("missing.org")
 
@@ -76,7 +79,7 @@ class NoteRepositoryImplTests {
                 "b.org" to "#+title: B\nContent",
             ),
         )
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
 
         repository.reindex().getOrThrow()
 
@@ -113,7 +116,7 @@ class NoteRepositoryImplTests {
                 """.trimIndent(),
             ),
         )
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
 
         repository.reindex().getOrThrow()
 

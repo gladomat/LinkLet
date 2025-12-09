@@ -60,6 +60,7 @@ class SettingsViewModelTests {
             override suspend fun reindex(): Result<Unit> = Result.success(Unit)
             override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(emptyList())
             override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
+            override suspend fun deleteNote(path: String): Result<Unit> = Result.success(Unit)
         }
         val syncEngine = mockk<SyncEngine>()
         val provider = mockk<WebDavRemoteSyncProvider>()
@@ -100,6 +101,7 @@ class SettingsViewModelTests {
             override suspend fun reindex(): Result<Unit> = Result.failure(RuntimeException("boom"))
             override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(emptyList())
             override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
+            override suspend fun deleteNote(path: String): Result<Unit> = Result.success(Unit)
         }
         val syncEngine = mockk<SyncEngine>()
         val provider = mockk<WebDavRemoteSyncProvider>()
@@ -132,6 +134,7 @@ class SettingsViewModelTests {
             override suspend fun reindex(): Result<Unit> = Result.success(Unit)
             override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(emptyList())
             override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
+            override suspend fun deleteNote(path: String): Result<Unit> = Result.success(Unit)
         }
         val syncEngine = mockk<SyncEngine>(relaxed = true)
         val provider = mockk<WebDavRemoteSyncProvider>()
