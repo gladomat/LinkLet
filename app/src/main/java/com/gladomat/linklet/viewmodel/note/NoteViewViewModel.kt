@@ -11,6 +11,7 @@ import java.util.ArrayDeque
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 @HiltViewModel
@@ -26,6 +27,18 @@ class NoteViewViewModel @Inject constructor(
     private val history = ArrayDeque<String>()
 
     init {
+        // Observe SavedStateHandle for path changes and reload when it changes
+        // This ensures we reload when navigating to the same route with a different path
+        viewModelScope.launch {
+            savedStateHandle.getStateFlow<String>(NoteArgs.NOTE_PATH, notePath)
+                .collect { path ->
+                    if (path != notePath) {
+                        notePath = path
+                        loadNote()
+                    }
+                }
+        }
+        // Initial load
         loadNote()
     }
 
@@ -36,7 +49,12 @@ class NoteViewViewModel @Inject constructor(
             _state.value = noteResult.fold(
                 onSuccess = { note ->
                     val backlinks = repository.getBacklinks(notePath).getOrDefault(emptyList<LinkEntityDto>())
-                    NoteViewUiState.Success(note = note, backlinks = backlinks)
+                    NoteViewUiState.Success(
+                        note = note,
+                        backlinks = backlinks,
+                        lastModified = null, // TODO: get from file metadata
+                        isFavorite = false, // TODO: persist favorites
+                    )
                 },
                 onFailure = { error ->
                     NoteViewUiState.Error(error.message ?: "Failed to load note")
@@ -61,6 +79,17 @@ class NoteViewViewModel @Inject constructor(
         history.clear()
     }
 
+    fun toggleFavorite() {
+        _state.update { currentState ->
+            if (currentState is NoteViewUiState.Success) {
+                currentState.copy(isFavorite = !currentState.isFavorite)
+            } else {
+                currentState
+            }
+        }
+        // TODO: persist favorite state
+    }
+
     private fun rememberCurrentPath() {
         if (history.peekFirst() == notePath) return
         history.removeIf { it == notePath }
@@ -83,3 +112,4 @@ class NoteViewViewModel @Inject constructor(
         const val NOTE_PATH = "note_path"
     }
 }
+

@@ -60,7 +60,7 @@ class MainActivity : ComponentActivity() {
                                     type = NavType.StringType
                                 },
                             ),
-                        ) {
+                        ) { backStackEntry ->
                             NoteViewRoute(
                                 onEditNote = { path ->
                                     navController.navigate("${Routes.NOTE_EDIT}/${Uri.encode(path)}")
@@ -71,6 +71,15 @@ class MainActivity : ComponentActivity() {
                                 onExitToList = {
                                     navController.popBackStack()
                                 },
+                                onCreateNote = {
+                                    navController.navigate("${Routes.NOTE_EDIT}/${Uri.encode(Routes.NEW_NOTE_PATH)}") {
+                                        launchSingleTop = true
+                                    }
+                                },
+                                onSearch = {
+                                    // TODO: implement search functionality
+                                },
+                                savedStateHandle = backStackEntry.savedStateHandle,
                             )
                         }
 
@@ -84,6 +93,10 @@ class MainActivity : ComponentActivity() {
                         ) {
                             NoteEditRoute(
                                 onDone = { savedPath ->
+                                    // Signal NoteView to refresh before popping back
+                                    navController.previousBackStackEntry
+                                        ?.savedStateHandle
+                                        ?.set(REFRESH_NOTE_KEY, true)
                                     navController.popBackStack()
                                     navController.navigate("${Routes.NOTE_VIEW}/${Uri.encode(savedPath)}") {
                                         launchSingleTop = true
@@ -125,3 +138,5 @@ private object Routes {
     const val SETTINGS = "settings"
     const val WEB_DAV_SETTINGS = "webdav_settings"
 }
+
+const val REFRESH_NOTE_KEY = "refresh_note"

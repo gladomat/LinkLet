@@ -1,10 +1,12 @@
 package com.gladomat.linklet.ui.screens.note
 
+import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,23 +15,27 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -38,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -45,13 +52,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gladomat.linklet.data.model.LinkTarget
 import com.gladomat.linklet.data.model.Note
 import com.gladomat.linklet.data.model.NoteId
 import com.gladomat.linklet.data.model.NoteLink
 import com.gladomat.linklet.domain.repository.LinkEntityDto
-import com.gladomat.linklet.ui.components.BacklinkList
+import com.gladomat.linklet.ui.REFRESH_NOTE_KEY
 import com.gladomat.linklet.ui.components.OrgSection
 import com.gladomat.linklet.ui.components.OrgTextPalette
 import com.gladomat.linklet.ui.components.ORG_EXTERNAL_LINK_ANNOTATION_TAG
@@ -67,11 +75,26 @@ fun NoteViewRoute(
     onEditNote: (String) -> Unit,
     onNavigateHome: () -> Unit,
     onExitToList: () -> Unit,
+    onCreateNote: () -> Unit,
+    onSearch: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: NoteViewViewModel = hiltViewModel(),
+    savedStateHandle: SavedStateHandle? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
+
+    // Observe refresh flag from navigation result (set by NoteEditRoute after save)
+    LaunchedEffect(savedStateHandle) {
+        savedStateHandle?.getStateFlow(REFRESH_NOTE_KEY, false)?.collect { shouldRefresh ->
+            if (shouldRefresh) {
+                android.util.Log.d("NoteViewRoute", "Refresh flag detected, reloading note")
+                viewModel.loadNote()
+                savedStateHandle[REFRESH_NOTE_KEY] = false
+            }
+        }
+    }
     val handleNavigateHome = remember(viewModel, onNavigateHome) {
         {
             viewModel.resetHistory()
@@ -84,10 +107,28 @@ fun NoteViewRoute(
             onExitToList()
         }
     }
-    BackHandler {
-        if (!viewModel.handleBackPress()) {
-            handleExit()
+    val handleBack = remember(viewModel, handleExit) {
+        {
+            if (!viewModel.handleBackPress()) {
+                handleExit()
+            }
         }
+    }
+    val handleShare = remember(context, state) {
+        {
+            val currentState = state
+            if (currentState is NoteViewUiState.Success) {
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, currentState.note.title)
+                    putExtra(Intent.EXTRA_TEXT, currentState.note.content)
+                }
+                context.startActivity(Intent.createChooser(shareIntent, "Share Note"))
+            }
+        }
+    }
+    BackHandler {
+        handleBack()
     }
     NoteViewScreen(
         state = state,
@@ -95,6 +136,11 @@ fun NoteViewRoute(
         onOpenExternalLink = { uri -> uriHandler.openUri(uri) },
         onEditNote = onEditNote,
         onNavigateHome = handleNavigateHome,
+        onBack = handleBack,
+        onSearch = onSearch,
+        onShare = handleShare,
+        onFavorite = viewModel::toggleFavorite,
+        onCreateNote = onCreateNote,
         onRetry = viewModel::loadNote,
         modifier = modifier,
     )
@@ -107,6 +153,11 @@ fun NoteViewScreen(
     onOpenExternalLink: (String) -> Unit,
     onEditNote: (String) -> Unit,
     onNavigateHome: () -> Unit,
+    onBack: () -> Unit,
+    onSearch: () -> Unit,
+    onShare: () -> Unit,
+    onFavorite: () -> Unit,
+    onCreateNote: () -> Unit,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -115,10 +166,17 @@ fun NoteViewScreen(
         is NoteViewUiState.Success -> SuccessState(
             note = state.note,
             backlinks = state.backlinks,
+            lastModified = state.lastModified,
+            isFavorite = state.isFavorite,
             onOpenLink = onOpenLink,
             onOpenExternalLink = onOpenExternalLink,
             onEditNote = onEditNote,
             onNavigateHome = onNavigateHome,
+            onBack = onBack,
+            onSearch = onSearch,
+            onShare = onShare,
+            onFavorite = onFavorite,
+            onCreateNote = onCreateNote,
             modifier = modifier,
         )
         is NoteViewUiState.Error -> ErrorState(
@@ -146,82 +204,150 @@ private fun LoadingState(modifier: Modifier) {
 private fun SuccessState(
     note: Note,
     backlinks: List<LinkEntityDto>,
+    lastModified: String?,
+    isFavorite: Boolean,
     onOpenLink: (String) -> Unit,
     onOpenExternalLink: (String) -> Unit,
     onEditNote: (String) -> Unit,
     onNavigateHome: () -> Unit,
+    onBack: () -> Unit,
+    onSearch: () -> Unit,
+    onShare: () -> Unit,
+    onFavorite: () -> Unit,
+    onCreateNote: () -> Unit,
     modifier: Modifier,
 ) {
     val document = remember(note.content) { parseOrgDocument(note.content) }
-    var metadataExpanded by remember(note.id.path) { mutableStateOf(false) }
+    var propertiesExpanded by remember(note.id.path) { mutableStateOf(false) }
+    var showBacklinksSheet by remember { mutableStateOf(false) }
     val sectionExpansion = remember(document.sections) {
         mutableStateMapOf<String, Boolean>().apply {
             document.sections.forEach { collectIds(it, this) }
         }
     }
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-    ) {
-        TopActionRow(
-            onNavigateHome = onNavigateHome,
-            onEditNote = { onEditNote(note.id.path) },
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        NoteHeaderCard(
-            title = note.title,
-            path = note.id.path,
-            metadata = document.metadata,
-            expanded = metadataExpanded,
-            onToggle = { metadataExpanded = !metadataExpanded },
-        )
-        val colorScheme = MaterialTheme.colorScheme
-        val palette = remember(
-            colorScheme.primary,
-            colorScheme.secondary,
-            colorScheme.tertiary,
-            colorScheme.onSurfaceVariant,
-            colorScheme.surfaceVariant,
-            colorScheme.onSurface,
-        ) {
-            OrgTextPalette(
-                headingLevel1 = colorScheme.primary,
-                headingLevel2 = colorScheme.secondary,
-                headingLevel3 = colorScheme.tertiary,
-                bulletColor = colorScheme.onSurfaceVariant,
-                linkColor = colorScheme.secondary,
-                codeBackground = colorScheme.surfaceVariant,
-                codeTextColor = colorScheme.onSurface,
-                verbatimBackground = colorScheme.surfaceVariant,
-                verbatimTextColor = colorScheme.onSurface,
-            )
-        }
-        if (document.preface.isNotBlank()) {
-            OrgBodyText(
-                text = document.preface,
-                note = note,
-                palette = palette,
-                onOpenLink = onOpenLink,
-                onOpenExternalLink = onOpenExternalLink,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-        }
-        document.sections.forEach { section ->
-            OrgSectionView(
-                section = section,
-                expandedState = sectionExpansion,
-                palette = palette,
-                note = note,
-                onOpenLink = onOpenLink,
-                onOpenExternalLink = onOpenExternalLink,
-            )
-        }
-        BacklinkList(
+    val scrollState = rememberScrollState()
+
+    // Backlinks bottom sheet
+    if (showBacklinksSheet) {
+        BacklinksBottomSheet(
             backlinks = backlinks,
-            onOpenNote = onOpenLink,
+            onBacklinkClick = { path ->
+                onOpenLink(path)
+            },
+            onDismiss = { showBacklinksSheet = false },
         )
+    }
+
+    Scaffold(
+        modifier = modifier,
+        topBar = {
+            NoteHeader(
+                filename = note.id.path.substringAfterLast('/'),
+                lastModified = lastModified,
+                onBack = onBack,
+                onHome = onNavigateHome,
+                onSearch = onSearch,
+                onEdit = { onEditNote(note.id.path) },
+            )
+        },
+        bottomBar = {
+            NoteFooterBar(
+                isFavorite = isFavorite,
+                backlinksCount = backlinks.size,
+                onShare = onShare,
+                onFavorite = onFavorite,
+                onBacklinks = { showBacklinksSheet = true },
+                onMore = {
+                    // TODO: show more options menu
+                },
+            )
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = onCreateNote,
+                shape = CircleShape,
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                elevation = FloatingActionButtonDefaults.elevation(
+                    defaultElevation = 6.dp,
+                    pressedElevation = 12.dp,
+                ),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Add,
+                    contentDescription = "Create new note",
+                    modifier = Modifier.size(28.dp),
+                )
+            }
+        },
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .verticalScroll(scrollState)
+                .padding(16.dp),
+        ) {
+            // Properties drawer
+            if (document.properties.isNotEmpty()) {
+                PropertiesSection(
+                    properties = document.properties,
+                    expanded = propertiesExpanded,
+                    onToggle = { propertiesExpanded = !propertiesExpanded },
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            // Note title card
+            NoteHeaderCard(
+                title = note.title,
+                path = note.id.path,
+                fileTags = document.fileTags,
+            )
+
+            val colorScheme = MaterialTheme.colorScheme
+            val palette = remember(
+                colorScheme.primary,
+                colorScheme.secondary,
+                colorScheme.tertiary,
+                colorScheme.onSurfaceVariant,
+                colorScheme.surfaceVariant,
+                colorScheme.onSurface,
+            ) {
+                OrgTextPalette(
+                    headingLevel1 = colorScheme.primary,
+                    headingLevel2 = colorScheme.secondary,
+                    headingLevel3 = colorScheme.tertiary,
+                    bulletColor = colorScheme.onSurfaceVariant,
+                    linkColor = colorScheme.secondary,
+                    codeBackground = colorScheme.surfaceVariant,
+                    codeTextColor = colorScheme.onSurface,
+                    verbatimBackground = colorScheme.surfaceVariant,
+                    verbatimTextColor = colorScheme.onSurface,
+                )
+            }
+            if (document.preface.isNotBlank()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                OrgBodyText(
+                    text = document.preface,
+                    note = note,
+                    palette = palette,
+                    onOpenLink = onOpenLink,
+                    onOpenExternalLink = onOpenExternalLink,
+                )
+            }
+            document.sections.forEach { section ->
+                Spacer(modifier = Modifier.height(8.dp))
+                OrgSectionView(
+                    section = section,
+                    expandedState = sectionExpansion,
+                    palette = palette,
+                    note = note,
+                    onOpenLink = onOpenLink,
+                    onOpenExternalLink = onOpenExternalLink,
+                )
+            }
+        }
     }
 }
 
@@ -246,24 +372,69 @@ private fun ErrorState(
 }
 
 @Composable
-private fun TopActionRow(
-    onNavigateHome: () -> Unit,
-    onEditNote: () -> Unit,
+private fun PropertiesSection(
+    properties: Map<String, String>,
+    expanded: Boolean,
+    onToggle: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        ),
+        shape = RoundedCornerShape(12.dp),
     ) {
-        IconButton(onClick = onNavigateHome) {
-            Icon(
-                imageVector = Icons.Default.Home,
-                contentDescription = "Back to list",
-                tint = MaterialTheme.colorScheme.primary,
-            )
-        }
-        Spacer(modifier = Modifier.weight(1f))
-        Button(onClick = onEditNote) {
-            Text("Edit")
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Properties",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Icon(
+                    imageVector = if (expanded) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            AnimatedVisibility(visible = expanded) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                ) {
+                    properties.forEach { (key, value) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp),
+                        ) {
+                            Text(
+                                text = "$key:",
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.SemiBold,
+                                ),
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(modifier = Modifier.padding(start = 8.dp))
+                            Text(
+                                text = value,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontFamily = FontFamily.Monospace,
+                                ),
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -272,14 +443,10 @@ private fun TopActionRow(
 private fun NoteHeaderCard(
     title: String,
     path: String,
-    metadata: List<String>,
-    expanded: Boolean,
-    onToggle: () -> Unit,
+    fileTags: List<String>,
 ) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { if (metadata.isNotEmpty()) onToggle() },
+        modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant,
             contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -299,99 +466,10 @@ private fun NoteHeaderCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp),
             )
-            if (metadata.isNotEmpty()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "Metadata",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.secondary,
-                    )
-                    Spacer(modifier = Modifier.weight(1f))
-                    Icon(
-                        imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.secondary,
-                    )
-                }
-                AnimatedVisibility(expanded) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp)
-                            .background(
-                                color = MaterialTheme.colorScheme.surface,
-                                shape = RoundedCornerShape(12.dp),
-                            )
-                            .padding(12.dp),
-                    ) {
-                        metadata.forEach { line ->
-                            Text(
-                                text = line,
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    fontFamily = FontFamily.Monospace,
-                                ),
-                            )
-                        }
-                    }
-                }
+            if (fileTags.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                TagRow(tags = fileTags)
             }
-        }
-    }
-}
-
-@Preview
-@Composable
-private fun NoteViewSuccessPreview() {
-    LinkLetAppTheme {
-        Surface {
-            NoteViewScreen(
-                state = NoteViewUiState.Success(
-                    note = Note(
-                        id = NoteId("notes/sample.org"),
-                        title = "Sample Note",
-                        content = """
-                            #+title: Sample
-                            :PROPERTIES:
-                            :ID: abc
-                            :END:
-
-                            Introduction paragraph with https://kotlinlang.org link.
-
-                            * Heading One
-                            Body *bold* text and [[file:other.org][alias]].
-                            ** Sub heading
-                            More body.
-                        """.trimIndent(),
-                        links = listOf(
-                            NoteLink(
-                                fromId = NoteId("notes/sample.org"),
-                                target = LinkTarget.Path("other.org"),
-                                label = "Alias",
-                                resolvedPath = "other.org",
-                            ),
-                        ),
-                        orgId = "sample-id",
-                    ),
-                    backlinks = listOf(
-                        LinkEntityDto(
-                            source = "notes/linked.org",
-                            target = "notes/sample.org",
-                            alias = "Linked Note",
-                            sourceTitle = "Linked Note",
-                        ),
-                    ),
-                ),
-                onOpenLink = {},
-                onOpenExternalLink = {},
-                onEditNote = {},
-                onNavigateHome = {},
-                onRetry = {},
-            )
         }
     }
 }
@@ -451,10 +529,11 @@ private fun OrgSectionView(
                 .padding(vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                contentDescription = null,
-                tint = palette.colorForLevel(section.level),
+            // Expand/collapse indicator with ▸/▾ style
+            Text(
+                text = if (isExpanded) "▾" else "▸",
+                style = MaterialTheme.typography.titleMedium,
+                color = palette.colorForLevel(section.level),
             )
             Text(
                 text = section.title,
@@ -464,8 +543,15 @@ private fun OrgSectionView(
                 fontWeight = FontWeight.SemiBold,
             )
         }
+        // Show headline tags if present
+        if (section.tags.isNotEmpty()) {
+            TagRow(
+                tags = section.tags,
+                modifier = Modifier.padding(start = 24.dp, bottom = 8.dp),
+            )
+        }
         AnimatedVisibility(visible = isExpanded) {
-            Column(modifier = Modifier.padding(start = 32.dp)) {
+            Column(modifier = Modifier.padding(start = 24.dp)) {
                 OrgBodyText(
                     text = section.body,
                     note = note,
@@ -485,7 +571,6 @@ private fun OrgSectionView(
                 }
             }
         }
-        Spacer(modifier = Modifier.height(8.dp))
     }
 }
 
@@ -517,3 +602,64 @@ private fun OrgTextPalette.colorForLevel(level: Int): Color =
         2 -> headingLevel2
         else -> headingLevel3
     }
+
+@Preview
+@Composable
+private fun NoteViewSuccessPreview() {
+    LinkLetAppTheme {
+        Surface {
+            NoteViewScreen(
+                state = NoteViewUiState.Success(
+                    note = Note(
+                        id = NoteId("notes/sample.org"),
+                        title = "Sample Note",
+                        content = """
+                            #+title: Sample
+                            #+filetags: :test:demo:
+                            :PROPERTIES:
+                            :ID: abc
+                            :CREATED: 2024-01-15
+                            :END:
+
+                            Introduction paragraph with https://kotlinlang.org link.
+
+                            * Heading One                    :important:
+                            Body *bold* text and [[file:other.org][alias]].
+                            ** Sub heading                   :nested:tag:
+                            More body.
+                        """.trimIndent(),
+                        links = listOf(
+                            NoteLink(
+                                fromId = NoteId("notes/sample.org"),
+                                target = LinkTarget.Path("other.org"),
+                                label = "Alias",
+                                resolvedPath = "other.org",
+                            ),
+                        ),
+                        orgId = "sample-id",
+                    ),
+                    backlinks = listOf(
+                        LinkEntityDto(
+                            source = "notes/linked.org",
+                            target = "notes/sample.org",
+                            alias = "Linked Note",
+                            sourceTitle = "Linked Note",
+                        ),
+                    ),
+                    lastModified = "Today at 10:42 AM",
+                    isFavorite = false,
+                ),
+                onOpenLink = {},
+                onOpenExternalLink = {},
+                onEditNote = {},
+                onNavigateHome = {},
+                onBack = {},
+                onSearch = {},
+                onShare = {},
+                onFavorite = {},
+                onCreateNote = {},
+                onRetry = {},
+            )
+        }
+    }
+}

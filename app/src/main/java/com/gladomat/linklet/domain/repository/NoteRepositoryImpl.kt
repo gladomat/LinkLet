@@ -13,6 +13,9 @@ import com.gladomat.linklet.data.sync.SyncScheduler
 import com.gladomat.linklet.domain.repository.LinkEntityDto
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -114,11 +117,19 @@ class NoteRepositoryImpl(
         runCatching {
             Log.d(TAG, "saveNote() - Writing note to storage: path='$path'")
             storage.writeNote(path, content).getOrThrow()
-            Log.d(TAG, "saveNote() - Note written successfully, starting reindex")
-            reindex().getOrThrow()
-            Log.d(TAG, "saveNote() - Reindex complete, scheduling immediate sync")
-            syncScheduler.scheduleImmediate()
-            Log.d(TAG, "saveNote() - Immediate sync scheduled for path='$path'")
+            Log.d(TAG, "saveNote() - Note written successfully, scheduling reindex and sync")
+            // Reindex and sync asynchronously to avoid blocking the save operation
+            // The index will be updated in the background, and the note is already saved
+            GlobalScope.launch(SupervisorJob() + ioDispatcher) {
+                try {
+                    reindex().getOrThrow()
+                    Log.d(TAG, "saveNote() - Reindex complete, scheduling immediate sync")
+                    syncScheduler.scheduleImmediate()
+                    Log.d(TAG, "saveNote() - Immediate sync scheduled for path='$path'")
+                } catch (e: Exception) {
+                    Log.e(TAG, "saveNote() - Error during async reindex: ${e.message}", e)
+                }
+            }
             Unit  // Explicitly return Unit since Log.d returns Int
         }
     }
