@@ -62,6 +62,8 @@ import com.gladomat.linklet.data.model.NoteId
 import com.gladomat.linklet.data.model.NoteLink
 import com.gladomat.linklet.domain.repository.LinkEntityDto
 import com.gladomat.linklet.ui.REFRESH_NOTE_KEY
+import com.gladomat.linklet.ui.components.BlockRenderContext
+import com.gladomat.linklet.ui.components.OrgBlockColumn
 import com.gladomat.linklet.ui.components.OrgSection
 import com.gladomat.linklet.ui.components.OrgTextPalette
 import com.gladomat.linklet.ui.components.ORG_EXTERNAL_LINK_ANNOTATION_TAG
@@ -521,14 +523,19 @@ private fun SuccessState(
                     verbatimTextColor = colorScheme.onSurface,
                 )
             }
-            if (document.preface.isNotBlank()) {
-                Spacer(modifier = Modifier.height(12.dp))
-                OrgBodyText(
-                    text = document.preface,
-                    note = note,
+            val blockRenderContext = remember(palette, note.links, onOpenLink, onOpenExternalLink) {
+                BlockRenderContext(
                     palette = palette,
+                    links = note.links,
                     onOpenLink = onOpenLink,
                     onOpenExternalLink = onOpenExternalLink,
+                )
+            }
+            if (document.prefaceBlocks.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                OrgBlockColumn(
+                    blocks = document.prefaceBlocks,
+                    context = blockRenderContext,
                 )
             }
             document.sections.forEach { section ->
@@ -537,9 +544,7 @@ private fun SuccessState(
                     section = section,
                     expandedState = sectionExpansion,
                     palette = palette,
-                    note = note,
-                    onOpenLink = onOpenLink,
-                    onOpenExternalLink = onOpenExternalLink,
+                    context = blockRenderContext,
                 )
             }
         }
@@ -706,12 +711,11 @@ private fun OrgSectionView(
     section: OrgSection,
     expandedState: MutableMap<String, Boolean>,
     palette: OrgTextPalette,
-    note: Note,
-    onOpenLink: (String) -> Unit,
-    onOpenExternalLink: (String) -> Unit,
+    context: BlockRenderContext,
 ) {
     val isExpanded = expandedState[section.id] ?: true
-    val indent = ((section.level - 1).coerceAtLeast(0) * 12).dp
+    val indentLevel = (section.level - 1).coerceIn(0, 5)
+    val indent = (indentLevel * 12).dp
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -747,21 +751,18 @@ private fun OrgSectionView(
         }
         AnimatedVisibility(visible = isExpanded) {
             Column(modifier = Modifier.padding(start = 24.dp)) {
-                OrgBodyText(
-                    text = section.body,
-                    note = note,
-                    palette = palette,
-                    onOpenLink = onOpenLink,
-                    onOpenExternalLink = onOpenExternalLink,
-                )
+                if (section.blocks.isNotEmpty()) {
+                    OrgBlockColumn(
+                        blocks = section.blocks,
+                        context = context,
+                    )
+                }
                 section.children.forEach { child ->
                     OrgSectionView(
                         section = child,
                         expandedState = expandedState,
                         palette = palette,
-                        note = note,
-                        onOpenLink = onOpenLink,
-                        onOpenExternalLink = onOpenExternalLink,
+                        context = context,
                     )
                 }
             }
