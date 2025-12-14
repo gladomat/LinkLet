@@ -89,6 +89,12 @@ fun NoteViewRoute(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
+    var allTags by remember { mutableStateOf(emptyList<String>()) }
+
+    // Collect all tags for autocomplete
+    LaunchedEffect(Unit) {
+        allTags = viewModel.getAllTags()
+    }
 
     // Observe refresh flag from navigation result (set by NoteEditRoute after save)
     LaunchedEffect(savedStateHandle) {
@@ -178,6 +184,9 @@ fun NoteViewRoute(
         onDuplicate = viewModel::duplicateNote,
         onRename = viewModel::renameNote,
         onCopyToClipboard = handleCopyToClipboard,
+        onUpdateProperties = viewModel::updateProperties,
+        onUpdateTags = viewModel::updateTags,
+        allTags = allTags,
         modifier = modifier,
     )
 }
@@ -199,6 +208,9 @@ fun NoteViewScreen(
     onDuplicate: () -> Unit,
     onRename: (String) -> Unit,
     onCopyToClipboard: () -> Unit,
+    onUpdateProperties: (Map<String, String>) -> Unit,
+    onUpdateTags: (List<String>) -> Unit,
+    allTags: List<String>,
     modifier: Modifier = Modifier,
 ) {
     when (state) {
@@ -221,6 +233,9 @@ fun NoteViewScreen(
             onDuplicate = onDuplicate,
             onRename = onRename,
             onCopyToClipboard = onCopyToClipboard,
+            onUpdateProperties = onUpdateProperties,
+            onUpdateTags = onUpdateTags,
+            allTags = allTags,
             modifier = modifier,
         )
         is NoteViewUiState.Error -> ErrorState(
@@ -263,6 +278,9 @@ private fun SuccessState(
     onDuplicate: () -> Unit,
     onRename: (String) -> Unit,
     onCopyToClipboard: () -> Unit,
+    onUpdateProperties: (Map<String, String>) -> Unit,
+    onUpdateTags: (List<String>) -> Unit,
+    allTags: List<String>,
     modifier: Modifier,
 ) {
     val document = remember(note.content) { parseOrgDocument(note.content) }
@@ -272,6 +290,8 @@ private fun SuccessState(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var showExportSheet by remember { mutableStateOf(false) }
+    var showPropertiesDialog by remember { mutableStateOf(false) }
+    var showTagsDialog by remember { mutableStateOf(false) }
     val sectionExpansion = remember(document.sections) {
         mutableStateMapOf<String, Boolean>().apply {
             document.sections.forEach { collectIds(it, this) }
@@ -298,6 +318,39 @@ private fun SuccessState(
             onRename = { showRenameDialog = true },
             onExport = { showExportSheet = true },
             onDelete = { showDeleteDialog = true },
+            onProperties = { showPropertiesDialog = true },
+            onTags = { showTagsDialog = true },
+            onExpandAll = {
+                sectionExpansion.keys.forEach { key -> sectionExpansion[key] = true }
+            },
+            onCollapseAll = {
+                sectionExpansion.keys.forEach { key -> sectionExpansion[key] = false }
+            },
+        )
+    }
+
+    // Properties editor dialog
+    if (showPropertiesDialog) {
+        PropertiesEditorDialog(
+            properties = note.properties,
+            onSave = { newProperties ->
+                showPropertiesDialog = false
+                onUpdateProperties(newProperties)
+            },
+            onDismiss = { showPropertiesDialog = false },
+        )
+    }
+
+    // Tag picker dialog
+    if (showTagsDialog) {
+        TagPickerDialog(
+            currentTags = note.fileTags,
+            allAvailableTags = allTags,
+            onSave = { newTags ->
+                showTagsDialog = false
+                onUpdateTags(newTags)
+            },
+            onDismiss = { showTagsDialog = false },
         )
     }
 
@@ -758,6 +811,9 @@ private fun NoteViewSuccessPreview() {
                 onDuplicate = {},
                 onRename = {},
                 onCopyToClipboard = {},
+                onUpdateProperties = {},
+                onUpdateTags = {},
+                allTags = listOf("example", "tag"),
             )
         }
     }

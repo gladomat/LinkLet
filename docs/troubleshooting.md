@@ -55,3 +55,25 @@ Patching the consumer closest to the crash (usually UI) hides the fact that the 
 4. Only return upstream once the side-effect layer is verified.
 
 > "Follow the side-effect, not the crash dialog. Bugs born in IO layers rarely die in UI code."
+
+### Interface Fragility in Tests (2025-12-14)
+**Issue:**
+Adding `getAllTags` to `INoteRepository` caused a cascade of build failures across 4 different test files (`NoteViewViewModelTests`, `NoteListViewModelTests`, etc.), delaying verification.
+
+**Root Cause:**
+We used ad-hoc `object : INoteRepository` implementations in every test file instead of a single shared `FakeNoteRepository`. Changing the interface meant fixing 10+ anonymous objects manually.
+
+**Resolution:**
+We manually updated all stubs. The long-term architectural fix is to introduce a shared `FakeNoteRepository` module to centralize test doubles.
+
+### 🏗️ Centralize Test Doubles
+**When to use:**
+When you find yourself updating multiple test files for a single interface change.
+
+**The Trap:**
+Defining `val repo = object : IRepo { ... }` inside every test method or class. It's quick to start but deadly to maintain.
+
+**The Fix:**
+Create a single `FakeRepo` class in your `test/` source set that implements the interface. Use this fake in all tests. When the interface changes, you update exactly one file (the Fake).
+
+> "Don't repeat yourself (DRY) applies to test code too. If you copy-paste a mock setup 10 times, you'll pay the price 10 times when the API changes."

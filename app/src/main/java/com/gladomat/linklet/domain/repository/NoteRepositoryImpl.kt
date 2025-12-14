@@ -271,6 +271,142 @@ class NoteRepositoryImpl(
             link.copy(resolvedPath = resolvedPath)
         }
 
+    override suspend fun getAllTags(): Result<List<String>> = withContext(ioDispatcher) {
+        runCatching {
+            notesState.value
+                .flatMap { it.fileTags }
+                .distinct()
+                .sorted()
+        }
+    }
+
+    override suspend fun updateNoteProperties(
+        path: String,
+        properties: Map<String, String>,
+    ): Result<Unit> = withContext(ioDispatcher) {
+        runCatching {
+            val originalContent = storage.readNote(path).getOrThrow()
+            val newContent = updatePropertiesInContent(originalContent, properties)
+            storage.writeNote(path, newContent).getOrThrow()
+            
+            // Refresh the note in memory
+            val parsed = parser.parse(content = newContent, path = path)
+            val resolved = parsed.copy(links = resolveLinks(parsed.links))
+            notesState.update { existing ->
+                (existing.filterNot { it.id.path == path } + resolved)
+                    .sortedBy { it.title.lowercase() }
+            }
+            
+            syncScheduler.scheduleImmediate()
+            Log.d(TAG, "updateNoteProperties() - Properties updated for $path")
+            Unit
+        }
+    }
+
+    override suspend fun updateNoteTags(
+        path: String,
+        tags: List<String>,
+    ): Result<Unit> = withContext(ioDispatcher) {
+        runCatching {
+            val originalContent = storage.readNote(path).getOrThrow()
+            val newContent = updateFileTagsInContent(originalContent, tags)
+            storage.writeNote(path, newContent).getOrThrow()
+            
+            // Refresh the note in memory
+            val parsed = parser.parse(content = newContent, path = path)
+            val resolved = parsed.copy(links = resolveLinks(parsed.links))
+            notesState.update { existing ->
+                (existing.filterNot { it.id.path == path } + resolved)
+                    .sortedBy { it.title.lowercase() }
+            }
+            
+            syncScheduler.scheduleImmediate()
+            Log.d(TAG, "updateNoteTags() - Tags updated for $path: $tags")
+            Unit
+        }
+    }
+
+    /**
+     * Updates or creates :PROPERTIES: drawer with given properties.
+     * Preserves ID property if it exists and isn't in the new map.
+     */
+    private fun updatePropertiesInContent(content: String, properties: Map<String, String>): String {
+        val newline = if (content.contains("\r\n")) "\r\n" else "\n"
+        
+        val propertiesDrawerRegex = Regex(""":PROPERTIES:\s*\n[\s\S]*?\n\s*:END:""", RegexOption.IGNORE_CASE)
+        val existingMatch = propertiesDrawerRegex.find(content)
+        
+        // Build new drawer content
+        val drawerLines = properties
+            .filterValues { it.isNotBlank() }
+            .map { (key, value) -> ":${key.uppercase()}: $value" }
+        
+        val newDrawer = if (drawerLines.isEmpty()) {
+            "" // Remove drawer if no properties
+        } else {
+            (listOf(":PROPERTIES:") + drawerLines + listOf(":END:")).joinToString(newline)
+        }
+        
+        return if (existingMatch != null) {
+            if (newDrawer.isEmpty()) {
+                content.replaceRange(existingMatch.range, "").trimStart('\n', '\r')
+            } else {
+                content.replaceRange(existingMatch.range, newDrawer)
+            }
+        } else if (newDrawer.isNotEmpty()) {
+            // Insert after title or at start
+            val titleRegex = Regex("""(?im)^[ \t]*#\+title:.*$""")
+            val titleMatch = titleRegex.find(content)
+            if (titleMatch != null) {
+                val lineBreakIndex = content.indexOf('\n', startIndex = titleMatch.range.last)
+                val insertAt = if (lineBreakIndex >= 0) lineBreakIndex + 1 else content.length
+                content.substring(0, insertAt) + newDrawer + newline + content.substring(insertAt)
+            } else {
+                newDrawer + newline + content
+            }
+        } else {
+            content
+        }
+    }
+
+    /**
+     * Updates or creates #+filetags: line.
+     */
+    private fun updateFileTagsInContent(content: String, tags: List<String>): String {
+        val newline = if (content.contains("\r\n")) "\r\n" else "\n"
+        
+        val filetagsRegex = Regex("""(?im)^#\+filetags:\s*.*$""")
+        val existingMatch = filetagsRegex.find(content)
+        
+        val newLine = if (tags.isEmpty()) {
+            "" // Remove filetags line
+        } else {
+            "#+filetags: :${tags.joinToString(":")}:"
+        }
+        
+        return if (existingMatch != null) {
+            if (newLine.isEmpty()) {
+                content.replaceRange(existingMatch.range, "")
+                    .replace(Regex("""(\r?\n){2,}"""), "$1") // Clean up double newlines
+            } else {
+                content.replaceRange(existingMatch.range, newLine)
+            }
+        } else if (newLine.isNotEmpty()) {
+            // Insert after title or at start
+            val titleRegex = Regex("""(?im)^[ \t]*#\+title:.*$""")
+            val titleMatch = titleRegex.find(content)
+            if (titleMatch != null) {
+                val lineBreakIndex = content.indexOf('\n', startIndex = titleMatch.range.last)
+                val insertAt = if (lineBreakIndex >= 0) lineBreakIndex + 1 else content.length
+                content.substring(0, insertAt) + newLine + newline + content.substring(insertAt)
+            } else {
+                newLine + newline + content
+            }
+        } else {
+            content
+        }
+    }
+
     companion object {
         private const val TAG = "NoteRepositoryImpl"
     }

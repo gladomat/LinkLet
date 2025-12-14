@@ -18,6 +18,12 @@ interface INoteRepository {
     suspend fun duplicateNote(path: String): Result<String>
     /** Renames a note file. Backlinks remain intact because they use org-roam IDs. */
     suspend fun renameNote(oldPath: String, newPath: String): Result<Unit>
+    /** Returns all unique tags from all notes in the repository. */
+    suspend fun getAllTags(): Result<List<String>>
+    /** Updates properties in a note's :PROPERTIES: drawer. */
+    suspend fun updateNoteProperties(path: String, properties: Map<String, String>): Result<Unit>
+    /** Updates the #+filetags: line in a note. */
+    suspend fun updateNoteTags(path: String, tags: List<String>): Result<Unit>
 }
 
 data class LinkEntityDto(

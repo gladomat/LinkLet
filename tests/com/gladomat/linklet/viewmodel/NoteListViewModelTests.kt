@@ -43,6 +43,11 @@ class NoteListViewModelTests {
             override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(emptyList())
             override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
             override suspend fun deleteNote(path: String): Result<Unit> = Result.success(Unit)
+            override suspend fun duplicateNote(path: String): Result<String> = Result.success("copy-$path")
+            override suspend fun renameNote(oldPath: String, newPath: String): Result<Unit> = Result.success(Unit)
+            override suspend fun getAllTags(): Result<List<String>> = Result.success(emptyList())
+            override suspend fun updateNoteProperties(path: String, properties: Map<String, String>): Result<Unit> = Result.success(Unit)
+            override suspend fun updateNoteTags(path: String, tags: List<String>): Result<Unit> = Result.success(Unit)
         }
 
         val viewModel = NoteListViewModel(repository)
@@ -67,6 +72,11 @@ class NoteListViewModelTests {
             override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(emptyList())
             override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
             override suspend fun deleteNote(path: String): Result<Unit> = Result.success(Unit)
+            override suspend fun duplicateNote(path: String): Result<String> = Result.success("copy-$path")
+            override suspend fun renameNote(oldPath: String, newPath: String): Result<Unit> = Result.success(Unit)
+            override suspend fun getAllTags(): Result<List<String>> = Result.success(emptyList())
+            override suspend fun updateNoteProperties(path: String, properties: Map<String, String>): Result<Unit> = Result.success(Unit)
+            override suspend fun updateNoteTags(path: String, tags: List<String>): Result<Unit> = Result.success(Unit)
         }
 
         val viewModel = NoteListViewModel(repository)
@@ -88,6 +98,11 @@ class NoteListViewModelTests {
             override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(emptyList())
             override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
             override suspend fun deleteNote(path: String): Result<Unit> = Result.success(Unit)
+            override suspend fun duplicateNote(path: String): Result<String> = Result.success("copy-$path")
+            override suspend fun renameNote(oldPath: String, newPath: String): Result<Unit> = Result.success(Unit)
+            override suspend fun getAllTags(): Result<List<String>> = Result.success(emptyList())
+            override suspend fun updateNoteProperties(path: String, properties: Map<String, String>): Result<Unit> = Result.success(Unit)
+            override suspend fun updateNoteTags(path: String, tags: List<String>): Result<Unit> = Result.success(Unit)
         }
 
         val viewModel = NoteListViewModel(repository)
@@ -132,6 +147,11 @@ class NoteListViewModelTests {
             override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(emptyList())
             override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
             override suspend fun deleteNote(path: String): Result<Unit> = Result.success(Unit)
+            override suspend fun duplicateNote(path: String): Result<String> = Result.success("copy-$path")
+            override suspend fun renameNote(oldPath: String, newPath: String): Result<Unit> = Result.success(Unit)
+            override suspend fun getAllTags(): Result<List<String>> = Result.success(emptyList())
+            override suspend fun updateNoteProperties(path: String, properties: Map<String, String>): Result<Unit> = Result.success(Unit)
+            override suspend fun updateNoteTags(path: String, tags: List<String>): Result<Unit> = Result.success(Unit)
         }
 
         val viewModel = NoteListViewModel(repository)

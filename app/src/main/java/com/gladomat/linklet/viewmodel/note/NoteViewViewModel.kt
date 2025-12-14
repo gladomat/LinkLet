@@ -152,6 +152,35 @@ class NoteViewViewModel @Inject constructor(
     /** Returns the current note path */
     fun currentPath(): String = notePath
 
+    /** Gets all unique tags from the repository for autocomplete */
+    suspend fun getAllTags(): List<String> {
+        return repository.getAllTags().getOrDefault(emptyList())
+    }
+
+    /** Updates properties in the current note */
+    fun updateProperties(properties: Map<String, String>) {
+        viewModelScope.launch {
+            repository.updateNoteProperties(notePath, properties).fold(
+                onSuccess = { loadNote() },
+                onFailure = { error ->
+                    _state.value = NoteViewUiState.Error("Failed to update properties: ${error.message}")
+                },
+            )
+        }
+    }
+
+    /** Updates tags in the current note */
+    fun updateTags(tags: List<String>) {
+        viewModelScope.launch {
+            repository.updateNoteTags(notePath, tags).fold(
+                onSuccess = { loadNote() },
+                onFailure = { error ->
+                    _state.value = NoteViewUiState.Error("Failed to update tags: ${error.message}")
+                },
+            )
+        }
+    }
+
     private fun rememberCurrentPath() {
         if (history.peekFirst() == notePath) return
         history.removeIf { it == notePath }

@@ -6,11 +6,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.FileCopy
+import androidx.compose.material.icons.filled.Label
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.UnfoldLess
+import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -39,6 +42,10 @@ fun MoreActionsBottomSheet(
     onRename: () -> Unit,
     onExport: () -> Unit,
     onDelete: () -> Unit,
+    onProperties: () -> Unit,
+    onTags: () -> Unit,
+    onExpandAll: () -> Unit,
+    onCollapseAll: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val sheetState = rememberModalBottomSheetState()
@@ -66,6 +73,59 @@ fun MoreActionsBottomSheet(
                 color = MaterialTheme.colorScheme.outlineVariant,
             )
 
+            // View controls
+            ActionItem(
+                icon = Icons.Default.UnfoldMore,
+                label = "Expand All",
+                onClick = {
+                    onExpandAll()
+                    onDismiss()
+                },
+            )
+
+            ActionItem(
+                icon = Icons.Default.UnfoldLess,
+                label = "Collapse All",
+                onClick = {
+                    onCollapseAll()
+                    onDismiss()
+                },
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider(
+                modifier = Modifier.padding(horizontal = 16.dp),
+                color = MaterialTheme.colorScheme.outlineVariant,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Metadata actions
+            ActionItem(
+                icon = Icons.Default.Settings,
+                label = "Properties",
+                onClick = {
+                    onProperties()
+                    onDismiss()
+                },
+            )
+
+            ActionItem(
+                icon = Icons.Default.Label,
+                label = "Tags",
+                onClick = {
+                    onTags()
+                    onDismiss()
+                },
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider(
+                modifier = Modifier.padding(horizontal = 16.dp),
+                color = MaterialTheme.colorScheme.outlineVariant,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // File actions
             ActionItem(
                 icon = Icons.Default.FileCopy,
                 label = "Duplicate",
@@ -164,6 +224,10 @@ private fun MoreActionsBottomSheetPreview() {
                 onRename = {},
                 onExport = {},
                 onDelete = {},
+                onProperties = {},
+                onTags = {},
+                onExpandAll = {},
+                onCollapseAll = {},
             )
         }
     }
