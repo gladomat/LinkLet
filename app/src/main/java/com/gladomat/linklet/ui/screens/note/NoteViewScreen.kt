@@ -127,6 +127,48 @@ fun NoteViewRoute(
             }
         }
     }
+    val handleExportMarkdown = remember(context, state) {
+        {
+            val currentState = state
+            if (currentState is NoteViewUiState.Success) {
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, currentState.note.title)
+                    putExtra(Intent.EXTRA_TEXT, currentState.note.content)
+                }
+                context.startActivity(Intent.createChooser(shareIntent, "Share as Markdown"))
+            }
+        }
+    }
+    val handleExportPlainText = remember(context, state) {
+        {
+            val currentState = state
+            if (currentState is NoteViewUiState.Success) {
+                // Strip org-mode formatting for plain text
+                val plainText = currentState.note.content
+                    .lines()
+                    .filterNot { it.startsWith("#+") || it.startsWith(":") }
+                    .joinToString("\n")
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, currentState.note.title)
+                    putExtra(Intent.EXTRA_TEXT, plainText)
+                }
+                context.startActivity(Intent.createChooser(shareIntent, "Share as Plain Text"))
+            }
+        }
+    }
+    val clipboardManager = remember { context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager }
+    val handleCopyToClipboard = remember(state, clipboardManager) {
+        {
+            val currentState = state
+            if (currentState is NoteViewUiState.Success) {
+                val clip = android.content.ClipData.newPlainText(currentState.note.title, currentState.note.content)
+                clipboardManager.setPrimaryClip(clip)
+                android.widget.Toast.makeText(context, "Copied to clipboard", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
     BackHandler {
         handleBack()
     }
@@ -142,6 +184,12 @@ fun NoteViewRoute(
         onFavorite = viewModel::toggleFavorite,
         onCreateNote = onCreateNote,
         onRetry = viewModel::loadNote,
+        onDelete = { viewModel.deleteNote { handleExit() } },
+        onDuplicate = viewModel::duplicateNote,
+        onRename = viewModel::renameNote,
+        onExportMarkdown = handleExportMarkdown,
+        onExportPlainText = handleExportPlainText,
+        onCopyToClipboard = handleCopyToClipboard,
         modifier = modifier,
     )
 }
@@ -159,6 +207,12 @@ fun NoteViewScreen(
     onFavorite: () -> Unit,
     onCreateNote: () -> Unit,
     onRetry: () -> Unit,
+    onDelete: () -> Unit,
+    onDuplicate: () -> Unit,
+    onRename: (String) -> Unit,
+    onExportMarkdown: () -> Unit,
+    onExportPlainText: () -> Unit,
+    onCopyToClipboard: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     when (state) {
@@ -177,6 +231,12 @@ fun NoteViewScreen(
             onShare = onShare,
             onFavorite = onFavorite,
             onCreateNote = onCreateNote,
+            onDelete = onDelete,
+            onDuplicate = onDuplicate,
+            onRename = onRename,
+            onExportMarkdown = onExportMarkdown,
+            onExportPlainText = onExportPlainText,
+            onCopyToClipboard = onCopyToClipboard,
             modifier = modifier,
         )
         is NoteViewUiState.Error -> ErrorState(
@@ -215,11 +275,21 @@ private fun SuccessState(
     onShare: () -> Unit,
     onFavorite: () -> Unit,
     onCreateNote: () -> Unit,
+    onDelete: () -> Unit,
+    onDuplicate: () -> Unit,
+    onRename: (String) -> Unit,
+    onExportMarkdown: () -> Unit,
+    onExportPlainText: () -> Unit,
+    onCopyToClipboard: () -> Unit,
     modifier: Modifier,
 ) {
     val document = remember(note.content) { parseOrgDocument(note.content) }
     var propertiesExpanded by remember(note.id.path) { mutableStateOf(false) }
     var showBacklinksSheet by remember { mutableStateOf(false) }
+    var showMoreSheet by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var showExportSheet by remember { mutableStateOf(false) }
     val sectionExpansion = remember(document.sections) {
         mutableStateMapOf<String, Boolean>().apply {
             document.sections.forEach { collectIds(it, this) }
@@ -235,6 +305,52 @@ private fun SuccessState(
                 onOpenLink(path)
             },
             onDismiss = { showBacklinksSheet = false },
+        )
+    }
+
+    // More actions bottom sheet
+    if (showMoreSheet) {
+        MoreActionsBottomSheet(
+            onDismiss = { showMoreSheet = false },
+            onDuplicate = onDuplicate,
+            onRename = { showRenameDialog = true },
+            onExport = { showExportSheet = true },
+            onDelete = { showDeleteDialog = true },
+        )
+    }
+
+    // Delete confirmation dialog
+    if (showDeleteDialog) {
+        DeleteNoteDialog(
+            filename = note.id.path.substringAfterLast('/'),
+            backlinksCount = backlinks.size,
+            onConfirm = {
+                showDeleteDialog = false
+                onDelete()
+            },
+            onDismiss = { showDeleteDialog = false },
+        )
+    }
+
+    // Rename dialog
+    if (showRenameDialog) {
+        RenameNoteDialog(
+            currentFilename = note.id.path.substringAfterLast('/'),
+            onConfirm = { newFilename ->
+                showRenameDialog = false
+                onRename(newFilename)
+            },
+            onDismiss = { showRenameDialog = false },
+        )
+    }
+
+    // Export bottom sheet
+    if (showExportSheet) {
+        ExportBottomSheet(
+            onDismiss = { showExportSheet = false },
+            onExportMarkdown = { onExportMarkdown() },
+            onExportPlainText = { onExportPlainText() },
+            onCopyToClipboard = { onCopyToClipboard() },
         )
     }
 
@@ -257,9 +373,7 @@ private fun SuccessState(
                 onShare = onShare,
                 onFavorite = onFavorite,
                 onBacklinks = { showBacklinksSheet = true },
-                onMore = {
-                    // TODO: show more options menu
-                },
+                onMore = { showMoreSheet = true },
             )
         },
         floatingActionButton = {
@@ -659,6 +773,12 @@ private fun NoteViewSuccessPreview() {
                 onFavorite = {},
                 onCreateNote = {},
                 onRetry = {},
+                onDelete = {},
+                onDuplicate = {},
+                onRename = {},
+                onExportMarkdown = {},
+                onExportPlainText = {},
+                onCopyToClipboard = {},
             )
         }
     }

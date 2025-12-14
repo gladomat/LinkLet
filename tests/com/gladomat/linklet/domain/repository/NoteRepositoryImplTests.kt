@@ -149,6 +149,12 @@ class NoteRepositoryImplTests {
             return Result.success(Unit)
         }
 
+        override suspend fun renameNote(oldPath: String, newPath: String): Result<Unit> {
+            val content = files.remove(oldPath) ?: return Result.failure(IOException("Source not found"))
+            files[newPath] = content
+            return Result.success(Unit)
+        }
+
         override suspend fun invalidateCache() {
             // No-op for fake
         }

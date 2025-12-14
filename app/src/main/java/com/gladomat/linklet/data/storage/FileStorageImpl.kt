@@ -57,6 +57,19 @@ class FileStorageImpl(
         }
     }
 
+    override suspend fun renameNote(oldPath: String, newPath: String): Result<Unit> = withContext(dispatcher) {
+        runCatching {
+            val source = resolvePath(oldPath)
+            if (!source.exists()) throw IOException("Source file not found: $oldPath")
+            val target = resolvePath(newPath)
+            if (target.exists()) throw IOException("Target file already exists: $newPath")
+            target.parentFile?.mkdirs()
+            if (!source.renameTo(target)) {
+                throw IOException("Failed to rename file from $oldPath to $newPath")
+            }
+        }
+    }
+
     override suspend fun invalidateCache() {
         // No-op: File-based storage doesn't cache directory listings
     }

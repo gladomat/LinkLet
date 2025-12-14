@@ -71,6 +71,27 @@ class DocumentTreeStorageImpl @Inject constructor(
         }
     }
 
+    override suspend fun renameNote(oldPath: String, newPath: String): Result<Unit> = withContext(dispatcher) {
+        runCatching {
+            val sourceFile = resolveFile(oldPath) ?: throw IOException("Source file not found: $oldPath")
+            val content = readFromDocument(sourceFile)
+            
+            // Create new file with new name
+            val parent = ensureParentDirectories(newPath)
+            val newFileName = newPath.substringAfterLast('/')
+            if (parent.findFile(newFileName) != null) {
+                throw IOException("Target file already exists: $newPath")
+            }
+            val newFile = parent.createFile("text/org", newFileName)
+                ?: throw IOException("Unable to create file: $newPath")
+            writeToDocument(newFile, content)
+            
+            // Delete old file
+            sourceFile.delete()
+            Unit
+        }
+    }
+
     private suspend fun baseDocumentFile(): DocumentFile? {
         val uri: Uri = folderSettingsRepository.currentFolderUri() ?: return null
         

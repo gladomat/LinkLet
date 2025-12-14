@@ -14,6 +14,10 @@ interface INoteRepository {
     suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>>
     suspend fun saveNote(path: String, content: String): Result<Unit>
     suspend fun deleteNote(path: String): Result<Unit>
+    /** Duplicates a note with a new timestamp-based filename. Returns the new path. */
+    suspend fun duplicateNote(path: String): Result<String>
+    /** Renames a note file. Backlinks remain intact because they use org-roam IDs. */
+    suspend fun renameNote(oldPath: String, newPath: String): Result<Unit>
 }
 
 data class LinkEntityDto(

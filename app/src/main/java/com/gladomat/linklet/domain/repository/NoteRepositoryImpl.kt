@@ -142,6 +142,79 @@ class NoteRepositoryImpl(
         }
     }
 
+    override suspend fun duplicateNote(path: String): Result<String> = withContext(ioDispatcher) {
+        runCatching {
+            Log.d(TAG, "duplicateNote() - Duplicating note: $path")
+            val originalContent = storage.readNote(path).getOrThrow()
+            
+            // Generate new timestamp-based filename
+            val originalFilename = path.substringAfterLast('/')
+            val directory = path.substringBeforeLast('/', "")
+            val timestamp = java.time.LocalDateTime.now()
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
+            val newFilename = "$timestamp-${originalFilename}"
+            val newPath = if (directory.isEmpty()) newFilename else "$directory/$newFilename"
+            
+            // Generate new org-roam ID and update content
+            val newId = java.util.UUID.randomUUID().toString()
+            val newContent = updateOrgId(originalContent, newId)
+            
+            storage.writeNote(newPath, newContent).getOrThrow()
+            Log.d(TAG, "duplicateNote() - Created duplicate at: $newPath")
+            
+            reindex().getOrThrow()
+            syncScheduler.scheduleImmediate()
+            
+            newPath
+        }
+    }
+
+    override suspend fun renameNote(oldPath: String, newPath: String): Result<Unit> = withContext(ioDispatcher) {
+        runCatching {
+            Log.d(TAG, "renameNote() - Renaming from $oldPath to $newPath")
+            storage.renameNote(oldPath, newPath).getOrThrow()
+            reindex().getOrThrow()
+            syncScheduler.scheduleImmediate()
+            Log.d(TAG, "renameNote() - Rename complete and synced")
+            Unit
+        }
+    }
+
+    /**
+     * Updates or inserts an :ID: property in the org-mode content.
+     */
+    private fun updateOrgId(content: String, newId: String): String {
+        val lines = content.lines().toMutableList()
+        val idRegex = Regex(""":ID:\s*\S+""", RegexOption.IGNORE_CASE)
+        
+        // Find and replace existing :ID: line
+        for (i in lines.indices) {
+            if (lines[i].trim().matches(idRegex)) {
+                lines[i] = lines[i].replace(idRegex, ":ID: $newId")
+                return lines.joinToString("\n")
+            }
+        }
+        
+        // No existing :ID:, look for :PROPERTIES: drawer to insert
+        for (i in lines.indices) {
+            if (lines[i].trim().equals(":PROPERTIES:", ignoreCase = true)) {
+                lines.add(i + 1, ":ID: $newId")
+                return lines.joinToString("\n")
+            }
+        }
+        
+        // No :PROPERTIES: drawer, add one after #+title: or at the start
+        val titleIndex = lines.indexOfFirst { 
+            it.trim().startsWith("#+title:", ignoreCase = true) 
+        }
+        val insertIndex = if (titleIndex >= 0) titleIndex + 1 else 0
+        lines.add(insertIndex, ":PROPERTIES:")
+        lines.add(insertIndex + 1, ":ID: $newId")
+        lines.add(insertIndex + 2, ":END:")
+        
+        return lines.joinToString("\n")
+    }
+
     private fun resolveLinks(links: List<NoteLink>): List<NoteLink> =
         links.mapNotNull { link ->
             val resolvedPath = when (val target = link.target) {

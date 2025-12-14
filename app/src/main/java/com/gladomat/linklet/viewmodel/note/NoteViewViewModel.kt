@@ -90,6 +90,68 @@ class NoteViewViewModel @Inject constructor(
         // TODO: persist favorite state
     }
 
+    /**
+     * Deletes the current note and signals completion via onDeleted callback.
+     */
+    fun deleteNote(onDeleted: () -> Unit) {
+        viewModelScope.launch {
+            repository.deleteNote(notePath).fold(
+                onSuccess = {
+                    resetHistory()
+                    onDeleted()
+                },
+                onFailure = { error ->
+                    _state.value = NoteViewUiState.Error("Failed to delete: ${error.message}")
+                },
+            )
+        }
+    }
+
+    /**
+     * Duplicates the current note with a new timestamp filename and ID.
+     * Navigates to the new note on success.
+     */
+    fun duplicateNote() {
+        viewModelScope.launch {
+            repository.duplicateNote(notePath).fold(
+                onSuccess = { newPath ->
+                    navigateTo(newPath, addToHistory = true)
+                },
+                onFailure = { error ->
+                    _state.value = NoteViewUiState.Error("Failed to duplicate: ${error.message}")
+                },
+            )
+        }
+    }
+
+    /**
+     * Renames the current note to a new filename.
+     * Navigates to the renamed note on success.
+     */
+    fun renameNote(newFilename: String) {
+        val currentState = _state.value
+        if (currentState !is NoteViewUiState.Success) return
+
+        viewModelScope.launch {
+            val directory = notePath.substringBeforeLast('/', "")
+            val newPath = if (directory.isEmpty()) newFilename else "$directory/$newFilename"
+            
+            repository.renameNote(notePath, newPath).fold(
+                onSuccess = {
+                    notePath = newPath
+                    savedStateHandle[NoteArgs.NOTE_PATH] = newPath
+                    loadNote()
+                },
+                onFailure = { error ->
+                    _state.value = NoteViewUiState.Error("Failed to rename: ${error.message}")
+                },
+            )
+        }
+    }
+
+    /** Returns the current note path */
+    fun currentPath(): String = notePath
+
     private fun rememberCurrentPath() {
         if (history.peekFirst() == notePath) return
         history.removeIf { it == notePath }
