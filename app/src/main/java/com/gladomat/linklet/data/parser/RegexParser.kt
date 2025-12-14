@@ -15,8 +15,8 @@ class RegexParser : IParser {
         options = setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE),
     )
     private val idPropertyRegex = Regex(
-        pattern = """:ID:\s*([^\s]+)""",
-        options = setOf(RegexOption.IGNORE_CASE),
+        pattern = """^[ \t]*:ID:\s*(\S+)\s*$""",
+        options = setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE),
     )
     private val linkRegex = Regex(
         pattern = """\[\[(file|id):([^\]]+)\](?:\[([^\]]+)\])?\]""",
@@ -43,7 +43,13 @@ class RegexParser : IParser {
         val title = rawTitle?.takeIf { it.isNotEmpty() } ?: path
 
         // Parse properties drawer
-        val properties = parseProperties(content)
+        val parsedProperties = parseProperties(content)
+        val fallbackId = idPropertyRegex.find(content)?.groupValues?.getOrNull(1)?.trim()
+        val properties = if (!fallbackId.isNullOrEmpty() && parsedProperties["ID"].isNullOrEmpty()) {
+            parsedProperties + ("ID" to fallbackId)
+        } else {
+            parsedProperties
+        }
         val orgId = properties["ID"]
 
         // Parse filetags
@@ -83,7 +89,7 @@ class RegexParser : IParser {
     private fun parseProperties(content: String): Map<String, String> {
         val drawerMatch = propertiesDrawerRegex.find(content) ?: return emptyMap()
         val drawerContent = drawerMatch.groupValues.getOrNull(1) ?: return emptyMap()
-        
+
         return propertyLineRegex.findAll(drawerContent)
             .mapNotNull { match ->
                 val key = match.groupValues.getOrNull(1)?.trim()?.uppercase()
@@ -100,17 +106,22 @@ class RegexParser : IParser {
     private fun parseFileTags(content: String): List<String> {
         val match = filetagsRegex.find(content) ?: return emptyList()
         val tagsValue = match.groupValues.getOrNull(1)?.trim() ?: return emptyList()
-        
-        // Handle :tag1:tag2: format
-        return if (tagsValue.startsWith(":") || tagsValue.contains(":")) {
-            tagsValue.split(":")
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
+
+        val rawTags = if (tagsValue.contains(":")) {
+            tagsValue.trim(':').split(":")
         } else {
-            // Handle space-separated format
             tagsValue.split(Regex("\\s+"))
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
         }
+
+        return rawTags.asSequence()
+            .map(::normalizeTag)
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .toList()
     }
+
+    private fun normalizeTag(tag: String): String =
+        tag.trim()
+            .lowercase()
+            .replace(Regex("[^a-z0-9_-]"), "")
 }

@@ -2,6 +2,7 @@ package com.gladomat.linklet.ui.screens.note
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -89,34 +90,36 @@ fun TagPickerDialog(
                     .verticalScroll(rememberScrollState()),
             ) {
                 // Tag input with autocomplete
-                OutlinedTextField(
-                    value = inputText,
-                    onValueChange = { 
-                        inputText = it
-                        showSuggestions = it.isNotBlank()
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Add tag") },
-                    placeholder = { Text("Type to add or search...") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(
-                        onDone = {
-                            if (inputText.isNotBlank()) addTag(inputText)
-                        }
-                    ),
-                )
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = inputText,
+                        onValueChange = {
+                            inputText = it
+                            showSuggestions = it.isNotBlank()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Add tag") },
+                        placeholder = { Text("Type to add or search...") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(
+                            onDone = {
+                                if (inputText.isNotBlank()) addTag(inputText)
+                            },
+                        ),
+                    )
 
-                // Autocomplete suggestions
-                DropdownMenu(
-                    expanded = showSuggestions && suggestions.isNotEmpty(),
-                    onDismissRequest = { showSuggestions = false },
-                ) {
-                    suggestions.forEach { suggestion ->
-                        DropdownMenuItem(
-                            text = { Text(suggestion) },
-                            onClick = { addTag(suggestion) },
-                        )
+                    DropdownMenu(
+                        expanded = showSuggestions && suggestions.isNotEmpty(),
+                        onDismissRequest = { showSuggestions = false },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        suggestions.forEach { suggestion ->
+                            DropdownMenuItem(
+                                text = { Text(suggestion) },
+                                onClick = { addTag(suggestion) },
+                            )
+                        }
                     }
                 }
 

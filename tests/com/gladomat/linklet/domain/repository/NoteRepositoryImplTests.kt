@@ -135,6 +135,29 @@ class NoteRepositoryImplTests {
     }
 
     @Test
+    fun `reindex resolves id links when id line is outside properties drawer`() = runTest(dispatcher) {
+        val storage = FakeStorage(
+            mutableMapOf(
+                "a.org" to """
+                    #+title: Note A
+                    [[id:note-b][Alias]]
+                """.trimIndent(),
+                "b.org" to """
+                    #+title: Note B
+                    :ID: note-b
+                    Content
+                """.trimIndent(),
+            ),
+        )
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
+
+        repository.reindex().getOrThrow()
+
+        val note = repository.getNote("a.org").getOrThrow()
+        assertEquals("b.org", note.links.first().resolvedPath)
+    }
+
+    @Test
     fun `duplicateNote generates unique path and new id`() = runTest(dispatcher) {
         val files = mutableMapOf(
             "a.org" to """
@@ -174,6 +197,68 @@ class NoteRepositoryImplTests {
 
         assertTrue(duplicated.contains("\r\n"))
         assertTrue(duplicated.replace("\r\n", "").contains("\n").not())
+    }
+
+    @Test
+    fun `updateNoteProperties preserves existing ID when not provided`() = runTest(dispatcher) {
+        val files = mutableMapOf(
+            "a.org" to """
+                #+title: Note A
+                :PROPERTIES:
+                :ID: old-id
+                :ROAM_ALIASES: OldAlias
+                :END:
+                Body
+            """.trimIndent(),
+        )
+        val storage = FakeStorage(files)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
+
+        repository.updateNoteProperties("a.org", mapOf("ROAM_REFS" to "https://example.com")).getOrThrow()
+
+        val updated = files["a.org"]!!
+        assertTrue(updated.contains(Regex("""(?im)^\s*:ID:\s*old-id\s*$""")))
+        assertTrue(updated.contains(Regex("""(?im)^\s*:ROAM_REFS:\s*https://example\.com\s*$""")))
+        assertTrue(updated.contains(":PROPERTIES:"))
+        assertTrue(updated.contains(":END:"))
+    }
+
+    @Test
+    fun `updateNoteTags removes filetags line without collapsing body newlines`() = runTest(dispatcher) {
+        val files = mutableMapOf(
+            "a.org" to """
+                #+title: Note A
+                #+filetags: :a:b:
+                Line1
+
+                Line2
+            """.trimIndent(),
+        )
+        val storage = FakeStorage(files)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
+
+        repository.updateNoteTags("a.org", emptyList()).getOrThrow()
+
+        val updated = files["a.org"]!!
+        assertTrue(updated.contains("#+filetags:").not())
+        assertTrue(Regex("""Line1\r?\n\r?\nLine2""").containsMatchIn(updated))
+    }
+
+    @Test
+    fun `updateNoteTags inserts normalized filetags line after title when missing`() = runTest(dispatcher) {
+        val files = mutableMapOf(
+            "a.org" to """
+                #+title: Note A
+                Body
+            """.trimIndent(),
+        )
+        val storage = FakeStorage(files)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
+
+        repository.updateNoteTags("a.org", listOf("Project", "my tag")).getOrThrow()
+
+        val updated = files["a.org"]!!
+        assertTrue(Regex("""(?im)^#\+filetags:\s*:project:mytag:\s*$""").containsMatchIn(updated))
     }
 
     @Test

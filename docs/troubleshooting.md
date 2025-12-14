@@ -4,15 +4,15 @@ This document contains universal debugging tips and post-mortems for difficult b
 
 ## Post-Mortems
 
-### Storage Rename & Share Regression (2026-12-14)
+### Storage Rename & Share Regression (2025-12-14)
 **Issue:**  
-We kept tweaking NoteViewScreen UI and repository consumers while rename/export failures and sync thrashing persisted, because that’s where the symptoms appeared.
+We kept tweaking NoteViewScreen UI and ViewModel/repository call sites while rename/share failures and sync churn persisted, because that’s where the symptoms appeared.
 
 **Root Cause:**  
-The malfunction lived in the storage/repository layer: SAF-based rename copied whole files, deleted blocking directories, and duplicate note creation rewrote IDs with newline corruption. By assuming UI owned the problem, we ignored the actual side-effect layer for far too long.
+The malfunction lived in the storage/repository layer: SAF “rename” was implemented as read→write→delete (non-atomic, potential partial failure), a directory-vs-file collision could delete data, duplication logic could collide/overwrite and rewrote `:ID:` while corrupting CRLF newlines, and “share” used `Intent.EXTRA_TEXT` which can crash on large notes due to Binder limits. By assuming UI owned the problem, we ignored the side-effect layer for far too long.
 
 **Resolution:**  
-We wrote focused storage/repository tests, exercised rename/duplicate paths against fake storage, and then fixed validation plus atomic IO there. Once storage behaved, every UI symptom vanished.
+We wrote focused storage/repository tests, exercised rename/duplicate against fake storage, tightened filename validation, made SAF rename safer (use real rename when possible; streaming copy + cleanup when not), switched sharing to FileProvider, and updated the DB incrementally instead of full reindex where possible. Once the IO layer behaved, the UI symptoms disappeared.
 
 ### Merge Strategy & Sync Engine (2025-12-14)
 **Issue:**  

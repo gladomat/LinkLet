@@ -71,4 +71,28 @@ class RegexParserTests {
         assertEquals("abc-123", target.value)
         assertEquals("Self", link.label)
     }
+
+    @Test
+    fun `parse does not treat id links as note id`() {
+        val content = """
+            #+title: A
+            [[id:abc-123][Some other note]]
+        """.trimIndent()
+
+        val note = parser.parse(content, path = "notes/sample.org")
+
+        assertNull(note.orgId)
+    }
+
+    @Test
+    fun `parse does not treat inline id as property`() {
+        val content = """
+            #+title: A
+            This line mentions :ID: abc-123 but is not a property drawer.
+        """.trimIndent()
+
+        val note = parser.parse(content, path = "notes/sample.org")
+
+        assertNull(note.orgId)
+    }
 }

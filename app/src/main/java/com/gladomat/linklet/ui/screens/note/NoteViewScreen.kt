@@ -157,7 +157,11 @@ fun NoteViewRoute(
                 ).show()
                 coroutineScope.launch {
                     delay(60_000)
-                    val currentClip = clipboardManager.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString()
+                    val currentClip = clipboardManager.primaryClip
+                        ?.takeIf { it.itemCount > 0 }
+                        ?.getItemAt(0)
+                        ?.coerceToText(context)
+                        ?.toString()
                     if (currentClip == clipText) {
                         clipboardManager.setPrimaryClip(android.content.ClipData.newPlainText("", ""))
                     }

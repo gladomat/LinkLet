@@ -11,9 +11,9 @@ import com.gladomat.linklet.data.storage.IStorage
 import com.gladomat.linklet.data.model.LinkTarget
 import com.gladomat.linklet.data.sync.SyncScheduler
 import com.gladomat.linklet.domain.repository.LinkEntityDto
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
@@ -40,6 +40,7 @@ class NoteRepositoryImpl(
 
     private val notesState = MutableStateFlow<List<Note>>(emptyList())
     private val noteIdIndex = ConcurrentHashMap<String, String>()
+    private val backgroundScope = CoroutineScope(SupervisorJob() + ioDispatcher)
 
     override fun observeNotes(): Flow<List<Note>> = notesState.asStateFlow()
 
@@ -123,7 +124,7 @@ class NoteRepositoryImpl(
             Log.d(TAG, "saveNote() - Note written successfully, scheduling reindex and sync")
             // Reindex and sync asynchronously to avoid blocking the save operation
             // The index will be updated in the background, and the note is already saved
-            GlobalScope.launch(SupervisorJob() + ioDispatcher) {
+            backgroundScope.launch {
                 try {
                     reindex().getOrThrow()
                     Log.d(TAG, "saveNote() - Reindex complete, scheduling immediate sync")
@@ -286,9 +287,14 @@ class NoteRepositoryImpl(
     ): Result<Unit> = withContext(ioDispatcher) {
         runCatching {
             val originalContent = storage.readNote(path).getOrThrow()
-            val newContent = updatePropertiesInContent(originalContent, properties)
+            val existingProperties = parser.parse(content = originalContent, path = path).properties
+            val newContent = updatePropertiesInContent(
+                content = originalContent,
+                properties = properties,
+                existingProperties = existingProperties,
+            )
             storage.writeNote(path, newContent).getOrThrow()
-            
+
             // Refresh the note in memory
             val parsed = parser.parse(content = newContent, path = path)
             val resolved = parsed.copy(links = resolveLinks(parsed.links))
@@ -309,9 +315,14 @@ class NoteRepositoryImpl(
     ): Result<Unit> = withContext(ioDispatcher) {
         runCatching {
             val originalContent = storage.readNote(path).getOrThrow()
-            val newContent = updateFileTagsInContent(originalContent, tags)
+            val normalizedTags = tags.asSequence()
+                .map(::normalizeTag)
+                .filter { it.isNotEmpty() }
+                .distinct()
+                .toList()
+            val newContent = updateFileTagsInContent(originalContent, normalizedTags)
             storage.writeNote(path, newContent).getOrThrow()
-            
+
             // Refresh the note in memory
             val parsed = parser.parse(content = newContent, path = path)
             val resolved = parsed.copy(links = resolveLinks(parsed.links))
@@ -321,7 +332,7 @@ class NoteRepositoryImpl(
             }
             
             syncScheduler.scheduleImmediate()
-            Log.d(TAG, "updateNoteTags() - Tags updated for $path: $tags")
+            Log.d(TAG, "updateNoteTags() - Tags updated for $path: $normalizedTags")
             Unit
         }
     }
@@ -330,43 +341,65 @@ class NoteRepositoryImpl(
      * Updates or creates :PROPERTIES: drawer with given properties.
      * Preserves ID property if it exists and isn't in the new map.
      */
-    private fun updatePropertiesInContent(content: String, properties: Map<String, String>): String {
+    private fun updatePropertiesInContent(
+        content: String,
+        properties: Map<String, String>,
+        existingProperties: Map<String, String>,
+    ): String {
         val newline = if (content.contains("\r\n")) "\r\n" else "\n"
-        
-        val propertiesDrawerRegex = Regex(""":PROPERTIES:\s*\n[\s\S]*?\n\s*:END:""", RegexOption.IGNORE_CASE)
+
+        val propertiesDrawerRegex = Regex(
+            pattern = """^[ \t]*:PROPERTIES:\s*$\r?\n[\s\S]*?\r?\n[ \t]*:END:\s*(?:\r?\n)?""",
+            options = setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE),
+        )
         val existingMatch = propertiesDrawerRegex.find(content)
-        
-        // Build new drawer content
-        val drawerLines = properties
-            .filterValues { it.isNotBlank() }
-            .map { (key, value) -> ":${key.uppercase()}: $value" }
-        
+        val hadTrailingNewline = existingMatch?.value?.endsWith("\n") == true
+
+        val cleaned = properties
+            .mapNotNull { (key, value) ->
+                val normalizedKey = normalizePropertyKey(key) ?: return@mapNotNull null
+                val trimmedValue = value.trim()
+                if (trimmedValue.isBlank()) return@mapNotNull null
+                normalizedKey to trimmedValue
+            }
+            .toMap()
+
+        val preservedId = existingProperties["ID"]?.trim()?.takeIf { it.isNotEmpty() }
+        val finalProperties = if (cleaned["ID"].isNullOrEmpty() && !preservedId.isNullOrEmpty()) {
+            cleaned + ("ID" to preservedId)
+        } else {
+            cleaned
+        }
+
+        val drawerLines = finalProperties.entries
+            .sortedBy { it.key }
+            .map { (key, value) -> ":$key: $value" }
+
         val newDrawer = if (drawerLines.isEmpty()) {
-            "" // Remove drawer if no properties
+            ""
         } else {
             (listOf(":PROPERTIES:") + drawerLines + listOf(":END:")).joinToString(newline)
         }
-        
-        return if (existingMatch != null) {
+
+        if (existingMatch != null) {
             if (newDrawer.isEmpty()) {
-                content.replaceRange(existingMatch.range, "").trimStart('\n', '\r')
-            } else {
-                content.replaceRange(existingMatch.range, newDrawer)
+                return content.replaceRange(existingMatch.range, "")
             }
-        } else if (newDrawer.isNotEmpty()) {
-            // Insert after title or at start
-            val titleRegex = Regex("""(?im)^[ \t]*#\+title:.*$""")
-            val titleMatch = titleRegex.find(content)
-            if (titleMatch != null) {
-                val lineBreakIndex = content.indexOf('\n', startIndex = titleMatch.range.last)
-                val insertAt = if (lineBreakIndex >= 0) lineBreakIndex + 1 else content.length
-                content.substring(0, insertAt) + newDrawer + newline + content.substring(insertAt)
-            } else {
-                newDrawer + newline + content
-            }
-        } else {
-            content
+            val replacement = if (hadTrailingNewline) newDrawer + newline else newDrawer
+            return content.replaceRange(existingMatch.range, replacement)
         }
+
+        if (newDrawer.isEmpty()) return content
+
+        val titleRegex = Regex("""(?im)^[ \t]*#\+title:.*$""")
+        val titleMatch = titleRegex.find(content)
+        if (titleMatch != null) {
+            val lineBreakIndex = content.indexOf('\n', startIndex = titleMatch.range.last)
+            val insertAt = if (lineBreakIndex >= 0) lineBreakIndex + 1 else content.length
+            return content.substring(0, insertAt) + newDrawer + newline + content.substring(insertAt)
+        }
+
+        return newDrawer + newline + content
     }
 
     /**
@@ -374,37 +407,45 @@ class NoteRepositoryImpl(
      */
     private fun updateFileTagsInContent(content: String, tags: List<String>): String {
         val newline = if (content.contains("\r\n")) "\r\n" else "\n"
-        
-        val filetagsRegex = Regex("""(?im)^#\+filetags:\s*.*$""")
+
+        val filetagsRegex = Regex(
+            pattern = """^#\+filetags:\s*.*(?:\r?\n)?""",
+            options = setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE),
+        )
         val existingMatch = filetagsRegex.find(content)
-        
-        val newLine = if (tags.isEmpty()) {
-            "" // Remove filetags line
-        } else {
-            "#+filetags: :${tags.joinToString(":")}:"
-        }
-        
-        return if (existingMatch != null) {
+        val hadTrailingNewline = existingMatch?.value?.endsWith("\n") == true
+
+        val newLine = if (tags.isEmpty()) "" else "#+filetags: :${tags.joinToString(":")}:"
+
+        if (existingMatch != null) {
             if (newLine.isEmpty()) {
-                content.replaceRange(existingMatch.range, "")
-                    .replace(Regex("""(\r?\n){2,}"""), "$1") // Clean up double newlines
-            } else {
-                content.replaceRange(existingMatch.range, newLine)
+                return content.replaceRange(existingMatch.range, "")
             }
-        } else if (newLine.isNotEmpty()) {
-            // Insert after title or at start
-            val titleRegex = Regex("""(?im)^[ \t]*#\+title:.*$""")
-            val titleMatch = titleRegex.find(content)
-            if (titleMatch != null) {
-                val lineBreakIndex = content.indexOf('\n', startIndex = titleMatch.range.last)
-                val insertAt = if (lineBreakIndex >= 0) lineBreakIndex + 1 else content.length
-                content.substring(0, insertAt) + newLine + newline + content.substring(insertAt)
-            } else {
-                newLine + newline + content
-            }
-        } else {
-            content
+            val replacement = if (hadTrailingNewline) newLine + newline else newLine
+            return content.replaceRange(existingMatch.range, replacement)
         }
+
+        if (newLine.isEmpty()) return content
+
+        val titleRegex = Regex("""(?im)^[ \t]*#\+title:.*$""")
+        val titleMatch = titleRegex.find(content)
+        if (titleMatch != null) {
+            val lineBreakIndex = content.indexOf('\n', startIndex = titleMatch.range.last)
+            val insertAt = if (lineBreakIndex >= 0) lineBreakIndex + 1 else content.length
+            return content.substring(0, insertAt) + newLine + newline + content.substring(insertAt)
+        }
+
+        return newLine + newline + content
+    }
+
+    private fun normalizeTag(tag: String): String =
+        tag.trim()
+            .lowercase()
+            .replace(Regex("[^a-z0-9_-]"), "")
+
+    private fun normalizePropertyKey(key: String): String? {
+        val cleaned = key.trim().uppercase().replace(":", "")
+        return cleaned.takeIf { it.isNotEmpty() }
     }
 
     companion object {
