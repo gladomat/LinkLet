@@ -5,8 +5,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.TextSnippet
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -31,8 +30,7 @@ import com.gladomat.linklet.ui.theme.LinkLetAppTheme
 @Composable
 fun ExportBottomSheet(
     onDismiss: () -> Unit,
-    onExportMarkdown: () -> Unit,
-    onExportPlainText: () -> Unit,
+    onShare: () -> Unit,
     onCopyToClipboard: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -62,21 +60,11 @@ fun ExportBottomSheet(
             )
 
             ExportItem(
-                icon = Icons.Default.Description,
-                label = "Share as Markdown",
-                subtitle = "Original Org-mode formatting",
+                icon = Icons.Default.Share,
+                label = "Share",
+                subtitle = "Share note as text",
                 onClick = {
-                    onExportMarkdown()
-                    onDismiss()
-                },
-            )
-
-            ExportItem(
-                icon = Icons.Default.TextSnippet,
-                label = "Share as Plain Text",
-                subtitle = "Stripped formatting",
-                onClick = {
-                    onExportPlainText()
+                    onShare()
                     onDismiss()
                 },
             )
@@ -139,8 +127,7 @@ private fun ExportBottomSheetPreview() {
         Surface {
             ExportBottomSheet(
                 onDismiss = {},
-                onExportMarkdown = {},
-                onExportPlainText = {},
+                onShare = {},
                 onCopyToClipboard = {},
             )
         }

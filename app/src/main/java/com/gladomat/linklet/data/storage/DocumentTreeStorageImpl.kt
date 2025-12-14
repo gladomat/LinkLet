@@ -49,6 +49,9 @@ class DocumentTreeStorageImpl @Inject constructor(
         runCatching {
             val parent = ensureParentDirectories(path)
             val fileName = path.substringAfterLast('/')
+            if (fileName.isBlank()) {
+                throw IllegalArgumentException("Invalid filename in path: $path")
+            }
             val existing = parent.findFile(fileName)
             val target = if (existing != null && existing.isFile) {
                 existing
@@ -74,21 +77,43 @@ class DocumentTreeStorageImpl @Inject constructor(
     override suspend fun renameNote(oldPath: String, newPath: String): Result<Unit> = withContext(dispatcher) {
         runCatching {
             val sourceFile = resolveFile(oldPath) ?: throw IOException("Source file not found: $oldPath")
-            val content = readFromDocument(sourceFile)
-            
-            // Create new file with new name
-            val parent = ensureParentDirectories(newPath)
             val newFileName = newPath.substringAfterLast('/')
+            if (newFileName.isBlank()) {
+                throw IllegalArgumentException("Invalid filename in path: $newPath")
+            }
+
+            val oldDir = oldPath.substringBeforeLast('/', "")
+            val newDir = newPath.substringBeforeLast('/', "")
+            if (oldDir == newDir) {
+                val parent = resolveFile(oldDir)?.takeIf { it.isDirectory }
+                    ?: baseDocumentFile()
+                    ?: throw IllegalStateException("Folder not selected")
+                if (parent.findFile(newFileName) != null) {
+                    throw IOException("Target file already exists: $newPath")
+                }
+                if (!sourceFile.renameTo(newFileName)) {
+                    throw IOException("Failed to rename file from $oldPath to $newPath")
+                }
+                return@runCatching Unit
+            }
+
+            val parent = ensureParentDirectories(newPath)
             if (parent.findFile(newFileName) != null) {
                 throw IOException("Target file already exists: $newPath")
             }
             val newFile = parent.createFile("text/org", newFileName)
                 ?: throw IOException("Unable to create file: $newPath")
-            writeToDocument(newFile, content)
-            
-            // Delete old file
-            sourceFile.delete()
-            Unit
+            try {
+                copyDocument(sourceFile, newFile)
+            } catch (e: Exception) {
+                newFile.delete()
+                throw e
+            }
+
+            if (!sourceFile.delete()) {
+                newFile.delete()
+                throw IOException("Failed to delete source file after copy: $oldPath")
+            }
         }
     }
 
@@ -138,9 +163,7 @@ class DocumentTreeStorageImpl @Inject constructor(
                     ?: throw IOException("Unable to create directory: $segment")
                 existing.isDirectory -> existing
                 else -> {
-                    existing.delete()
-                    current.createDirectory(segment)
-                        ?: throw IOException("Unable to create directory: $segment")
+                    throw IOException("Path segment is a file, expected directory: $segment")
                 }
             }
         }
@@ -190,9 +213,37 @@ class DocumentTreeStorageImpl @Inject constructor(
         throw IOException("Unable to open output stream for ${document.uri}")
     }
 
+    private fun copyDocument(source: DocumentFile, target: DocumentFile) {
+        val input = contentResolver.openInputStream(source.uri)
+            ?: if (source.uri.scheme == "file") {
+                File(source.uri.path!!).inputStream()
+            } else {
+                null
+            }
+        val output = contentResolver.openOutputStream(target.uri, "wt")
+            ?: if (target.uri.scheme == "file") {
+                FileOutputStream(File(target.uri.path!!))
+            } else {
+                null
+            }
+        if (input == null || output == null) {
+            input?.close()
+            output?.close()
+            throw IOException("Unable to open streams for copy: ${source.uri} -> ${target.uri}")
+        }
+        input.use { inStream ->
+            output.use { outStream ->
+                inStream.copyTo(outStream)
+            }
+        }
+    }
+
     private fun validateSegments(segments: List<String>) {
         segments.forEach { segment ->
             if (segment == ".." || segment == ".") {
+                throw IllegalArgumentException("Invalid path segment: $segment")
+            }
+            if (segment.contains('\u0000')) {
                 throw IllegalArgumentException("Invalid path segment: $segment")
             }
         }

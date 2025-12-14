@@ -23,6 +23,9 @@ import org.junit.Before
 import org.junit.Test
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -129,6 +132,69 @@ class NoteRepositoryImplTests {
         val firstLink = note.links.first()
         assertTrue(firstLink.target is LinkTarget.Id)
         assertEquals("b.org", firstLink.resolvedPath)
+    }
+
+    @Test
+    fun `duplicateNote generates unique path and new id`() = runTest(dispatcher) {
+        val files = mutableMapOf(
+            "a.org" to """
+                #+title: Note A
+                :PROPERTIES:
+                :ID: old-id
+                :END:
+                Body
+            """.trimIndent(),
+        )
+        val storage = FakeStorage(files)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
+
+        val first = repository.duplicateNote("a.org").getOrThrow()
+        val second = repository.duplicateNote("a.org").getOrThrow()
+
+        assertNotEquals("a.org", first)
+        assertNotEquals(first, second)
+        assertNotNull(files[first])
+        assertNotNull(files[second])
+        assertNotEquals(files["a.org"], files[first])
+        assertNotEquals(files["a.org"], files[second])
+        assertNull(Regex("""(?im)^\s*:ID:\s*old-id\s*$""").find(files[first]!!))
+        assertTrue(Regex("""(?im)^\s*:ID:\s*[0-9a-f-]{36}\s*$""").containsMatchIn(files[first]!!))
+    }
+
+    @Test
+    fun `duplicateNote preserves CRLF line endings`() = runTest(dispatcher) {
+        val files = mutableMapOf(
+            "a.org" to "#+title: A\r\n:PROPERTIES:\r\n:ID: old-id\r\n:END:\r\nBody\r\n",
+        )
+        val storage = FakeStorage(files)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
+
+        val newPath = repository.duplicateNote("a.org").getOrThrow()
+        val duplicated = files[newPath]!!
+
+        assertTrue(duplicated.contains("\r\n"))
+        assertTrue(duplicated.replace("\r\n", "").contains("\n").not())
+    }
+
+    @Test
+    fun `renameNote updates backlinks target path`() = runTest(dispatcher) {
+        val files = mutableMapOf(
+            "a.org" to "#+title: A\n[[file:b.org][Alias]]",
+            "b.org" to "#+title: B\nContent",
+        )
+        val storage = FakeStorage(files)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
+
+        repository.reindex().getOrThrow()
+        repository.renameNote("b.org", "c.org").getOrThrow()
+
+        val backlinksOld = repository.getBacklinks("b.org").getOrThrow()
+        assertTrue(backlinksOld.isEmpty())
+
+        val backlinksNew = repository.getBacklinks("c.org").getOrThrow()
+        assertEquals(1, backlinksNew.size)
+        assertEquals("a.org", backlinksNew.first().source)
+        assertEquals("Alias", backlinksNew.first().alias)
     }
 
     private class FakeStorage(

@@ -59,11 +59,18 @@ class FileStorageImpl(
 
     override suspend fun renameNote(oldPath: String, newPath: String): Result<Unit> = withContext(dispatcher) {
         runCatching {
+            if (newPath.endsWith("/") || newPath.endsWith("\\")) {
+                throw IllegalArgumentException("Invalid target path: $newPath")
+            }
             val source = resolvePath(oldPath)
             if (!source.exists()) throw IOException("Source file not found: $oldPath")
             val target = resolvePath(newPath)
             if (target.exists()) throw IOException("Target file already exists: $newPath")
-            target.parentFile?.mkdirs()
+            target.parentFile?.let { parent ->
+                if (!parent.exists() && !parent.mkdirs()) {
+                    throw IOException("Unable to create target directory: ${parent.absolutePath}")
+                }
+            }
             if (!source.renameTo(target)) {
                 throw IOException("Failed to rename file from $oldPath to $newPath")
             }

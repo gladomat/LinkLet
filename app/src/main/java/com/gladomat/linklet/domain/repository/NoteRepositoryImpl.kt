@@ -22,6 +22,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -146,25 +149,36 @@ class NoteRepositoryImpl(
         runCatching {
             Log.d(TAG, "duplicateNote() - Duplicating note: $path")
             val originalContent = storage.readNote(path).getOrThrow()
-            
-            // Generate new timestamp-based filename
-            val originalFilename = path.substringAfterLast('/')
-            val directory = path.substringBeforeLast('/', "")
-            val timestamp = java.time.LocalDateTime.now()
-                .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
-            val newFilename = "$timestamp-${originalFilename}"
-            val newPath = if (directory.isEmpty()) newFilename else "$directory/$newFilename"
-            
-            // Generate new org-roam ID and update content
-            val newId = java.util.UUID.randomUUID().toString()
+
+            val newPath = generateDuplicatePath(path)
+            val newId = UUID.randomUUID().toString()
             val newContent = updateOrgId(originalContent, newId)
-            
+
             storage.writeNote(newPath, newContent).getOrThrow()
             Log.d(TAG, "duplicateNote() - Created duplicate at: $newPath")
-            
-            reindex().getOrThrow()
+
+            val parsed = parser.parse(content = newContent, path = newPath)
+            parsed.orgId?.let { noteIdIndex[it] = newPath }
+            val resolved = parsed.copy(links = resolveLinks(parsed.links))
+
+            noteDao.insertNotes(listOf(NoteEntity(path = resolved.id.path, title = resolved.title)))
+            noteDao.insertLinks(
+                resolved.links.mapNotNull { link ->
+                    val target = link.resolvedPath ?: return@mapNotNull null
+                    LinkEntity(
+                        source = resolved.id.path,
+                        target = target,
+                        alias = link.label,
+                    )
+                },
+            )
+
+            notesState.update { existing ->
+                (existing.filterNot { it.id.path == resolved.id.path } + resolved)
+                    .sortedBy { it.title.lowercase() }
+            }
+
             syncScheduler.scheduleImmediate()
-            
             newPath
         }
     }
@@ -172,8 +186,25 @@ class NoteRepositoryImpl(
     override suspend fun renameNote(oldPath: String, newPath: String): Result<Unit> = withContext(ioDispatcher) {
         runCatching {
             Log.d(TAG, "renameNote() - Renaming from $oldPath to $newPath")
+            validateFilename(newPath.substringAfterLast('/'))
             storage.renameNote(oldPath, newPath).getOrThrow()
-            reindex().getOrThrow()
+            noteDao.renameNotePath(oldPath, newPath)
+
+            val content = storage.readNote(newPath).getOrThrow()
+            val parsed = parser.parse(content = content, path = newPath)
+            parsed.orgId?.let { id ->
+                val current = noteIdIndex[id]
+                if (current == null || current == oldPath) {
+                    noteIdIndex[id] = newPath
+                }
+            }
+
+            val resolved = parsed.copy(links = resolveLinks(parsed.links))
+            notesState.update { existing ->
+                (existing.filterNot { it.id.path == oldPath } + resolved)
+                    .sortedBy { it.title.lowercase() }
+            }
+
             syncScheduler.scheduleImmediate()
             Log.d(TAG, "renameNote() - Rename complete and synced")
             Unit
@@ -184,35 +215,51 @@ class NoteRepositoryImpl(
      * Updates or inserts an :ID: property in the org-mode content.
      */
     private fun updateOrgId(content: String, newId: String): String {
-        val lines = content.lines().toMutableList()
-        val idRegex = Regex(""":ID:\s*\S+""", RegexOption.IGNORE_CASE)
-        
-        // Find and replace existing :ID: line
-        for (i in lines.indices) {
-            if (lines[i].trim().matches(idRegex)) {
-                lines[i] = lines[i].replace(idRegex, ":ID: $newId")
-                return lines.joinToString("\n")
-            }
+        val newline = if (content.contains("\r\n")) "\r\n" else "\n"
+
+        val idLineRegex = Regex("""(?im)^([ \t]*):ID:\s*\S+\s*$""")
+        val idLineMatch = idLineRegex.find(content)
+        if (idLineMatch != null) {
+            val indent = idLineMatch.groupValues[1]
+            return content.replaceFirst(idLineRegex, "${indent}:ID: $newId")
         }
-        
-        // No existing :ID:, look for :PROPERTIES: drawer to insert
-        for (i in lines.indices) {
-            if (lines[i].trim().equals(":PROPERTIES:", ignoreCase = true)) {
-                lines.add(i + 1, ":ID: $newId")
-                return lines.joinToString("\n")
-            }
+
+        val propertiesRegex = Regex("""(?im)^([ \t]*):PROPERTIES:\s*$""")
+        val propertiesMatch = propertiesRegex.find(content)
+        if (propertiesMatch != null) {
+            val indent = propertiesMatch.groupValues[1]
+            val insertion = "${propertiesMatch.value}$newline${indent}:ID: $newId"
+            return content.replaceRange(propertiesMatch.range, insertion)
         }
-        
-        // No :PROPERTIES: drawer, add one after #+title: or at the start
-        val titleIndex = lines.indexOfFirst { 
-            it.trim().startsWith("#+title:", ignoreCase = true) 
+
+        val titleRegex = Regex("""(?im)^[ \t]*#\+title:.*$""")
+        val titleMatch = titleRegex.find(content)
+        val drawer = listOf(":PROPERTIES:", ":ID: $newId", ":END:").joinToString(newline)
+        return if (titleMatch != null) {
+            val lineBreakIndex = content.indexOf('\n', startIndex = titleMatch.range.last)
+            val insertAt = if (lineBreakIndex >= 0) lineBreakIndex + 1 else content.length
+            content.substring(0, insertAt) + drawer + newline + content.substring(insertAt)
+        } else {
+            drawer + newline + content
         }
-        val insertIndex = if (titleIndex >= 0) titleIndex + 1 else 0
-        lines.add(insertIndex, ":PROPERTIES:")
-        lines.add(insertIndex + 1, ":ID: $newId")
-        lines.add(insertIndex + 2, ":END:")
-        
-        return lines.joinToString("\n")
+    }
+
+    private fun generateDuplicatePath(originalPath: String): String {
+        val originalFilename = originalPath.substringAfterLast('/')
+        val directory = originalPath.substringBeforeLast('/', "")
+        val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
+        val suffix = UUID.randomUUID().toString().substring(0, 8)
+        val newFilename = "$timestamp-$suffix-$originalFilename"
+        return if (directory.isEmpty()) newFilename else "$directory/$newFilename"
+    }
+
+    private fun validateFilename(filename: String) {
+        val trimmed = filename.trim()
+        require(trimmed.isNotEmpty()) { "Filename cannot be empty" }
+        require(!trimmed.startsWith(".")) { "Filename cannot start with '.'" }
+        require(!trimmed.contains("/") && !trimmed.contains("\\")) { "Filename cannot contain path separators" }
+        require(!trimmed.contains(":")) { "Filename cannot contain ':'" }
+        require(trimmed.length <= 255) { "Filename too long" }
     }
 
     private fun resolveLinks(links: List<NoteLink>): List<NoteLink> =

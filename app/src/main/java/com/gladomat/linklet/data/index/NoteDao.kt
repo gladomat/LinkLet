@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 
 @Dao
 interface NoteDao {
@@ -21,6 +22,22 @@ interface NoteDao {
 
     @Query("SELECT * FROM notes ORDER BY title COLLATE NOCASE")
     suspend fun getAllNotes(): List<NoteEntity>
+
+    @Query("UPDATE notes SET path = :newPath WHERE path = :oldPath")
+    suspend fun updateNotePath(oldPath: String, newPath: String)
+
+    @Query("UPDATE links SET source = :newPath WHERE source = :oldPath")
+    suspend fun updateLinksSource(oldPath: String, newPath: String)
+
+    @Query("UPDATE links SET target = :newPath WHERE target = :oldPath")
+    suspend fun updateLinksTarget(oldPath: String, newPath: String)
+
+    @Transaction
+    suspend fun renameNotePath(oldPath: String, newPath: String) {
+        updateNotePath(oldPath, newPath)
+        updateLinksSource(oldPath, newPath)
+        updateLinksTarget(oldPath, newPath)
+    }
 
     @Query(
         """

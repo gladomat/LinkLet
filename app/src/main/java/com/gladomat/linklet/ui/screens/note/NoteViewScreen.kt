@@ -40,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,6 +52,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -69,6 +71,9 @@ import com.gladomat.linklet.ui.components.parseOrgDocument
 import com.gladomat.linklet.ui.theme.LinkLetAppTheme
 import com.gladomat.linklet.viewmodel.note.NoteViewUiState
 import com.gladomat.linklet.viewmodel.note.NoteViewViewModel
+import java.io.File
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun NoteViewRoute(
@@ -118,54 +123,39 @@ fun NoteViewRoute(
         {
             val currentState = state
             if (currentState is NoteViewUiState.Success) {
-                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, currentState.note.title)
-                    putExtra(Intent.EXTRA_TEXT, currentState.note.content)
-                }
-                context.startActivity(Intent.createChooser(shareIntent, "Share Note"))
+                shareNoteContent(
+                    context = context,
+                    title = currentState.note.title,
+                    filename = currentState.note.id.path.substringAfterLast('/'),
+                    content = currentState.note.content,
+                )
             }
         }
     }
-    val handleExportMarkdown = remember(context, state) {
-        {
-            val currentState = state
-            if (currentState is NoteViewUiState.Success) {
-                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, currentState.note.title)
-                    putExtra(Intent.EXTRA_TEXT, currentState.note.content)
-                }
-                context.startActivity(Intent.createChooser(shareIntent, "Share as Markdown"))
-            }
-        }
+    val clipboardManager = remember {
+        context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
     }
-    val handleExportPlainText = remember(context, state) {
+    val coroutineScope = rememberCoroutineScope()
+    val handleCopyToClipboard = remember(state, clipboardManager, coroutineScope) {
         {
             val currentState = state
             if (currentState is NoteViewUiState.Success) {
-                // Strip org-mode formatting for plain text
-                val plainText = currentState.note.content
-                    .lines()
-                    .filterNot { it.startsWith("#+") || it.startsWith(":") }
-                    .joinToString("\n")
-                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, currentState.note.title)
-                    putExtra(Intent.EXTRA_TEXT, plainText)
-                }
-                context.startActivity(Intent.createChooser(shareIntent, "Share as Plain Text"))
-            }
-        }
-    }
-    val clipboardManager = remember { context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager }
-    val handleCopyToClipboard = remember(state, clipboardManager) {
-        {
-            val currentState = state
-            if (currentState is NoteViewUiState.Success) {
-                val clip = android.content.ClipData.newPlainText(currentState.note.title, currentState.note.content)
+                val clipLabel = currentState.note.title
+                val clipText = currentState.note.content
+                val clip = android.content.ClipData.newPlainText(clipLabel, clipText)
                 clipboardManager.setPrimaryClip(clip)
-                android.widget.Toast.makeText(context, "Copied to clipboard", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(
+                    context,
+                    "Copied to clipboard (clears in 60s)",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+                coroutineScope.launch {
+                    delay(60_000)
+                    val currentClip = clipboardManager.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString()
+                    if (currentClip == clipText) {
+                        clipboardManager.setPrimaryClip(android.content.ClipData.newPlainText("", ""))
+                    }
+                }
             }
         }
     }
@@ -187,8 +177,6 @@ fun NoteViewRoute(
         onDelete = { viewModel.deleteNote { handleExit() } },
         onDuplicate = viewModel::duplicateNote,
         onRename = viewModel::renameNote,
-        onExportMarkdown = handleExportMarkdown,
-        onExportPlainText = handleExportPlainText,
         onCopyToClipboard = handleCopyToClipboard,
         modifier = modifier,
     )
@@ -210,8 +198,6 @@ fun NoteViewScreen(
     onDelete: () -> Unit,
     onDuplicate: () -> Unit,
     onRename: (String) -> Unit,
-    onExportMarkdown: () -> Unit,
-    onExportPlainText: () -> Unit,
     onCopyToClipboard: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -234,8 +220,6 @@ fun NoteViewScreen(
             onDelete = onDelete,
             onDuplicate = onDuplicate,
             onRename = onRename,
-            onExportMarkdown = onExportMarkdown,
-            onExportPlainText = onExportPlainText,
             onCopyToClipboard = onCopyToClipboard,
             modifier = modifier,
         )
@@ -278,8 +262,6 @@ private fun SuccessState(
     onDelete: () -> Unit,
     onDuplicate: () -> Unit,
     onRename: (String) -> Unit,
-    onExportMarkdown: () -> Unit,
-    onExportPlainText: () -> Unit,
     onCopyToClipboard: () -> Unit,
     modifier: Modifier,
 ) {
@@ -348,8 +330,7 @@ private fun SuccessState(
     if (showExportSheet) {
         ExportBottomSheet(
             onDismiss = { showExportSheet = false },
-            onExportMarkdown = { onExportMarkdown() },
-            onExportPlainText = { onExportPlainText() },
+            onShare = onShare,
             onCopyToClipboard = { onCopyToClipboard() },
         )
     }
@@ -776,10 +757,40 @@ private fun NoteViewSuccessPreview() {
                 onDelete = {},
                 onDuplicate = {},
                 onRename = {},
-                onExportMarkdown = {},
-                onExportPlainText = {},
                 onCopyToClipboard = {},
             )
         }
+    }
+}
+
+private fun shareNoteContent(
+    context: android.content.Context,
+    title: String,
+    filename: String,
+    content: String,
+) {
+    val safeFilename = filename
+        .ifBlank { "note.org" }
+        .replace(Regex("""[^\w.\-]+"""), "_")
+        .let { if (it.endsWith(".org", ignoreCase = true)) it else "$it.org" }
+
+    runCatching {
+        val sharedDir = File(context.cacheDir, "shared").apply { mkdirs() }
+        val file = File(sharedDir, safeFilename)
+        file.writeText(content)
+
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, title)
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+
+        context.startActivity(Intent.createChooser(shareIntent, "Share Note"))
+    }.onFailure {
+        android.widget.Toast
+            .makeText(context, "Unable to share note", android.widget.Toast.LENGTH_SHORT)
+            .show()
     }
 }
