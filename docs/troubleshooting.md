@@ -4,6 +4,16 @@ This document contains universal debugging tips and post-mortems for difficult b
 
 ## Post-Mortems
 
+### Storage Rename & Share Regression (2026-12-14)
+**Issue:**  
+We kept tweaking NoteViewScreen UI and repository consumers while rename/export failures and sync thrashing persisted, because that’s where the symptoms appeared.
+
+**Root Cause:**  
+The malfunction lived in the storage/repository layer: SAF-based rename copied whole files, deleted blocking directories, and duplicate note creation rewrote IDs with newline corruption. By assuming UI owned the problem, we ignored the actual side-effect layer for far too long.
+
+**Resolution:**  
+We wrote focused storage/repository tests, exercised rename/duplicate paths against fake storage, and then fixed validation plus atomic IO there. Once storage behaved, every UI symptom vanished.
+
 ### Merge Strategy & Sync Engine (2025-12-14)
 **Issue:**  
 We struggled to identify why non-overlapping edits were causing conflicts or incorrect merges in the `SyncEngine`. The debugging process was prolonged because we were running full integration tests (`SyncEngineTests`) which involve database state, file I/O, and mocked remote providers.
@@ -30,3 +40,18 @@ Debugging "in-place" within the full system is slow. You waste time setting up t
 4. **Iterate**: Run this lightweight test repeatedly. It runs in milliseconds and gives immediate feedback.
 
 > "If you can't test it in isolation with a simple main function or unit test, your architecture might be too coupled, or you're looking at the wrong layer."
+
+### 🔍 Start at the Layer Owning the Side-Effect
+**When to use:**  
+Whenever a bug shows up in UI/ViewModel code but the operation mutates files, SAF documents, the network, or the DB.
+
+**The Trap:**  
+Patching the consumer closest to the crash (usually UI) hides the fact that the lower layer (storage, sync, repository) owns the side-effect. You end up shipping band-aids while the root issue keeps resurfacing.
+
+**The Fix:**  
+1. Identify which layer actually touches the external system.  
+2. Inspect that implementation first and add logs or unit tests there.  
+3. Reproduce using the narrowest harness (fake storage, in-memory DB) before touching UI.  
+4. Only return upstream once the side-effect layer is verified.
+
+> "Follow the side-effect, not the crash dialog. Bugs born in IO layers rarely die in UI code."
