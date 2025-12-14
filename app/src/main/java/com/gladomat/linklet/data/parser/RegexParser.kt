@@ -24,7 +24,7 @@ class RegexParser : IParser {
     )
     /** Matches the entire :PROPERTIES: ... :END: drawer */
     private val propertiesDrawerRegex = Regex(
-        pattern = """:PROPERTIES:\s*\n([\s\S]*?)\n\s*:END:""",
+        pattern = """:PROPERTIES:\s*\r?\n([\s\S]*?)\r?\n\s*:END:""",
         options = setOf(RegexOption.IGNORE_CASE),
     )
     /** Matches individual property lines like ":KEY: value" */
@@ -34,7 +34,7 @@ class RegexParser : IParser {
     )
     /** Matches #+filetags: :tag1:tag2:tag3: */
     private val filetagsRegex = Regex(
-        pattern = """^#\+filetags:\s*(.+)$""",
+        pattern = """^#\+filetags:\s*(.*)$""",
         options = setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE),
     )
 
@@ -106,6 +106,7 @@ class RegexParser : IParser {
     private fun parseFileTags(content: String): List<String> {
         val match = filetagsRegex.find(content) ?: return emptyList()
         val tagsValue = match.groupValues.getOrNull(1)?.trim() ?: return emptyList()
+        if (tagsValue.isBlank()) return emptyList()
 
         val rawTags = if (tagsValue.contains(":")) {
             tagsValue.trim(':').split(":")

@@ -187,7 +187,42 @@ fun NoteViewRoute(
         onDelete = { viewModel.deleteNote { handleExit() } },
         onDuplicate = viewModel::duplicateNote,
         onRename = viewModel::renameNote,
+
         onCopyToClipboard = handleCopyToClipboard,
+        onCopyIdLink = {
+            val note = (state as? NoteViewUiState.Success)?.note
+            val orgId = note?.orgId?.takeUnless { it.isBlank() }
+            if (note != null && orgId != null) {
+                val label = note.title.takeUnless { it.contains('[') || it.contains(']') }
+                val link = if (label != null) {
+                    "[[id:$orgId][$label]]"
+                } else {
+                    "[[id:$orgId]]"
+                }
+                val clip = android.content.ClipData.newPlainText("ID Link", link)
+                clipboardManager.setPrimaryClip(clip)
+                android.widget.Toast.makeText(context, "Copied ID link", android.widget.Toast.LENGTH_SHORT).show()
+            } else {
+                android.widget.Toast.makeText(context, "No ID found", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        },
+        onCopyFileLink = {
+            val note = (state as? NoteViewUiState.Success)?.note
+            val relativePath = note?.id?.path?.takeUnless { it.isBlank() }
+            if (note != null && relativePath != null) {
+                val label = note.title.takeUnless { it.contains('[') || it.contains(']') }
+                val link = if (label != null) {
+                    "[[file:$relativePath][$label]]"
+                } else {
+                    "[[file:$relativePath]]"
+                }
+                val clip = android.content.ClipData.newPlainText("File Link", link)
+                clipboardManager.setPrimaryClip(clip)
+                android.widget.Toast.makeText(context, "Copied file link", android.widget.Toast.LENGTH_SHORT).show()
+            } else {
+                android.widget.Toast.makeText(context, "No file path found", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        },
         onUpdateProperties = viewModel::updateProperties,
         onUpdateTags = viewModel::updateTags,
         allTags = allTags,
@@ -212,6 +247,8 @@ fun NoteViewScreen(
     onDuplicate: () -> Unit,
     onRename: (String) -> Unit,
     onCopyToClipboard: () -> Unit,
+    onCopyIdLink: () -> Unit,
+    onCopyFileLink: () -> Unit,
     onUpdateProperties: (Map<String, String>) -> Unit,
     onUpdateTags: (List<String>) -> Unit,
     allTags: List<String>,
@@ -237,6 +274,8 @@ fun NoteViewScreen(
             onDuplicate = onDuplicate,
             onRename = onRename,
             onCopyToClipboard = onCopyToClipboard,
+            onCopyIdLink = onCopyIdLink,
+            onCopyFileLink = onCopyFileLink,
             onUpdateProperties = onUpdateProperties,
             onUpdateTags = onUpdateTags,
             allTags = allTags,
@@ -282,6 +321,8 @@ private fun SuccessState(
     onDuplicate: () -> Unit,
     onRename: (String) -> Unit,
     onCopyToClipboard: () -> Unit,
+    onCopyIdLink: () -> Unit,
+    onCopyFileLink: () -> Unit,
     onUpdateProperties: (Map<String, String>) -> Unit,
     onUpdateTags: (List<String>) -> Unit,
     allTags: List<String>,
@@ -330,6 +371,8 @@ private fun SuccessState(
             onCollapseAll = {
                 sectionExpansion.keys.forEach { key -> sectionExpansion[key] = false }
             },
+            onCopyIdLink = onCopyIdLink,
+            onCopyFileLink = onCopyFileLink,
         )
     }
 
@@ -815,6 +858,8 @@ private fun NoteViewSuccessPreview() {
                 onDuplicate = {},
                 onRename = {},
                 onCopyToClipboard = {},
+                onCopyIdLink = {},
+                onCopyFileLink = {},
                 onUpdateProperties = {},
                 onUpdateTags = {},
                 allTags = listOf("example", "tag"),

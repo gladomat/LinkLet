@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.FileCopy
@@ -46,6 +48,8 @@ fun MoreActionsBottomSheet(
     onTags: () -> Unit,
     onExpandAll: () -> Unit,
     onCollapseAll: () -> Unit,
+    onCopyIdLink: () -> Unit,
+    onCopyFileLink: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val sheetState = rememberModalBottomSheetState()
@@ -153,6 +157,24 @@ fun MoreActionsBottomSheet(
                 },
             )
 
+            ActionItem(
+                icon = Icons.Default.Code,
+                label = "Copy ID Link",
+                onClick = {
+                    onCopyIdLink()
+                    onDismiss()
+                },
+            )
+
+            ActionItem(
+                icon = Icons.Default.ContentCopy,
+                label = "Copy File Link",
+                onClick = {
+                    onCopyFileLink()
+                    onDismiss()
+                },
+            )
+
             Spacer(modifier = Modifier.height(8.dp))
             HorizontalDivider(
                 modifier = Modifier.padding(horizontal = 16.dp),
@@ -228,6 +250,8 @@ private fun MoreActionsBottomSheetPreview() {
                 onTags = {},
                 onExpandAll = {},
                 onCollapseAll = {},
+                onCopyIdLink = {},
+                onCopyFileLink = {},
             )
         }
     }
