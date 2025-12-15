@@ -16,4 +16,13 @@
 - **Adjusted** implementation plan and task artifacts to reflect completed work.
 - **Verified** the project builds successfully after changes.
 
+## Epic 4: In‑Note Search Experience
+
+- **Implemented** a stateful, roll‑out search panel under the note header with query field, clear/close controls, case‑sensitive/whole‑word/regex toggles, match counter, and next/previous navigation.
+- **Added** a block‑based `NoteSearchEngine` service that searches over Org blocks using literal, whole‑word, or regex semantics while keeping indices local to each block.
+- **Introduced** `NoteSearchState` in `NoteViewViewModel` with debounced query updates, wrap‑around navigation, regex error surfacing, and `SavedStateHandle` backing for state restoration.
+- **Refactored** Org parsing/rendering into `data/parser/org` so both the renderer and search engine share the same `OrgDocument`/`OrgBlock` structures and “display text” representation.
+- **Updated** Org renderers to apply non‑overlapping highlight spans for all matches and a distinct style for the active match, including headings, paragraphs, tables and block content.
+- **Switched** the note body to a `LazyColumn` with measured top‑bar height–aware `animateScrollToItem` so the active match is scrolled into view below the header and search panel.
+- **Added** focused unit tests for the search engine, Org formatter display text, and ViewModel search behavior (debounce, options, navigation wrap‑around, and error handling).
 
