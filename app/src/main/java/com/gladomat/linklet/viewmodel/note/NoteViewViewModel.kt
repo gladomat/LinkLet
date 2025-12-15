@@ -187,7 +187,7 @@ class NoteViewViewModel @Inject constructor(
      */
     fun deleteNote(onDeleted: () -> Unit) {
         viewModelScope.launch {
-            repository.deleteNote(notePath).fold(
+            repository.deleteNoteSoft(notePath).fold(
                 onSuccess = {
                     resetHistory()
                     onDeleted()

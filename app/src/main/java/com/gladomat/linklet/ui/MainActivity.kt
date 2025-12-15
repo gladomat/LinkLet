@@ -14,6 +14,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.gladomat.linklet.ui.screens.NoteListRoute
 import com.gladomat.linklet.ui.screens.note.NoteViewRoute
+import com.gladomat.linklet.ui.screens.trash.TrashRoute
 import com.gladomat.linklet.ui.screens.noteedit.NoteEditRoute
 import com.gladomat.linklet.ui.screens.settings.SettingsRoute
 import com.gladomat.linklet.ui.screens.settings.WebDavSettingsRoute
@@ -44,6 +45,9 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onOpenSettings = {
                                     navController.navigate(Routes.SETTINGS)
+                                },
+                                onOpenTrash = {
+                                    navController.navigate(Routes.TRASH)
                                 },
                                 onCreateNote = {
                                     navController.navigate("${Routes.NOTE_EDIT}/${Uri.encode(Routes.NEW_NOTE_PATH)}") {
@@ -119,6 +123,12 @@ class MainActivity : ComponentActivity() {
                                 onNavigateBack = { navController.popBackStack() },
                             )
                         }
+
+                        composable(route = Routes.TRASH) {
+                            TrashRoute(
+                                onNavigateBack = { navController.popBackStack() },
+                            )
+                        }
                     }
                 }
             }
@@ -134,6 +144,7 @@ private object Routes {
     const val NEW_NOTE_PATH = NoteEditViewModel.NEW_NOTE_PATH
     const val SETTINGS = "settings"
     const val WEB_DAV_SETTINGS = "webdav_settings"
+    const val TRASH = "trash"
 }
 
 const val REFRESH_NOTE_KEY = "refresh_note"

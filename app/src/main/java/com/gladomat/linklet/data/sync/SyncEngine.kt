@@ -522,4 +522,3 @@ data class SyncSummary(
     val conflicts: Int,
     val resolvedConflicts: Int,
 )
-

@@ -282,10 +282,84 @@ class NoteRepositoryImplTests {
         assertEquals("Alias", backlinksNew.first().alias)
     }
 
+    @Test
+    fun `soft delete moves note to trash and excludes from index`() = runTest(dispatcher) {
+        val files = mutableMapOf(
+            "a.org" to "#+title: A\nContent",
+        )
+        val storage = FakeStorage(files)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
+
+        repository.reindex().getOrThrow()
+        assertEquals(listOf("a.org"), storage.files.keys.filter { it.endsWith(".org") }.toList())
+
+        repository.deleteNoteSoft("a.org").getOrThrow()
+
+        // File should now live under the trash dir with timestamp+slug naming.
+        val trashedOrgFiles = storage.files.keys.filter { it.startsWith("_trash_bin/") && it.endsWith(".org") }
+        assertEquals(1, trashedOrgFiles.size)
+        assertTrue(Regex("""^_trash_bin/\d{14}_a\.org$""").containsMatchIn(trashedOrgFiles.first()))
+
+        // Active index should be empty
+        val notes = repository.listAllNotes()
+        assertTrue(notes.isEmpty())
+    }
+
+    @Test
+    fun `restore from trash returns original path and handles conflicts`() = runTest(dispatcher) {
+        val files = mutableMapOf(
+            "a.org" to "#+title: A\nContent",
+        )
+        val storage = FakeStorage(files)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
+
+        repository.reindex().getOrThrow()
+        repository.deleteNoteSoft("a.org").getOrThrow()
+
+        val trashPath = storage.files.keys.first { it.startsWith("_trash_bin/") && it.endsWith(".org") }
+
+        // First restore should go back to a.org
+        val restoredPath1 = repository.restoreNoteFromTrash(trashPath).getOrThrow()
+        assertEquals("a.org", restoredPath1)
+        assertTrue(storage.files.containsKey("a.org"))
+
+        // Move a.org to trash again, then create a conflicting new a.org before restoring.
+        repository.deleteNoteSoft("a.org").getOrThrow()
+        storage.files["a.org"] = "#+title: A\nConflicting New Note"
+
+        // Now original a.org exists, so restore should pick a conflict-resolved name
+        val trashPath2 = storage.files.keys.first { it.startsWith("_trash_bin/") && it.endsWith(".org") }
+        val restoredPath2 = repository.restoreNoteFromTrash(trashPath2).getOrThrow()
+        assertTrue(restoredPath2 != "a.org")
+        assertTrue(restoredPath2.startsWith("a ("))
+        assertTrue(storage.files.containsKey(restoredPath2))
+    }
+
+    @Test
+    fun `restore legacy trash entry without metadata falls back to notes directory`() = runTest(dispatcher) {
+        val files = mutableMapOf(
+            // Existing active note establishes "notes/" as default repo dir.
+            "notes/existing.org" to "#+title: Existing\nBody",
+            // Legacy trash entry (no metadata) that only contains a filename.
+            "_trash_bin/a.org" to "#+title: A\nBody",
+        )
+        val storage = FakeStorage(files)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
+
+        repository.reindex().getOrThrow()
+
+        val restored = repository.restoreNoteFromTrash("_trash_bin/a.org").getOrThrow()
+
+        assertEquals("notes/a.org", restored)
+        assertTrue(storage.files.containsKey("notes/a.org"))
+        assertTrue(storage.files.containsKey("_trash_bin/a.org").not())
+    }
+
     private class FakeStorage(
-        private val files: MutableMap<String, String>,
+        val files: MutableMap<String, String>,
     ) : IStorage {
-        override suspend fun listNotes(): Result<List<String>> = Result.success(files.keys.toList())
+        override suspend fun listNotes(): Result<List<String>> =
+            Result.success(files.keys.filter { it.endsWith(".org", ignoreCase = true) })
 
         override suspend fun readNote(path: String): Result<String> =
             files[path]?.let { Result.success(it) } ?: Result.failure(IOException("missing"))

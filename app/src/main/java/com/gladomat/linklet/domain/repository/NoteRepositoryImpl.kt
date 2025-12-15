@@ -10,6 +10,7 @@ import com.gladomat.linklet.data.parser.IParser
 import com.gladomat.linklet.data.storage.IStorage
 import com.gladomat.linklet.data.model.LinkTarget
 import com.gladomat.linklet.data.sync.SyncScheduler
+import com.gladomat.linklet.data.utils.OrgFileUtils
 import com.gladomat.linklet.domain.repository.LinkEntityDto
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineDispatcher
@@ -19,11 +20,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.time.ZoneOffset
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -41,6 +42,15 @@ class NoteRepositoryImpl(
     private val notesState = MutableStateFlow<List<Note>>(emptyList())
     private val noteIdIndex = ConcurrentHashMap<String, String>()
     private val backgroundScope = CoroutineScope(SupervisorJob() + ioDispatcher)
+
+    private enum class IndexScope {
+        ACTIVE_NOTES,
+        TRASH_ONLY,
+    }
+
+    private val primaryTrashDirPrefix = "${TRASH_DIR}/"
+    private val legacyTrashDirPrefix = "${LEGACY_TRASH_DIR}/"
+    private val trashDirPrefixes = listOf(primaryTrashDirPrefix, legacyTrashDirPrefix)
 
     override fun observeNotes(): Flow<List<Note>> = notesState.asStateFlow()
 
@@ -68,12 +78,7 @@ class NoteRepositoryImpl(
         runCatching {
             // Invalidate storage cache to ensure we see newly synced files
             storage.invalidateCache()
-            
-            val notePaths = storage.listNotes().getOrThrow()
-            val parsedNotes = notePaths.map { path ->
-                val content = storage.readNote(path).getOrThrow()
-                parser.parse(content = content, path = path)
-            }
+            val parsedNotes = scanNotes(IndexScope.ACTIVE_NOTES, shouldResolveLinks = false)
 
             noteIdIndex.clear()
             parsedNotes.forEach { note ->
@@ -138,12 +143,82 @@ class NoteRepositoryImpl(
         }
     }
 
-    override suspend fun deleteNote(path: String): Result<Unit> = withContext(ioDispatcher) {
+    override suspend fun deleteNoteSoft(path: String): Result<Unit> = withContext(ioDispatcher) {
         runCatching {
-            storage.deleteNote(path).getOrThrow()
+            val content = storage.readNote(path).getOrThrow()
+            val deletedAt = LocalDateTime.now()
+            val trashPath = buildTrashPath(deletedAt = deletedAt, content = content)
+
+            // Prefer atomic move when supported by the storage implementation.
+            storage.renameNote(path, trashPath).recoverCatching {
+                // Fallback for storages that can't rename across trees/providers.
+                storage.writeNote(trashPath, content).getOrThrow()
+                storage.deleteNote(path).getOrThrow()
+            }.getOrThrow()
+
+            writeTrashInfo(trashPath = trashPath, originalPath = path, deletedAt = deletedAt)
+
             reindex().getOrThrow()
             syncScheduler.scheduleImmediate()
         }
+    }
+
+    override suspend fun restoreNoteFromTrash(trashPath: String): Result<String> = withContext(ioDispatcher) {
+        runCatching {
+            val prefix = trashDirPrefixes.firstOrNull { trashPath.startsWith(it) }
+                ?: error("Path '$trashPath' is not inside a trash directory")
+            val inferredOriginalPath = trashPath.removePrefix(prefix)
+            val metaOriginalPath = readTrashInfo(trashPath)?.originalPath
+            val originalPath = when {
+                metaOriginalPath != null -> metaOriginalPath
+                inferredOriginalPath.contains('/') -> inferredOriginalPath // legacy layout: _trash_bin/<originalPath>
+                else -> {
+                    // Compatibility: older trash entries may not have metadata.
+                    // Fall back to restoring into a sensible default directory.
+                    val defaultDir = defaultRestoreDirPrefix()
+                    if (defaultDir.isEmpty()) inferredOriginalPath else "$defaultDir$inferredOriginalPath"
+                }
+            }
+            val restoreTarget = resolveRestorePath(originalPath)
+
+            storage.renameNote(trashPath, restoreTarget).getOrThrow()
+            deleteTrashInfoIfPresent(trashPath)
+            reindex().getOrThrow()
+            syncScheduler.scheduleImmediate()
+            restoreTarget
+        }
+    }
+
+    override suspend fun deleteNotePermanent(path: String): Result<Unit> = withContext(ioDispatcher) {
+        runCatching {
+            storage.deleteNote(path).getOrThrow()
+            if (isTrashPath(path)) {
+                deleteTrashInfoIfPresent(path)
+            }
+            reindex().getOrThrow()
+            syncScheduler.scheduleImmediate()
+        }
+    }
+
+    override suspend fun deleteNote(path: String): Result<Unit> {
+        // Preserve legacy API while switching semantics to soft-delete.
+        return deleteNoteSoft(path)
+    }
+
+    override suspend fun listAllNotes(): List<Note> = withContext(ioDispatcher) {
+        scanNotes(IndexScope.ACTIVE_NOTES, shouldResolveLinks = true)
+    }
+
+    override suspend fun listTrashNotes(): List<Note> = withContext(ioDispatcher) {
+        val notes = scanNotes(IndexScope.TRASH_ONLY, shouldResolveLinks = true)
+        notes
+            .map { note ->
+                val deletedAt = readTrashInfo(note.id.path)?.deletedAtEpochMillis
+                    ?: parseDeletedAtFromFilename(note.id.path.substringAfterLast('/'))
+                note to (deletedAt ?: 0L)
+            }
+            .sortedByDescending { (_, deletedAt) -> deletedAt }
+            .map { (note, _) -> note }
     }
 
     override suspend fun duplicateNote(path: String): Result<String> = withContext(ioDispatcher) {
@@ -248,7 +323,7 @@ class NoteRepositoryImpl(
     private fun generateDuplicatePath(originalPath: String): String {
         val originalFilename = originalPath.substringAfterLast('/')
         val directory = originalPath.substringBeforeLast('/', "")
-        val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
+        val timestamp =     LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
         val suffix = UUID.randomUUID().toString().substring(0, 8)
         val newFilename = "$timestamp-$suffix-$originalFilename"
         return if (directory.isEmpty()) newFilename else "$directory/$newFilename"
@@ -302,7 +377,7 @@ class NoteRepositoryImpl(
                 (existing.filterNot { it.id.path == path } + resolved)
                     .sortedBy { it.title.lowercase() }
             }
-            
+
             syncScheduler.scheduleImmediate()
             Log.d(TAG, "updateNoteProperties() - Properties updated for $path")
             Unit
@@ -330,7 +405,7 @@ class NoteRepositoryImpl(
                 (existing.filterNot { it.id.path == path } + resolved)
                     .sortedBy { it.title.lowercase() }
             }
-            
+
             syncScheduler.scheduleImmediate()
             Log.d(TAG, "updateNoteTags() - Tags updated for $path: $normalizedTags")
             Unit
@@ -450,5 +525,159 @@ class NoteRepositoryImpl(
 
     companion object {
         private const val TAG = "NoteRepositoryImpl"
+        // Current on-disk trash folder used by the app.
+        private const val TRASH_DIR = "_trash_bin"
+        // Compatibility with older/newer conventions.
+        private const val LEGACY_TRASH_DIR = "_trash"
+    }
+
+    private suspend fun scanNotes(scope: IndexScope, shouldResolveLinks: Boolean): List<Note> {
+        val allPaths = storage.listNotes().getOrThrow()
+        val filteredPaths = when (scope) {
+            IndexScope.ACTIVE_NOTES -> allPaths.filterNot { isTrashPath(it) }
+            IndexScope.TRASH_ONLY -> allPaths.filter { isTrashPath(it) }
+        }
+        return filteredPaths.map { path ->
+            val content = storage.readNote(path).getOrThrow()
+            val parsed = parser.parse(content = content, path = path)
+            if (shouldResolveLinks) parsed.copy(links = resolveLinks(parsed.links)) else parsed
+        }
+    }
+
+    private suspend fun resolveRestorePath(originalPath: String): String {
+        // If original path does not exist, restore directly.
+        val originalExists = storage.readNote(originalPath).isSuccess
+        if (!originalExists) return originalPath
+
+        // On conflict, append " (n)" before the extension, similar to desktop note apps.
+        val directory = originalPath.substringBeforeLast('/', "")
+        val filename = originalPath.substringAfterLast('/')
+        val baseName = filename.substringBeforeLast('.', filename)
+        val extension = filename.substringAfterLast('.', "")
+
+        var counter = 1
+        while (true) {
+            val candidateName = buildString {
+                append(baseName)
+                append(" (")
+                append(counter)
+                append(")")
+                if (extension.isNotEmpty()) {
+                    append('.')
+                    append(extension)
+                }
+            }
+            val candidatePath = if (directory.isEmpty()) candidateName else "$directory/$candidateName"
+            val exists = storage.readNote(candidatePath).isSuccess
+            if (!exists) {
+                return candidatePath
+            }
+            counter++
+        }
+    }
+
+    private fun buildTrashPath(originalPath: String): String {
+        // Legacy trash layout: original path mirrored under trash.
+        return "$TRASH_DIR/$originalPath"
+    }
+
+    private suspend fun buildTrashPath(deletedAt: LocalDateTime, content: String): String {
+        val timestamp = deletedAt.format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
+        val title = runCatching { OrgFileUtils.extractTitle(content) }.getOrDefault("untitled")
+        val slug = OrgFileUtils.slugifyTitle(title)
+        val baseFilename = "${timestamp}_${slug}.org"
+        return resolveUniqueTrashPath("$TRASH_DIR/$baseFilename")
+    }
+
+    private suspend fun resolveUniqueTrashPath(initialPath: String): String {
+        if (storage.readNote(initialPath).isFailure) return initialPath
+        val directory = initialPath.substringBeforeLast('/', "")
+        val filename = initialPath.substringAfterLast('/')
+        val baseName = filename.substringBeforeLast('.', filename)
+        val extension = filename.substringAfterLast('.', "")
+        var counter = 1
+        while (true) {
+            val candidateName = buildString {
+                append(baseName)
+                append(" (")
+                append(counter)
+                append(")")
+                if (extension.isNotEmpty()) {
+                    append('.')
+                    append(extension)
+                }
+            }
+            val candidatePath = if (directory.isEmpty()) candidateName else "$directory/$candidateName"
+            if (storage.readNote(candidatePath).isFailure) return candidatePath
+            counter++
+        }
+    }
+
+    private data class TrashInfo(
+        val originalPath: String,
+        val deletedAtEpochMillis: Long,
+    )
+
+    private fun trashInfoPath(trashPath: String): String {
+        val prefix = trashDirPrefixes.firstOrNull { trashPath.startsWith(it) }
+            ?: error("Path '$trashPath' is not inside a trash directory")
+        val dir = prefix.removeSuffix("/")
+        val filename = trashPath.substringAfterLast('/')
+        return "$dir/.meta/$filename.trashinfo"
+    }
+
+    private suspend fun writeTrashInfo(trashPath: String, originalPath: String, deletedAt: LocalDateTime) {
+        val metaPath = trashInfoPath(trashPath)
+        val deletedAtMillis = deletedAt.toInstant(ZoneOffset.UTC).toEpochMilli()
+        val safeOriginal = java.net.URLEncoder.encode(originalPath, Charsets.UTF_8.name())
+        val content = "originalPath=$safeOriginal\ndeletedAtEpochMillis=$deletedAtMillis\n"
+        storage.writeNote(metaPath, content).getOrThrow()
+    }
+
+    private suspend fun readTrashInfo(trashPath: String): TrashInfo? {
+        val metaPath = runCatching { trashInfoPath(trashPath) }.getOrNull() ?: return null
+        val raw = storage.readNote(metaPath).getOrNull() ?: return null
+        val map = raw.lineSequence()
+            .mapNotNull { line ->
+                val idx = line.indexOf('=')
+                if (idx <= 0) return@mapNotNull null
+                line.substring(0, idx) to line.substring(idx + 1)
+            }
+            .toMap()
+        val encodedPath = map["originalPath"] ?: return null
+        val decodedPath = java.net.URLDecoder.decode(encodedPath, Charsets.UTF_8.name())
+        val deletedAtMillis = map["deletedAtEpochMillis"]?.toLongOrNull() ?: return null
+        return TrashInfo(originalPath = decodedPath, deletedAtEpochMillis = deletedAtMillis)
+    }
+
+    private suspend fun deleteTrashInfoIfPresent(trashPath: String) {
+        val metaPath = runCatching { trashInfoPath(trashPath) }.getOrNull() ?: return
+        storage.deleteNote(metaPath).getOrThrow()
+    }
+
+    private fun isTrashPath(path: String): Boolean = trashDirPrefixes.any { path.startsWith(it) }
+
+    private suspend fun defaultRestoreDirPrefix(): String {
+        // Prefer restoring into "notes/" when the repository appears to be using that convention.
+        val nonTrashPaths = storage.listNotes().getOrNull()
+            ?.filterNot(::isTrashPath)
+            .orEmpty()
+        return if (nonTrashPaths.any { it.startsWith("notes/") }) "notes/" else ""
+    }
+
+    private fun parseDeletedAtFromFilename(filename: String): Long? {
+        // Best-effort: accept leading digits like yyyyMMddHHmmss or yyyyMMddHH.
+        val digits = filename.takeWhile { it.isDigit() }
+        return when (digits.length) {
+            10 -> runCatching {
+                val dt = LocalDateTime.parse(digits, DateTimeFormatter.ofPattern("yyyyMMddHH"))
+                dt.toInstant(ZoneOffset.UTC).toEpochMilli()
+            }.getOrNull()
+            14 -> runCatching {
+                val dt = LocalDateTime.parse(digits, DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
+                dt.toInstant(ZoneOffset.UTC).toEpochMilli()
+            }.getOrNull()
+            else -> null
+        }
     }
 }
