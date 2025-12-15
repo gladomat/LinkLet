@@ -1,4 +1,4 @@
-package com.gladomat.linklet.ui.components
+package com.gladomat.linklet.data.parser.org
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue

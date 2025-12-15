@@ -15,11 +15,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.ClickableText
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -37,17 +38,21 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import android.util.Log
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -60,16 +65,16 @@ import com.gladomat.linklet.data.model.LinkTarget
 import com.gladomat.linklet.data.model.Note
 import com.gladomat.linklet.data.model.NoteId
 import com.gladomat.linklet.data.model.NoteLink
+import com.gladomat.linklet.data.parser.org.OrgBlock
+import com.gladomat.linklet.data.parser.org.OrgSection
+import com.gladomat.linklet.data.parser.org.parseOrgDocument
 import com.gladomat.linklet.domain.repository.LinkEntityDto
+import com.gladomat.linklet.domain.service.MatchRange
+import com.gladomat.linklet.domain.service.SearchOptions
 import com.gladomat.linklet.ui.REFRESH_NOTE_KEY
-import com.gladomat.linklet.ui.components.BlockRenderContext
-import com.gladomat.linklet.ui.components.OrgBlockColumn
-import com.gladomat.linklet.ui.components.OrgSection
+import com.gladomat.linklet.ui.components.OrgBlockView
 import com.gladomat.linklet.ui.components.OrgTextPalette
-import com.gladomat.linklet.ui.components.ORG_EXTERNAL_LINK_ANNOTATION_TAG
-import com.gladomat.linklet.ui.components.ORG_LINK_ANNOTATION_TAG
-import com.gladomat.linklet.ui.components.buildOrgContentAnnotatedString
-import com.gladomat.linklet.ui.components.parseOrgDocument
+import com.gladomat.linklet.ui.components.applyHighlights
 import com.gladomat.linklet.ui.theme.LinkLetAppTheme
 import com.gladomat.linklet.viewmodel.note.NoteViewUiState
 import com.gladomat.linklet.viewmodel.note.NoteViewViewModel
@@ -83,12 +88,12 @@ fun NoteViewRoute(
     onNavigateHome: () -> Unit,
     onExitToList: () -> Unit,
     onCreateNote: () -> Unit,
-    onSearch: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: NoteViewViewModel = hiltViewModel(),
     savedStateHandle: SavedStateHandle? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val searchState by viewModel.searchState.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
     var allTags by remember { mutableStateOf(emptyList<String>()) }
@@ -176,12 +181,12 @@ fun NoteViewRoute(
     }
     NoteViewScreen(
         state = state,
+        searchState = searchState,
         onOpenLink = viewModel::openNote,
         onOpenExternalLink = { uri -> uriHandler.openUri(uri) },
         onEditNote = onEditNote,
         onNavigateHome = handleNavigateHome,
         onBack = handleBack,
-        onSearch = onSearch,
         onShare = handleShare,
         onFavorite = viewModel::toggleFavorite,
         onCreateNote = onCreateNote,
@@ -189,6 +194,13 @@ fun NoteViewRoute(
         onDelete = { viewModel.deleteNote { handleExit() } },
         onDuplicate = viewModel::duplicateNote,
         onRename = viewModel::renameNote,
+        onOpenSearch = viewModel::openSearch,
+        onCloseSearch = viewModel::closeSearch,
+        onSearchQueryChange = viewModel::updateSearchQuery,
+        onClearSearch = viewModel::clearSearch,
+        onSearchOptionsChange = viewModel::setSearchOptions,
+        onPrevMatch = viewModel::selectPrevMatch,
+        onNextMatch = viewModel::selectNextMatch,
 
         onCopyToClipboard = handleCopyToClipboard,
         onCopyIdLink = {
@@ -235,12 +247,12 @@ fun NoteViewRoute(
 @Composable
 fun NoteViewScreen(
     state: NoteViewUiState,
+    searchState: NoteViewViewModel.NoteSearchState,
     onOpenLink: (String) -> Unit,
     onOpenExternalLink: (String) -> Unit,
     onEditNote: (String) -> Unit,
     onNavigateHome: () -> Unit,
     onBack: () -> Unit,
-    onSearch: () -> Unit,
     onShare: () -> Unit,
     onFavorite: () -> Unit,
     onCreateNote: () -> Unit,
@@ -248,6 +260,13 @@ fun NoteViewScreen(
     onDelete: () -> Unit,
     onDuplicate: () -> Unit,
     onRename: (String) -> Unit,
+    onOpenSearch: () -> Unit,
+    onCloseSearch: () -> Unit,
+    onSearchQueryChange: (String) -> Unit,
+    onClearSearch: () -> Unit,
+    onSearchOptionsChange: (SearchOptions) -> Unit,
+    onPrevMatch: () -> Unit,
+    onNextMatch: () -> Unit,
     onCopyToClipboard: () -> Unit,
     onCopyIdLink: () -> Unit,
     onCopyFileLink: () -> Unit,
@@ -263,18 +282,25 @@ fun NoteViewScreen(
             backlinks = state.backlinks,
             lastModified = state.lastModified,
             isFavorite = state.isFavorite,
+            searchState = searchState,
             onOpenLink = onOpenLink,
             onOpenExternalLink = onOpenExternalLink,
             onEditNote = onEditNote,
             onNavigateHome = onNavigateHome,
             onBack = onBack,
-            onSearch = onSearch,
             onShare = onShare,
             onFavorite = onFavorite,
             onCreateNote = onCreateNote,
             onDelete = onDelete,
             onDuplicate = onDuplicate,
             onRename = onRename,
+            onOpenSearch = onOpenSearch,
+            onCloseSearch = onCloseSearch,
+            onSearchQueryChange = onSearchQueryChange,
+            onClearSearch = onClearSearch,
+            onSearchOptionsChange = onSearchOptionsChange,
+            onPrevMatch = onPrevMatch,
+            onNextMatch = onNextMatch,
             onCopyToClipboard = onCopyToClipboard,
             onCopyIdLink = onCopyIdLink,
             onCopyFileLink = onCopyFileLink,
@@ -310,18 +336,25 @@ private fun SuccessState(
     backlinks: List<LinkEntityDto>,
     lastModified: String?,
     isFavorite: Boolean,
+    searchState: NoteViewViewModel.NoteSearchState,
     onOpenLink: (String) -> Unit,
     onOpenExternalLink: (String) -> Unit,
     onEditNote: (String) -> Unit,
     onNavigateHome: () -> Unit,
     onBack: () -> Unit,
-    onSearch: () -> Unit,
     onShare: () -> Unit,
     onFavorite: () -> Unit,
     onCreateNote: () -> Unit,
     onDelete: () -> Unit,
     onDuplicate: () -> Unit,
     onRename: (String) -> Unit,
+    onOpenSearch: () -> Unit,
+    onCloseSearch: () -> Unit,
+    onSearchQueryChange: (String) -> Unit,
+    onClearSearch: () -> Unit,
+    onSearchOptionsChange: (SearchOptions) -> Unit,
+    onPrevMatch: () -> Unit,
+    onNextMatch: () -> Unit,
     onCopyToClipboard: () -> Unit,
     onCopyIdLink: () -> Unit,
     onCopyFileLink: () -> Unit,
@@ -330,6 +363,7 @@ private fun SuccessState(
     allTags: List<String>,
     modifier: Modifier,
 ) {
+    val logTag = "NoteSearch"
     val document = remember(note.content) { parseOrgDocument(note.content) }
     var propertiesExpanded by remember(note.id.path) { mutableStateOf(false) }
     var showBacklinksSheet by remember { mutableStateOf(false) }
@@ -339,12 +373,20 @@ private fun SuccessState(
     var showExportSheet by remember { mutableStateOf(false) }
     var showPropertiesDialog by remember { mutableStateOf(false) }
     var showTagsDialog by remember { mutableStateOf(false) }
+    val searchFocusRequester = remember { FocusRequester() }
+    var topBarHeightPx by remember { mutableIntStateOf(0) }
+    LaunchedEffect(searchState.isActive) {
+        if (searchState.isActive) {
+            Log.d(logTag, "Search activated for ${note.id.path}")
+        } else {
+            Log.d(logTag, "Search deactivated for ${note.id.path}")
+        }
+    }
     val sectionExpansion = remember(document.sections) {
         mutableStateMapOf<String, Boolean>().apply {
             document.sections.forEach { collectIds(it, this) }
         }
     }
-    val scrollState = rememberScrollState()
 
     // Backlinks bottom sheet
     if (showBacklinksSheet) {
@@ -443,10 +485,32 @@ private fun SuccessState(
             NoteHeader(
                 filename = note.id.path.substringAfterLast('/'),
                 lastModified = lastModified,
+                searchQuery = searchState.query,
+                onSearchQueryChange = onSearchQueryChange,
+                searchActive = searchState.isActive,
+                searchOptions = searchState.options,
+                regexError = if (searchState.isActive) searchState.regexError else null,
+                activeMatchNumber = if (searchState.isActive) searchState.activeMatchNumber else 0,
+                totalMatches = if (searchState.isActive) searchState.totalMatches else 0,
+                onToggleCaseSensitive = {
+                    onSearchOptionsChange(searchState.options.copy(caseSensitive = !searchState.options.caseSensitive))
+                },
+                onToggleWholeWord = {
+                    onSearchOptionsChange(searchState.options.copy(wholeWord = !searchState.options.wholeWord))
+                },
+                onToggleRegex = {
+                    onSearchOptionsChange(searchState.options.copy(useRegex = !searchState.options.useRegex))
+                },
+                onPrevMatch = onPrevMatch,
+                onNextMatch = onNextMatch,
+                onClearSearch = onClearSearch,
+                onCloseSearch = onCloseSearch,
+                searchFocusRequester = searchFocusRequester,
                 onBack = onBack,
                 onHome = onNavigateHome,
-                onSearch = onSearch,
+                onOpenSearch = onOpenSearch,
                 onEdit = { onEditNote(note.id.path) },
+                modifier = Modifier.onSizeChanged { size -> topBarHeightPx = size.height },
             )
         },
         bottomBar = {
@@ -478,76 +542,310 @@ private fun SuccessState(
             }
         },
     ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .verticalScroll(scrollState)
-                .padding(16.dp),
+        val colorScheme = MaterialTheme.colorScheme
+        val palette = remember(
+            colorScheme.primary,
+            colorScheme.secondary,
+            colorScheme.tertiary,
+            colorScheme.onSurfaceVariant,
+            colorScheme.surfaceVariant,
+            colorScheme.onSurface,
+            colorScheme.secondaryContainer,
+            colorScheme.tertiaryContainer,
         ) {
-            // Properties drawer
-            if (document.properties.isNotEmpty()) {
-                PropertiesSection(
-                    properties = document.properties,
-                    expanded = propertiesExpanded,
-                    onToggle = { propertiesExpanded = !propertiesExpanded },
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-
-            // Note title card
-            NoteHeaderCard(
-                title = note.title,
-                path = note.id.path,
-                fileTags = document.fileTags,
+            OrgTextPalette(
+                headingLevel1 = colorScheme.primary,
+                headingLevel2 = colorScheme.secondary,
+                headingLevel3 = colorScheme.tertiary,
+                bulletColor = colorScheme.onSurfaceVariant,
+                linkColor = colorScheme.secondary,
+                codeBackground = colorScheme.surfaceVariant,
+                codeTextColor = colorScheme.onSurface,
+                verbatimBackground = colorScheme.surfaceVariant,
+                verbatimTextColor = colorScheme.onSurface,
+                searchHighlightBackground = colorScheme.secondaryContainer.copy(alpha = 0.6f),
+                activeSearchHighlightBackground = colorScheme.tertiaryContainer.copy(alpha = 0.7f),
             )
+        }
 
-            val colorScheme = MaterialTheme.colorScheme
-            val palette = remember(
-                colorScheme.primary,
-                colorScheme.secondary,
-                colorScheme.tertiary,
-                colorScheme.onSurfaceVariant,
-                colorScheme.surfaceVariant,
-                colorScheme.onSurface,
-            ) {
-                OrgTextPalette(
-                    headingLevel1 = colorScheme.primary,
-                    headingLevel2 = colorScheme.secondary,
-                    headingLevel3 = colorScheme.tertiary,
-                    bulletColor = colorScheme.onSurfaceVariant,
-                    linkColor = colorScheme.secondary,
-                    codeBackground = colorScheme.surfaceVariant,
-                    codeTextColor = colorScheme.onSurface,
-                    verbatimBackground = colorScheme.surfaceVariant,
-                    verbatimTextColor = colorScheme.onSurface,
-                )
-            }
-            val blockRenderContext = remember(palette, note.links, onOpenLink, onOpenExternalLink) {
-                BlockRenderContext(
-                    palette = palette,
-                    links = note.links,
-                    onOpenLink = onOpenLink,
-                    onOpenExternalLink = onOpenExternalLink,
-                )
-            }
-            if (document.prefaceBlocks.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(12.dp))
-                OrgBlockColumn(
-                    blocks = document.prefaceBlocks,
-                    context = blockRenderContext,
-                )
-            }
-            document.sections.forEach { section ->
-                Spacer(modifier = Modifier.height(8.dp))
-                OrgSectionView(
-                    section = section,
-                    expandedState = sectionExpansion,
-                    palette = palette,
-                    context = blockRenderContext,
-                )
+        LaunchedEffect(searchState.isActive) {
+            if (searchState.isActive) {
+                sectionExpansion.keys.forEach { key -> sectionExpansion[key] = true }
             }
         }
+
+        val matchList = if (searchState.isActive) searchState.matches else emptyList()
+        val matchListByBlockId = remember(matchList) { matchList.groupBy { it.blockId } }
+        val renderContext = remember(
+            palette,
+            note.links,
+            onOpenLink,
+            onOpenExternalLink,
+            searchState.isActive,
+            matchList,
+            matchListByBlockId,
+            searchState.activeMatchIndex,
+            searchState.options,
+            searchState.query,
+        ) {
+            com.gladomat.linklet.ui.components.RenderContext(
+                palette = palette,
+                links = note.links,
+                onOpenLink = onOpenLink,
+                onOpenExternalLink = onOpenExternalLink,
+                searchQuery = searchState.query.takeIf { searchState.isActive && it.isNotBlank() },
+                matchList = matchList,
+                activeMatchIndex = if (searchState.isActive) searchState.activeMatchIndex else -1,
+                searchOptions = searchState.options,
+                matchListByBlockId = matchListByBlockId,
+            )
+        }
+
+        val contentItems = buildNoteBodyItems(document, sectionExpansion)
+        val headerItemCount = 1 + if (document.properties.isNotEmpty()) 1 else 0
+        val blockIdToIndex = buildBlockIdToIndexMap(contentItems, headerItemCount)
+        val listState = rememberLazyListState()
+        val density = LocalDensity.current
+
+        LaunchedEffect(searchState.isActive, searchState.activeMatch?.blockId, blockIdToIndex, topBarHeightPx) {
+            val activeBlockId = searchState.activeMatch?.blockId ?: return@LaunchedEffect
+            if (!searchState.isActive) return@LaunchedEffect
+            val targetIndex = blockIdToIndex[activeBlockId] ?: return@LaunchedEffect
+            val fallbackPx = with(density) { 88.dp.roundToPx() }
+            val chromePx = (if (topBarHeightPx > 0) topBarHeightPx else fallbackPx) + with(density) { 12.dp.roundToPx() }
+            listState.animateScrollToItem(targetIndex, scrollOffset = -chromePx)
+        }
+
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues),
+            state = listState,
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+        ) {
+            if (document.properties.isNotEmpty()) {
+                item(key = "properties") {
+                    PropertiesSection(
+                        properties = document.properties,
+                        expanded = propertiesExpanded,
+                        onToggle = { propertiesExpanded = !propertiesExpanded },
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+            }
+
+            item(key = "title-card") {
+                NoteHeaderCard(
+                    title = note.title,
+                    path = note.id.path,
+                    fileTags = document.fileTags,
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            items(
+                items = contentItems,
+                key = { it.key },
+            ) { item ->
+                when (item) {
+                    is NoteBodyItem.SpacerItem -> Spacer(modifier = Modifier.height(item.height))
+                    is NoteBodyItem.SectionHeaderItem -> SectionHeaderRow(
+                        section = item.section,
+                        expandedState = sectionExpansion,
+                        palette = palette,
+                        indent = item.indent,
+                        searchActive = searchState.isActive,
+                        matchListByBlockId = matchListByBlockId,
+                        activeMatch = if (searchState.isActive) searchState.activeMatch else null,
+                    )
+                    is NoteBodyItem.SectionTagsItem -> TagRow(
+                        tags = item.tags,
+                        modifier = Modifier.padding(start = item.indent, bottom = 8.dp),
+                    )
+                    is NoteBodyItem.BlockItem -> {
+                        Column(modifier = Modifier.padding(start = item.indent)) {
+                            OrgBlockView(
+                                block = item.block,
+                                blockId = item.blockId,
+                                context = renderContext,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private sealed interface NoteBodyItem {
+    val key: String
+
+    data class SectionHeaderItem(
+        override val key: String,
+        val section: OrgSection,
+        val indent: androidx.compose.ui.unit.Dp,
+    ) : NoteBodyItem
+
+    data class SectionTagsItem(
+        override val key: String,
+        val tags: List<String>,
+        val indent: androidx.compose.ui.unit.Dp,
+    ) : NoteBodyItem
+
+    data class BlockItem(
+        override val key: String,
+        val blockId: String,
+        val block: OrgBlock,
+        val indent: androidx.compose.ui.unit.Dp,
+    ) : NoteBodyItem
+
+    data class SpacerItem(
+        override val key: String,
+        val height: androidx.compose.ui.unit.Dp,
+    ) : NoteBodyItem
+}
+
+private fun buildNoteBodyItems(
+    document: com.gladomat.linklet.data.parser.org.OrgDocument,
+    expandedState: Map<String, Boolean>,
+): List<NoteBodyItem> {
+    val items = mutableListOf<NoteBodyItem>()
+    if (document.prefaceBlocks.isNotEmpty()) {
+        document.prefaceBlocks.forEachIndexed { index, block ->
+            items += NoteBodyItem.BlockItem(
+                key = "preface/block-$index",
+                blockId = "preface/block-$index",
+                block = block,
+                indent = 0.dp,
+            )
+            items += NoteBodyItem.SpacerItem(key = "preface/block-$index/spacer", height = 8.dp)
+        }
+    }
+
+    fun visit(section: OrgSection) {
+        val indentLevel = (section.level - 1).coerceIn(0, 5)
+        val headerIndent = (indentLevel * 12).dp
+        val blocksIndent = headerIndent + 24.dp
+        items += NoteBodyItem.SectionHeaderItem(
+            key = "section/${section.id}/header",
+            section = section,
+            indent = headerIndent,
+        )
+        if (section.tags.isNotEmpty()) {
+            items += NoteBodyItem.SectionTagsItem(
+                key = "section/${section.id}/tags",
+                tags = section.tags,
+                indent = headerIndent + 24.dp,
+            )
+        }
+        if (expandedState[section.id] != false) {
+            section.blocks.forEachIndexed { blockIndex, block ->
+                items += NoteBodyItem.BlockItem(
+                    key = "section/${section.id}/block-$blockIndex",
+                    blockId = "section/${section.id}/block-$blockIndex",
+                    block = block,
+                    indent = blocksIndent,
+                )
+                items += NoteBodyItem.SpacerItem(
+                    key = "section/${section.id}/block-$blockIndex/spacer",
+                    height = 8.dp,
+                )
+            }
+            section.children.forEach { child -> visit(child) }
+        }
+    }
+
+    document.sections.forEach { visit(it) }
+    return items
+}
+
+private fun buildBlockIdToIndexMap(
+    bodyItems: List<NoteBodyItem>,
+    headerItemCount: Int,
+): Map<String, Int> {
+    val map = mutableMapOf<String, Int>()
+    bodyItems.forEachIndexed { index, item ->
+        val lazyIndex = headerItemCount + index
+        when (item) {
+            is NoteBodyItem.SectionHeaderItem -> {
+                map["section/${item.section.id}/header"] = lazyIndex
+            }
+            is NoteBodyItem.BlockItem -> {
+                when (val block = item.block) {
+                    is OrgBlock.Table -> {
+                        block.rows.forEachIndexed { rowIndex, row ->
+                            row.forEachIndexed { colIndex, _ ->
+                                map["${item.blockId}/cell-$rowIndex-$colIndex"] = lazyIndex
+                            }
+                        }
+                    }
+                    else -> Unit
+                }
+                map[item.blockId] = lazyIndex
+            }
+            else -> Unit
+        }
+    }
+    return map
+}
+
+@Composable
+private fun SectionHeaderRow(
+    section: OrgSection,
+    expandedState: MutableMap<String, Boolean>,
+    palette: OrgTextPalette,
+    indent: androidx.compose.ui.unit.Dp,
+    searchActive: Boolean,
+    matchListByBlockId: Map<String, List<MatchRange>>,
+    activeMatch: MatchRange?,
+) {
+    val isExpanded = expandedState[section.id] ?: true
+    val blockId = "section/${section.id}/header"
+    val ranges = if (searchActive) {
+        matchListByBlockId[blockId]
+            .orEmpty()
+            .mapNotNull { match ->
+                val endInclusive = match.end - 1
+                if (match.start < 0 || endInclusive < match.start) null else match.start..endInclusive
+            }
+    } else {
+        emptyList()
+    }
+    val activeRange = if (searchActive && activeMatch?.blockId == blockId) {
+        val endInclusive = activeMatch.end - 1
+        if (activeMatch.start < 0 || endInclusive < activeMatch.start) null else activeMatch.start..endInclusive
+    } else {
+        null
+    }
+    val highlightedTitle = remember(section.title, ranges, activeRange, palette) {
+        applyHighlights(
+            base = androidx.compose.ui.text.AnnotatedString(section.title),
+            ranges = ranges,
+            activeRange = activeRange,
+            matchBackground = palette.searchHighlightBackground,
+            activeBackground = palette.activeSearchHighlightBackground,
+        )
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = indent)
+            .clickable { expandedState[section.id] = !isExpanded }
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = if (isExpanded) "▾" else "▸",
+            style = MaterialTheme.typography.titleMedium,
+            color = palette.colorForLevel(section.level),
+        )
+        Text(
+            text = highlightedTitle,
+            style = MaterialTheme.typography.titleMedium,
+            color = palette.colorForLevel(section.level),
+            modifier = Modifier.padding(start = 8.dp),
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 
@@ -674,119 +972,6 @@ private fun NoteHeaderCard(
     }
 }
 
-@Composable
-private fun OrgBodyText(
-    text: String,
-    note: Note,
-    palette: OrgTextPalette,
-    onOpenLink: (String) -> Unit,
-    onOpenExternalLink: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    if (text.isBlank()) return
-    val annotated = remember(text, note.links, palette) {
-        buildOrgContentAnnotatedString(
-            content = text,
-            links = note.links,
-            palette = palette,
-        )
-    }
-    ClickableText(
-        text = annotated,
-        modifier = modifier.fillMaxWidth(),
-        style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
-        onClick = { offset ->
-            handleAnnotationClick(
-                annotated = annotated,
-                offset = offset,
-                onOpenLink = onOpenLink,
-                onOpenExternalLink = onOpenExternalLink,
-            )
-        },
-    )
-}
-
-@Composable
-private fun OrgSectionView(
-    section: OrgSection,
-    expandedState: MutableMap<String, Boolean>,
-    palette: OrgTextPalette,
-    context: BlockRenderContext,
-) {
-    val isExpanded = expandedState[section.id] ?: true
-    val indentLevel = (section.level - 1).coerceIn(0, 5)
-    val indent = (indentLevel * 12).dp
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = indent),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { expandedState[section.id] = !isExpanded }
-                .padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // Expand/collapse indicator with ▸/▾ style
-            Text(
-                text = if (isExpanded) "▾" else "▸",
-                style = MaterialTheme.typography.titleMedium,
-                color = palette.colorForLevel(section.level),
-            )
-            Text(
-                text = section.title,
-                style = MaterialTheme.typography.titleMedium,
-                color = palette.colorForLevel(section.level),
-                modifier = Modifier.padding(start = 8.dp),
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-        // Show headline tags if present
-        if (section.tags.isNotEmpty()) {
-            TagRow(
-                tags = section.tags,
-                modifier = Modifier.padding(start = 24.dp, bottom = 8.dp),
-            )
-        }
-        AnimatedVisibility(visible = isExpanded) {
-            Column(modifier = Modifier.padding(start = 24.dp)) {
-                if (section.blocks.isNotEmpty()) {
-                    OrgBlockColumn(
-                        blocks = section.blocks,
-                        context = context,
-                    )
-                }
-                section.children.forEach { child ->
-                    OrgSectionView(
-                        section = child,
-                        expandedState = expandedState,
-                        palette = palette,
-                        context = context,
-                    )
-                }
-            }
-        }
-    }
-}
-
-private fun handleAnnotationClick(
-    annotated: AnnotatedString,
-    offset: Int,
-    onOpenLink: (String) -> Unit,
-    onOpenExternalLink: (String) -> Unit,
-) {
-    val internal = annotated.getStringAnnotations(ORG_LINK_ANNOTATION_TAG, offset, offset).firstOrNull()
-    if (internal != null) {
-        onOpenLink(internal.item)
-        return
-    }
-    val external = annotated.getStringAnnotations(ORG_EXTERNAL_LINK_ANNOTATION_TAG, offset, offset).firstOrNull()
-    if (external != null) {
-        onOpenExternalLink(external.item)
-    }
-}
-
 private fun collectIds(section: OrgSection, state: MutableMap<String, Boolean>) {
     state[section.id] = true
     section.children.forEach { collectIds(it, state) }
@@ -845,12 +1030,16 @@ private fun NoteViewSuccessPreview() {
                     lastModified = "Today at 10:42 AM",
                     isFavorite = false,
                 ),
+                searchState = NoteViewViewModel.NoteSearchState(
+                    isActive = true,
+                    query = "Note",
+                    options = SearchOptions(),
+                ),
                 onOpenLink = {},
                 onOpenExternalLink = {},
                 onEditNote = {},
                 onNavigateHome = {},
                 onBack = {},
-                onSearch = {},
                 onShare = {},
                 onFavorite = {},
                 onCreateNote = {},
@@ -858,6 +1047,13 @@ private fun NoteViewSuccessPreview() {
                 onDelete = {},
                 onDuplicate = {},
                 onRename = {},
+                onOpenSearch = {},
+                onCloseSearch = {},
+                onSearchQueryChange = {},
+                onClearSearch = {},
+                onSearchOptionsChange = {},
+                onPrevMatch = {},
+                onNextMatch = {},
                 onCopyToClipboard = {},
                 onCopyIdLink = {},
                 onCopyFileLink = {},

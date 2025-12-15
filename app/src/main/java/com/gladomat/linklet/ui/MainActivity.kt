@@ -76,9 +76,6 @@ class MainActivity : ComponentActivity() {
                                         launchSingleTop = true
                                     }
                                 },
-                                onSearch = {
-                                    // TODO: implement search functionality
-                                },
                                 savedStateHandle = backStackEntry.savedStateHandle,
                             )
                         }

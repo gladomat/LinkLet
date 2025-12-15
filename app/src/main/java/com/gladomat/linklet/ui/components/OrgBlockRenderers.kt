@@ -29,7 +29,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.gladomat.linklet.data.parser.org.OrgBlock
 import com.gladomat.linklet.data.model.NoteLink
+import com.gladomat.linklet.domain.service.MatchRange
+import com.gladomat.linklet.domain.service.SearchOptions
 
 // =============================================================================
 // Block Render Context
@@ -38,11 +41,16 @@ import com.gladomat.linklet.data.model.NoteLink
 /**
  * Context for rendering Org blocks, passed down to avoid drilling individual parameters.
  */
-data class BlockRenderContext(
+data class RenderContext(
     val palette: OrgTextPalette,
     val links: List<NoteLink>,
     val onOpenLink: (String) -> Unit,
     val onOpenExternalLink: (String) -> Unit,
+    val searchQuery: String? = null,
+    val matchList: List<MatchRange> = emptyList(),
+    val activeMatchIndex: Int = -1,
+    val searchOptions: SearchOptions = SearchOptions(),
+    val matchListByBlockId: Map<String, List<MatchRange>> = emptyMap(),
 )
 
 // =============================================================================
@@ -56,23 +64,69 @@ data class BlockRenderContext(
 @Composable
 fun OrgBlockColumn(
     blocks: List<OrgBlock>,
-    context: BlockRenderContext,
+    context: RenderContext,
+    blockIdPrefix: String,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
-        blocks.forEach { block ->
-            when (block) {
-                is OrgBlock.Paragraph -> OrgParagraphBlock(block, context)
-                is OrgBlock.Table -> OrgTableBlock(block, context)
-                is OrgBlock.SourceBlock -> OrgSourceBlock(block, context)
-                is OrgBlock.QuoteBlock -> OrgQuoteBlock(block, context)
-                is OrgBlock.CenterBlock -> OrgCenterBlock(block, context)
-                is OrgBlock.VerseBlock -> OrgVerseBlock(block)
-                is OrgBlock.ExampleBlock -> OrgExampleBlock(block)
-                is OrgBlock.UnknownBlock -> OrgUnknownBlock(block)
-            }
+        blocks.forEachIndexed { index, block ->
+            OrgBlockView(
+                block = block,
+                blockId = "$blockIdPrefix/block-$index",
+                context = context,
+            )
         }
     }
+}
+
+@Composable
+fun OrgBlockView(
+    block: OrgBlock,
+    blockId: String,
+    context: RenderContext,
+    modifier: Modifier = Modifier,
+) {
+    when (block) {
+        is OrgBlock.Paragraph -> OrgParagraphBlock(block, blockId, context, modifier)
+        is OrgBlock.Table -> OrgTableBlock(block, blockId, context, modifier)
+        is OrgBlock.SourceBlock -> OrgSourceBlock(block, blockId, context, modifier)
+        is OrgBlock.QuoteBlock -> OrgQuoteBlock(block, blockId, context, modifier)
+        is OrgBlock.CenterBlock -> OrgCenterBlock(block, blockId, context, modifier)
+        is OrgBlock.VerseBlock -> OrgVerseBlock(block, blockId, context, modifier)
+        is OrgBlock.ExampleBlock -> OrgExampleBlock(block, blockId, context, modifier)
+        is OrgBlock.UnknownBlock -> OrgUnknownBlock(block, blockId, context, modifier)
+    }
+}
+
+private fun RenderContext.matchRangesFor(blockId: String): List<IntRange> =
+    matchListByBlockId[blockId]
+        .orEmpty()
+        .mapNotNull { match ->
+            val endInclusive = match.end - 1
+            if (match.start < 0 || endInclusive < match.start) null else match.start..endInclusive
+        }
+
+private fun RenderContext.activeRangeFor(blockId: String): IntRange? {
+    val active = matchList.getOrNull(activeMatchIndex) ?: return null
+    if (active.blockId != blockId) return null
+    val endInclusive = active.end - 1
+    if (active.start < 0 || endInclusive < active.start) return null
+    return active.start..endInclusive
+}
+
+private fun RenderContext.applySearchHighlights(
+    base: AnnotatedString,
+    blockId: String,
+): AnnotatedString {
+    val ranges = matchRangesFor(blockId)
+    val active = activeRangeFor(blockId)
+    return applyHighlights(
+        base = base,
+        ranges = ranges,
+        activeRange = active,
+        matchBackground = palette.searchHighlightBackground,
+        activeBackground = palette.activeSearchHighlightBackground,
+    )
 }
 
 // =============================================================================
@@ -82,16 +136,20 @@ fun OrgBlockColumn(
 @Composable
 private fun OrgParagraphBlock(
     block: OrgBlock.Paragraph,
-    context: BlockRenderContext,
+    blockId: String,
+    context: RenderContext,
     modifier: Modifier = Modifier,
 ) {
     if (block.text.isBlank()) return
-    val annotated = remember(block.text, context.links, context.palette) {
+    val base = remember(block.text, context.links, context.palette) {
         buildOrgContentAnnotatedString(
             content = block.text,
             links = context.links,
             palette = context.palette,
         )
+    }
+    val annotated = remember(base, context.matchListByBlockId, context.activeMatchIndex) {
+        context.applySearchHighlights(base = base, blockId = blockId)
     }
     ClickableText(
         text = annotated,
@@ -120,7 +178,8 @@ private fun OrgParagraphBlock(
 @Composable
 private fun OrgTableBlock(
     block: OrgBlock.Table,
-    context: BlockRenderContext,
+    blockId: String,
+    context: RenderContext,
     modifier: Modifier = Modifier,
 ) {
     if (block.rows.isEmpty()) return
@@ -144,15 +203,19 @@ private fun OrgTableBlock(
         block.rows,
         context.links,
         context.palette,
+        context.matchListByBlockId,
+        context.activeMatchIndex,
         columnCount,
     ) {
-        block.rows.map { row ->
+        block.rows.mapIndexed { rowIndex, row ->
             List(columnCount) { columnIndex ->
-                buildOrgContentAnnotatedString(
+                val cellId = "$blockId/cell-$rowIndex-$columnIndex"
+                val base = buildOrgContentAnnotatedString(
                     content = row.getOrNull(columnIndex).orEmpty(),
                     links = context.links,
                     palette = context.palette,
                 )
+                context.applySearchHighlights(base = base, blockId = cellId)
             }
         }
     }
@@ -216,11 +279,11 @@ private fun OrgTableBlock(
 // Source Block
 // =============================================================================
 
-@Suppress("UNUSED_PARAMETER")
 @Composable
 private fun OrgSourceBlock(
     block: OrgBlock.SourceBlock,
-    context: BlockRenderContext,
+    blockId: String,
+    context: RenderContext,
     modifier: Modifier = Modifier,
 ) {
     val colorScheme = MaterialTheme.colorScheme
@@ -236,8 +299,11 @@ private fun OrgSourceBlock(
         )
     }
 
-    val highlighted = remember(block.content, block.language, theme) {
+    val baseHighlighted = remember(block.content, block.language, theme) {
         SyntaxHighlighter.highlight(block.content, block.language, theme)
+    }
+    val highlighted = remember(baseHighlighted, context.matchListByBlockId, context.activeMatchIndex) {
+        context.applySearchHighlights(base = baseHighlighted, blockId = blockId)
     }
 
     val scrollState = rememberScrollState()
@@ -290,15 +356,19 @@ private fun OrgSourceBlock(
 @Composable
 private fun OrgQuoteBlock(
     block: OrgBlock.QuoteBlock,
-    context: BlockRenderContext,
+    blockId: String,
+    context: RenderContext,
     modifier: Modifier = Modifier,
 ) {
-    val annotated = remember(block.content, context.links, context.palette) {
+    val base = remember(block.content, context.links, context.palette) {
         buildOrgContentAnnotatedString(
             content = block.content,
             links = context.links,
             palette = context.palette,
         )
+    }
+    val annotated = remember(base, context.matchListByBlockId, context.activeMatchIndex) {
+        context.applySearchHighlights(base = base, blockId = blockId)
     }
 
     Box(
@@ -329,15 +399,19 @@ private fun OrgQuoteBlock(
 @Composable
 private fun OrgCenterBlock(
     block: OrgBlock.CenterBlock,
-    context: BlockRenderContext,
+    blockId: String,
+    context: RenderContext,
     modifier: Modifier = Modifier,
 ) {
-    val annotated = remember(block.content, context.links, context.palette) {
+    val base = remember(block.content, context.links, context.palette) {
         buildOrgContentAnnotatedString(
             content = block.content,
             links = context.links,
             palette = context.palette,
         )
+    }
+    val annotated = remember(base, context.matchListByBlockId, context.activeMatchIndex) {
+        context.applySearchHighlights(base = base, blockId = blockId)
     }
 
     Box(
@@ -361,8 +435,13 @@ private fun OrgCenterBlock(
 @Composable
 private fun OrgVerseBlock(
     block: OrgBlock.VerseBlock,
+    blockId: String,
+    context: RenderContext,
     modifier: Modifier = Modifier,
 ) {
+    val annotated = remember(block.content, context.matchListByBlockId, context.activeMatchIndex) {
+        context.applySearchHighlights(base = AnnotatedString(block.content), blockId = blockId)
+    }
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -370,7 +449,7 @@ private fun OrgVerseBlock(
             .padding(horizontal = 16.dp),
     ) {
         Text(
-            text = block.content,
+            text = annotated,
             style = MaterialTheme.typography.bodyMedium.copy(
                 fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
             ),
@@ -385,9 +464,14 @@ private fun OrgVerseBlock(
 @Composable
 private fun OrgExampleBlock(
     block: OrgBlock.ExampleBlock,
+    blockId: String,
+    context: RenderContext,
     modifier: Modifier = Modifier,
 ) {
     val scrollState = rememberScrollState()
+    val annotated = remember(block.content, context.matchListByBlockId, context.activeMatchIndex) {
+        context.applySearchHighlights(base = AnnotatedString(block.content), blockId = blockId)
+    }
 
     SelectionContainer {
         Box(
@@ -400,7 +484,7 @@ private fun OrgExampleBlock(
                 .padding(12.dp),
         ) {
             Text(
-                text = block.content,
+                text = annotated,
                 style = MaterialTheme.typography.bodySmall.copy(
                     fontFamily = FontFamily.Monospace,
                 ),
@@ -416,9 +500,14 @@ private fun OrgExampleBlock(
 @Composable
 private fun OrgUnknownBlock(
     block: OrgBlock.UnknownBlock,
+    blockId: String,
+    context: RenderContext,
     modifier: Modifier = Modifier,
 ) {
     val scrollState = rememberScrollState()
+    val annotated = remember(block.content, context.matchListByBlockId, context.activeMatchIndex) {
+        context.applySearchHighlights(base = AnnotatedString(block.content), blockId = blockId)
+    }
 
     Box(
         modifier = modifier
@@ -438,7 +527,7 @@ private fun OrgUnknownBlock(
                 ),
             )
             Text(
-                text = block.content,
+                text = annotated,
                 style = MaterialTheme.typography.bodySmall.copy(
                     fontFamily = FontFamily.Monospace,
                 ),

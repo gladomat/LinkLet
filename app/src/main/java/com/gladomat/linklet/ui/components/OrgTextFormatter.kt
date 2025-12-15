@@ -20,6 +20,9 @@ private val UrlRegex = Regex("""((?:https?://|www\.)[^\s]+|[A-Za-z0-9._%+-]+(?:\
 const val ORG_LINK_ANNOTATION_TAG = "org-link"
 const val ORG_EXTERNAL_LINK_ANNOTATION_TAG = "org-external-link"
 
+private val DefaultMatchHighlight = Color(0xFFFFF59D) // light yellow
+private val DefaultActiveHighlight = Color(0xFFFFCC80) // orange
+
 data class OrgTextPalette(
     val headingLevel1: Color,
     val headingLevel2: Color,
@@ -30,6 +33,8 @@ data class OrgTextPalette(
     val codeTextColor: Color,
     val verbatimBackground: Color,
     val verbatimTextColor: Color,
+    val searchHighlightBackground: Color,
+    val activeSearchHighlightBackground: Color,
 )
 
 fun buildOrgContentAnnotatedString(
@@ -46,6 +51,51 @@ fun buildOrgContentAnnotatedString(
             if (index < lines.lastIndex) {
                 append("\n")
             }
+        }
+    }
+}
+
+/**
+ * Applies highlight spans over [text] using the default match/active styles.
+ */
+fun applyHighlights(
+    text: String,
+    ranges: List<IntRange>,
+    activeRange: IntRange?,
+): AnnotatedString = applyHighlights(
+    base = AnnotatedString(text),
+    ranges = ranges,
+    activeRange = activeRange,
+    matchBackground = DefaultMatchHighlight,
+    activeBackground = DefaultActiveHighlight,
+)
+
+/**
+ * Applies highlight spans over an existing [AnnotatedString] while preserving all existing spans/annotations.
+ *
+ * [ranges] and [activeRange] must be expressed in the same index space as [base.text].
+ */
+fun applyHighlights(
+    base: AnnotatedString,
+    ranges: List<IntRange>,
+    activeRange: IntRange?,
+    matchBackground: Color,
+    activeBackground: Color,
+): AnnotatedString {
+    if (ranges.isEmpty() && activeRange == null) return base
+    val normalized = normalizeRanges(base.text.length, ranges)
+    val normalizedActive = activeRange?.let { clampRange(base.text.length, it) }
+    if (normalized.isEmpty() && normalizedActive == null) return base
+
+    return buildAnnotatedString {
+        append(base)
+        val matchStyle = SpanStyle(background = matchBackground)
+        val activeStyle = SpanStyle(background = activeBackground, fontWeight = FontWeight.Bold)
+        normalized.forEach { range ->
+            addStyle(matchStyle, range.first, range.last + 1)
+        }
+        if (normalizedActive != null) {
+            addStyle(activeStyle, normalizedActive.first, normalizedActive.last + 1)
         }
     }
 }
@@ -222,9 +272,6 @@ private fun NoteLink.toLinkKey(): LinkKey? =
         is LinkTarget.Id -> LinkKey("id", target.value)
     }
 
-private fun <T> ArrayDeque<T>.removeFirstOrNull(): T? =
-    if (isEmpty()) null else removeFirst()
-
 private sealed interface ParsedLine {
     data class Heading(val level: Int, val text: String) : ParsedLine
     data class Bullet(val text: String) : ParsedLine
@@ -296,3 +343,34 @@ private fun normalizeUrl(raw: String): String =
         raw.startsWith("www.", ignoreCase = true) -> "https://$raw"
         else -> "https://$raw"
     }
+
+private fun normalizeRanges(length: Int, ranges: List<IntRange>): List<IntRange> {
+    if (length <= 0) return emptyList()
+    val sorted = ranges
+        .mapNotNull { clampRange(length, it) }
+        .sortedBy { it.first }
+
+    val merged = mutableListOf<IntRange>()
+    sorted.forEach { next ->
+        val last = merged.lastOrNull()
+        if (last == null) {
+            merged += next
+            return@forEach
+        }
+        if (next.first <= last.last) {
+            // Enforce non-overlapping ranges by merging.
+            merged[merged.lastIndex] = last.first..maxOf(last.last, next.last)
+        } else {
+            merged += next
+        }
+    }
+    return merged
+}
+
+private fun clampRange(length: Int, range: IntRange): IntRange? {
+    if (length <= 0) return null
+    val start = range.first.coerceIn(0, length)
+    val endInclusive = range.last.coerceIn(-1, length - 1)
+    if (start > endInclusive) return null
+    return start..endInclusive
+}
