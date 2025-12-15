@@ -25,6 +25,8 @@ class NoteViewViewModelTests {
         val repository = object : INoteRepository {
             override fun observeNotes() = kotlinx.coroutines.flow.MutableStateFlow(emptyList<Note>())
             override suspend fun listNotes(): Result<List<Note>> = Result.success(emptyList())
+            override suspend fun listAllNotes(): List<Note> = emptyList()
+            override suspend fun listTrashNotes(): List<Note> = emptyList()
             override suspend fun getNote(path: String): Result<Note> = Result.success(
                 Note(
                     id = NoteId(path),
@@ -48,6 +50,9 @@ class NoteViewViewModelTests {
             )
 
             override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
+            override suspend fun deleteNoteSoft(path: String): Result<Unit> = Result.success(Unit)
+            override suspend fun restoreNoteFromTrash(trashPath: String): Result<String> = Result.success(trashPath)
+            override suspend fun deleteNotePermanent(path: String): Result<Unit> = Result.success(Unit)
             override suspend fun deleteNote(path: String): Result<Unit> = Result.success(Unit)
             override suspend fun duplicateNote(path: String): Result<String> = Result.success("copy-$path")
             override suspend fun renameNote(oldPath: String, newPath: String): Result<Unit> = Result.success(Unit)
@@ -74,10 +79,15 @@ class NoteViewViewModelTests {
         val repository = object : INoteRepository {
             override fun observeNotes() = kotlinx.coroutines.flow.MutableStateFlow(emptyList<Note>())
             override suspend fun listNotes(): Result<List<Note>> = Result.success(emptyList())
+            override suspend fun listAllNotes(): List<Note> = emptyList()
+            override suspend fun listTrashNotes(): List<Note> = emptyList()
             override suspend fun getNote(path: String): Result<Note> = Result.failure(RuntimeException("boom"))
             override suspend fun reindex(): Result<Unit> = Result.success(Unit)
             override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(emptyList())
             override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
+            override suspend fun deleteNoteSoft(path: String): Result<Unit> = Result.success(Unit)
+            override suspend fun restoreNoteFromTrash(trashPath: String): Result<String> = Result.success(trashPath)
+            override suspend fun deleteNotePermanent(path: String): Result<Unit> = Result.success(Unit)
             override suspend fun deleteNote(path: String): Result<Unit> = Result.success(Unit)
             override suspend fun duplicateNote(path: String): Result<String> = Result.success("copy-$path")
             override suspend fun renameNote(oldPath: String, newPath: String): Result<Unit> = Result.success(Unit)
@@ -149,6 +159,10 @@ class NoteViewViewModelTests {
 
         override suspend fun listNotes(): Result<List<Note>> = Result.success(emptyList())
 
+        override suspend fun listAllNotes(): List<Note> = emptyList()
+
+        override suspend fun listTrashNotes(): List<Note> = emptyList()
+
         override suspend fun getNote(path: String): Result<Note> {
             requestedPaths += path
             return Result.success(
@@ -166,6 +180,12 @@ class NoteViewViewModelTests {
         override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(emptyList())
 
         override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
+
+        override suspend fun deleteNoteSoft(path: String): Result<Unit> = Result.success(Unit)
+
+        override suspend fun restoreNoteFromTrash(trashPath: String): Result<String> = Result.success(trashPath)
+
+        override suspend fun deleteNotePermanent(path: String): Result<Unit> = Result.success(Unit)
 
         override suspend fun deleteNote(path: String): Result<Unit> = Result.success(Unit)
 

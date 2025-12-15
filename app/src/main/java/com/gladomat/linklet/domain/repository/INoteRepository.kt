@@ -13,7 +13,39 @@ interface INoteRepository {
     suspend fun reindex(): Result<Unit>
     suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>>
     suspend fun saveNote(path: String, content: String): Result<Unit>
+    /**
+     * Soft-deletes a note by moving it into the trash area while keeping its content on disk.
+     * This mirrors modern note apps where deletion is reversible until the trash is emptied.
+     */
+    suspend fun deleteNoteSoft(path: String): Result<Unit>
+
+    /**
+     * Restores a note from the trash back to its original (or conflict-resolved) path.
+     * Returns the restored path, which may differ from the original when name conflicts occur.
+     */
+    suspend fun restoreNoteFromTrash(trashPath: String): Result<String>
+
+    /**
+     * Permanently deletes a note from storage (used for "Delete Forever" semantics).
+     */
+    suspend fun deleteNotePermanent(path: String): Result<Unit>
+
+    /**
+     * Legacy delete API used by existing callers.
+     * Now implemented as a soft delete for safety.
+     */
     suspend fun deleteNote(path: String): Result<Unit>
+
+    /**
+     * Lists all active (non-trash) notes.
+     */
+    suspend fun listAllNotes(): List<Note>
+
+    /**
+     * Lists notes that live in the trash area only.
+     */
+    suspend fun listTrashNotes(): List<Note>
+
     /** Duplicates a note with a new timestamp-based filename. Returns the new path. */
     suspend fun duplicateNote(path: String): Result<String>
     /** Renames a note file. Backlinks remain intact because they use org-roam IDs. */

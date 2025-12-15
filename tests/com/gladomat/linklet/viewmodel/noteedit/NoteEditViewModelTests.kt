@@ -445,6 +445,8 @@ private fun createRepository(
     object : INoteRepository {
         override fun observeNotes() = MutableStateFlow(emptyList<Note>())
         override suspend fun listNotes(): Result<List<Note>> = Result.success(emptyList())
+        override suspend fun listAllNotes(): List<Note> = emptyList()
+        override suspend fun listTrashNotes(): List<Note> = emptyList()
         override suspend fun getNote(path: String): Result<Note> = Result.success(
             Note(
                 id = NoteId(path),
@@ -459,6 +461,9 @@ private fun createRepository(
             onSave(path, content)
             return saveResult
         }
+        override suspend fun deleteNoteSoft(path: String): Result<Unit> = Result.success(Unit)
+        override suspend fun restoreNoteFromTrash(trashPath: String): Result<String> = Result.success(trashPath)
+        override suspend fun deleteNotePermanent(path: String): Result<Unit> = Result.success(Unit)
         override suspend fun deleteNote(path: String): Result<Unit> = Result.success(Unit)
         override suspend fun duplicateNote(path: String): Result<String> = Result.success("copy-$path")
         override suspend fun renameNote(oldPath: String, newPath: String): Result<Unit> = Result.success(Unit)

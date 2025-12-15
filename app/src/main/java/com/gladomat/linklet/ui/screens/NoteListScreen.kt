@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
@@ -38,6 +39,8 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -75,6 +78,7 @@ import com.gladomat.linklet.viewmodel.NoteListViewModel
 fun NoteListRoute(
     onOpenNote: (String) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenTrash: () -> Unit,
     onCreateNote: () -> Unit,
     viewModel: NoteListViewModel = hiltViewModel(),
 ) {
@@ -88,6 +92,7 @@ fun NoteListRoute(
         onOpenNote = onOpenNote,
         onRetry = viewModel::refresh,
         onOpenSettings = onOpenSettings,
+        onOpenTrash = onOpenTrash,
         onCreateNote = onCreateNote,
     )
 }
@@ -102,9 +107,11 @@ fun NoteListScreen(
     onOpenNote: (String) -> Unit,
     onRetry: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenTrash: () -> Unit,
     onCreateNote: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val moreMenuExpanded = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -118,6 +125,26 @@ fun NoteListScreen(
                     )
                 },
                 actions = {
+                    IconButton(
+                        onClick = { moreMenuExpanded.value = true },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.MoreVert,
+                            contentDescription = "More",
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = moreMenuExpanded.value,
+                        onDismissRequest = { moreMenuExpanded.value = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Show Deleted Notes") },
+                            onClick = {
+                                moreMenuExpanded.value = false
+                                onOpenTrash()
+                            },
+                        )
+                    }
                     IconButton(
                         onClick = onOpenSettings,
                         modifier = Modifier
@@ -497,6 +524,7 @@ private fun NoteListLoadingPreview() {
                 onOpenNote = {},
                 onRetry = {},
                 onOpenSettings = {},
+                onOpenTrash = {},
                 onCreateNote = {},
             )
         }
@@ -536,6 +564,7 @@ private fun NoteListSuccessPreview() {
                 onOpenNote = {},
                 onRetry = {},
                 onOpenSettings = {},
+                onOpenTrash = {},
                 onCreateNote = {},
             )
         }
@@ -575,6 +604,7 @@ private fun NoteListSuccessWithConflictsPreview() {
                 onOpenNote = {},
                 onRetry = {},
                 onOpenSettings = {},
+                onOpenTrash = {},
                 onCreateNote = {},
             )
         }
@@ -594,6 +624,7 @@ private fun NoteListErrorPreview() {
                 onOpenNote = {},
                 onRetry = {},
                 onOpenSettings = {},
+                onOpenTrash = {},
                 onCreateNote = {},
             )
         }
@@ -613,6 +644,7 @@ private fun NoteListEmptyPreview() {
                 onOpenNote = {},
                 onRetry = {},
                 onOpenSettings = {},
+                onOpenTrash = {},
                 onCreateNote = {},
             )
         }
