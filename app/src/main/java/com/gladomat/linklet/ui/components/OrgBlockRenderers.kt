@@ -182,7 +182,7 @@ private fun OrgParagraphBlock(
             error = null
             val path = resolvedPath
             if (path == null) {
-                error = "Unable to resolve attachment path"
+                error = "Unable to resolve image path"
                 return@LaunchedEffect
             }
             context.resolveStorageUri(path).fold(
