@@ -1,5 +1,6 @@
 package com.gladomat.linklet.ui.components
 
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -17,7 +18,11 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +36,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.gladomat.linklet.data.parser.org.OrgBlock
 import com.gladomat.linklet.data.model.NoteLink
+import com.gladomat.linklet.data.utils.OrgPathResolver
 import com.gladomat.linklet.domain.service.MatchRange
 import com.gladomat.linklet.domain.service.SearchOptions
 
@@ -44,8 +50,11 @@ import com.gladomat.linklet.domain.service.SearchOptions
 data class RenderContext(
     val palette: OrgTextPalette,
     val links: List<NoteLink>,
+    val notePath: String,
     val onOpenLink: (String) -> Unit,
     val onOpenExternalLink: (String) -> Unit,
+    val resolveStorageUri: suspend (String) -> Result<Uri>,
+    val onOpenImage: (Uri) -> Unit,
     val searchQuery: String? = null,
     val matchList: List<MatchRange> = emptyList(),
     val activeMatchIndex: Int = -1,
@@ -74,6 +83,8 @@ fun OrgBlockColumn(
                 block = block,
                 blockId = "$blockIdPrefix/block-$index",
                 context = context,
+                nodeId = null,
+                nodeDir = null,
             )
         }
     }
@@ -84,10 +95,12 @@ fun OrgBlockView(
     block: OrgBlock,
     blockId: String,
     context: RenderContext,
+    nodeId: String?,
+    nodeDir: String?,
     modifier: Modifier = Modifier,
 ) {
     when (block) {
-        is OrgBlock.Paragraph -> OrgParagraphBlock(block, blockId, context, modifier)
+        is OrgBlock.Paragraph -> OrgParagraphBlock(block, blockId, context, nodeId, nodeDir, modifier)
         is OrgBlock.Table -> OrgTableBlock(block, blockId, context, modifier)
         is OrgBlock.SourceBlock -> OrgSourceBlock(block, blockId, context, modifier)
         is OrgBlock.QuoteBlock -> OrgQuoteBlock(block, blockId, context, modifier)
@@ -138,9 +151,74 @@ private fun OrgParagraphBlock(
     block: OrgBlock.Paragraph,
     blockId: String,
     context: RenderContext,
+    nodeId: String?,
+    nodeDir: String?,
     modifier: Modifier = Modifier,
 ) {
     if (block.text.isBlank()) return
+
+    val inlineImage = remember(block.text) { detectInlineImageCandidate(block.text) }
+    if (inlineImage != null) {
+        val resolvedPath = remember(inlineImage, context.notePath, nodeId, nodeDir) {
+            when (inlineImage.scheme) {
+                "attachment" -> OrgPathResolver.resolveAttachmentPath(
+                    notePath = context.notePath,
+                    nodeId = nodeId,
+                    dirProperty = nodeDir,
+                    attachmentName = inlineImage.target,
+                )
+                else -> OrgPathResolver.resolveFileTargetPath(
+                    notePath = context.notePath,
+                    target = inlineImage.target,
+                )
+            }
+        }
+
+        var uri: Uri? by remember(resolvedPath) { mutableStateOf(null) }
+        var error: String? by remember(resolvedPath) { mutableStateOf(null) }
+
+        LaunchedEffect(resolvedPath) {
+            uri = null
+            error = null
+            val path = resolvedPath
+            if (path == null) {
+                error = "Unable to resolve attachment path"
+                return@LaunchedEffect
+            }
+            context.resolveStorageUri(path).fold(
+                onSuccess = { uri = it },
+                onFailure = { error = it.message ?: "Unable to load image" },
+            )
+        }
+
+        when {
+            error != null -> Text(
+                text = error.orEmpty(),
+                color = MaterialTheme.colorScheme.error,
+                modifier = modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            uri == null -> Text(
+                text = "Loading image…",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            else -> OrgInlineImageBlock(
+                uri = uri!!,
+                caption = inlineImage.caption,
+                align = inlineImage.attrs["align"],
+                onOpen = context.onOpenImage,
+                modifier = modifier,
+            )
+        }
+        return
+    }
+
     val base = remember(block.text, context.links, context.palette) {
         buildOrgContentAnnotatedString(
             content = block.text,

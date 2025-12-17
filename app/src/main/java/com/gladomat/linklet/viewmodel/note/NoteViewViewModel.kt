@@ -249,6 +249,9 @@ class NoteViewViewModel @Inject constructor(
         return repository.getAllTags().getOrDefault(emptyList())
     }
 
+    /** Resolves a storage-relative path (note or attachment) to a readable Uri. */
+    suspend fun resolveStorageUri(path: String) = repository.resolveStorageUri(path)
+
     /** Updates properties in the current note */
     fun updateProperties(properties: Map<String, String>) {
         viewModelScope.launch {

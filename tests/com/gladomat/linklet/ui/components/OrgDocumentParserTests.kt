@@ -172,4 +172,22 @@ class OrgDocumentParserTests {
         assertEquals("CUSTOM", unknown.blockType)
         assertEquals("Custom content here.", unknown.content)
     }
+
+    @Test
+    fun `parseOrgDocument extracts leading PROPERTIES drawer for sections`() {
+        val content = """
+            * Heading 1
+            :PROPERTIES:
+            :ID: 6fa9215e-db36-476e-a8f1-33cc0f397eb4
+            :DIR: data/custom
+            :END:
+            
+            Text
+        """.trimIndent()
+
+        val document = parseOrgDocument(content)
+        val section = document.sections.single()
+        assertEquals("6fa9215e-db36-476e-a8f1-33cc0f397eb4", section.properties["ID"])
+        assertEquals("data/custom", section.properties["DIR"])
+    }
 }

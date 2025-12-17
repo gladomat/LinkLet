@@ -23,6 +23,7 @@ data class OrgSection(
     val level: Int,
     val title: String,
     val tags: List<String>,
+    val properties: Map<String, String>,
     val body: String,
     val blocks: List<OrgBlock>,
     val children: List<OrgSection>,
@@ -97,10 +98,31 @@ private fun OrgNode.toSection(): OrgSection =
         level = level,
         title = title,
         tags = tags,
+        properties = extractLeadingDrawerProperties(contentLines),
         body = contentLines.joinToString("\n").trim(),
         blocks = parseContentToBlocks(contentLines),
         children = children.map { it.toSection() },
     )
+
+private fun extractLeadingDrawerProperties(lines: List<String>): Map<String, String> {
+    var index = 0
+    while (index < lines.size && lines[index].isBlank()) index++
+    if (index >= lines.size) return emptyMap()
+    if (!lines[index].trim().equals(":PROPERTIES:", ignoreCase = true)) return emptyMap()
+    index++
+
+    val properties = mutableMapOf<String, String>()
+    while (index < lines.size) {
+        val trimmed = lines[index].trim()
+        if (trimmed.equals(":END:", ignoreCase = true)) break
+        val match = PropertyLineRegex.matchEntire(trimmed)
+        if (match != null) {
+            properties[match.groupValues[1].uppercase()] = match.groupValues[2]
+        }
+        index++
+    }
+    return properties
+}
 
 // ============================================================================
 // Block Parsing State Machine

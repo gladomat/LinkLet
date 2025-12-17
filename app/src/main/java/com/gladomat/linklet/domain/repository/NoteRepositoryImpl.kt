@@ -122,6 +122,8 @@ class NoteRepositoryImpl(
         }
     }
 
+    override suspend fun resolveStorageUri(path: String) = storage.resolveUri(path)
+
     override suspend fun saveNote(path: String, content: String): Result<Unit> = withContext(ioDispatcher) {
         runCatching {
             Log.d(TAG, "saveNote() - Writing note to storage: path='$path'")

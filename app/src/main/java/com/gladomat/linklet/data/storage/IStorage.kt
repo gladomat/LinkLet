@@ -1,5 +1,7 @@
 package com.gladomat.linklet.data.storage
 
+import android.net.Uri
+
 /**
  * Abstraction over note persistence.
  */
@@ -28,6 +30,11 @@ interface IStorage {
      * Renames/moves a note from oldPath to newPath.
      */
     suspend fun renameNote(oldPath: String, newPath: String): Result<Unit>
+
+    /**
+     * Resolves a storage-relative path (note or attachment) to a readable [Uri].
+     */
+    suspend fun resolveUri(path: String): Result<Uri>
 
     /**
      * Invalidates any cached directory listings or file metadata.

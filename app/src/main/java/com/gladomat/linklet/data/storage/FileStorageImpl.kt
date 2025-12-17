@@ -1,5 +1,6 @@
 package com.gladomat.linklet.data.storage
 
+import android.net.Uri
 import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -74,6 +75,12 @@ class FileStorageImpl(
             if (!source.renameTo(target)) {
                 throw IOException("Failed to rename file from $oldPath to $newPath")
             }
+        }
+    }
+
+    override suspend fun resolveUri(path: String): Result<Uri> = withContext(dispatcher) {
+        runCatching {
+            Uri.fromFile(resolvePath(path))
         }
     }
 

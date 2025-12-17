@@ -117,6 +117,13 @@ class DocumentTreeStorageImpl @Inject constructor(
         }
     }
 
+    override suspend fun resolveUri(path: String): Result<Uri> = withContext(dispatcher) {
+        runCatching {
+            val target = resolveFile(path) ?: throw IOException("File not found: $path")
+            target.uri
+        }
+    }
+
     private suspend fun baseDocumentFile(): DocumentFile? {
         val uri: Uri = folderSettingsRepository.currentFolderUri() ?: return null
         

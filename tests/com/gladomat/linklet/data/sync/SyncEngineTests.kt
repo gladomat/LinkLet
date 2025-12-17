@@ -338,6 +338,9 @@ class SyncEngineTests {
             return Result.success(Unit)
         }
 
+        override suspend fun resolveUri(path: String): Result<android.net.Uri> =
+            Result.failure(UnsupportedOperationException("Not used in these tests"))
+
         override suspend fun invalidateCache() {
             // No-op
         }

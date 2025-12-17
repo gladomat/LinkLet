@@ -1,6 +1,7 @@
 package com.gladomat.linklet.ui.screens.note
 
 import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -72,6 +73,7 @@ import com.gladomat.linklet.domain.repository.LinkEntityDto
 import com.gladomat.linklet.domain.service.MatchRange
 import com.gladomat.linklet.domain.service.SearchOptions
 import com.gladomat.linklet.ui.REFRESH_NOTE_KEY
+import com.gladomat.linklet.ui.components.FullscreenImageViewer
 import com.gladomat.linklet.ui.components.OrgBlockView
 import com.gladomat.linklet.ui.components.OrgTextPalette
 import com.gladomat.linklet.ui.components.applyHighlights
@@ -184,6 +186,7 @@ fun NoteViewRoute(
         searchState = searchState,
         onOpenLink = viewModel::openNote,
         onOpenExternalLink = { uri -> uriHandler.openUri(uri) },
+        resolveStorageUri = viewModel::resolveStorageUri,
         onEditNote = onEditNote,
         onNavigateHome = handleNavigateHome,
         onBack = handleBack,
@@ -250,6 +253,7 @@ fun NoteViewScreen(
     searchState: NoteViewViewModel.NoteSearchState,
     onOpenLink: (String) -> Unit,
     onOpenExternalLink: (String) -> Unit,
+    resolveStorageUri: suspend (String) -> Result<Uri>,
     onEditNote: (String) -> Unit,
     onNavigateHome: () -> Unit,
     onBack: () -> Unit,
@@ -285,6 +289,7 @@ fun NoteViewScreen(
             searchState = searchState,
             onOpenLink = onOpenLink,
             onOpenExternalLink = onOpenExternalLink,
+            resolveStorageUri = resolveStorageUri,
             onEditNote = onEditNote,
             onNavigateHome = onNavigateHome,
             onBack = onBack,
@@ -339,6 +344,7 @@ private fun SuccessState(
     searchState: NoteViewViewModel.NoteSearchState,
     onOpenLink: (String) -> Unit,
     onOpenExternalLink: (String) -> Unit,
+    resolveStorageUri: suspend (String) -> Result<Uri>,
     onEditNote: (String) -> Unit,
     onNavigateHome: () -> Unit,
     onBack: () -> Unit,
@@ -574,32 +580,42 @@ private fun SuccessState(
             }
         }
 
-        val matchList = if (searchState.isActive) searchState.matches else emptyList()
-        val matchListByBlockId = remember(matchList) { matchList.groupBy { it.blockId } }
-        val renderContext = remember(
-            palette,
-            note.links,
-            onOpenLink,
-            onOpenExternalLink,
-            searchState.isActive,
-            matchList,
-            matchListByBlockId,
-            searchState.activeMatchIndex,
-            searchState.options,
-            searchState.query,
-        ) {
-            com.gladomat.linklet.ui.components.RenderContext(
-                palette = palette,
-                links = note.links,
-                onOpenLink = onOpenLink,
-                onOpenExternalLink = onOpenExternalLink,
-                searchQuery = searchState.query.takeIf { searchState.isActive && it.isNotBlank() },
-                matchList = matchList,
-                activeMatchIndex = if (searchState.isActive) searchState.activeMatchIndex else -1,
-                searchOptions = searchState.options,
-                matchListByBlockId = matchListByBlockId,
-            )
-        }
+    val matchList = if (searchState.isActive) searchState.matches else emptyList()
+    val matchListByBlockId = remember(matchList) { matchList.groupBy { it.blockId } }
+    var viewerUri by remember { mutableStateOf<Uri?>(null) }
+
+    BackHandler(enabled = viewerUri != null) {
+        viewerUri = null
+    }
+    val renderContext = remember(
+        palette,
+        note.links,
+        note.id.path,
+        onOpenLink,
+        onOpenExternalLink,
+        resolveStorageUri,
+        searchState.isActive,
+        matchList,
+        matchListByBlockId,
+        searchState.activeMatchIndex,
+        searchState.options,
+        searchState.query,
+    ) {
+        com.gladomat.linklet.ui.components.RenderContext(
+            palette = palette,
+            links = note.links,
+            notePath = note.id.path,
+            onOpenLink = onOpenLink,
+            onOpenExternalLink = onOpenExternalLink,
+            resolveStorageUri = resolveStorageUri,
+            onOpenImage = { uri -> viewerUri = uri },
+            searchQuery = searchState.query.takeIf { searchState.isActive && it.isNotBlank() },
+            matchList = matchList,
+            activeMatchIndex = if (searchState.isActive) searchState.activeMatchIndex else -1,
+            searchOptions = searchState.options,
+            matchListByBlockId = matchListByBlockId,
+        )
+    }
 
         val contentItems = buildNoteBodyItems(document, sectionExpansion)
         val headerItemCount = 1 + if (document.properties.isNotEmpty()) 1 else 0
@@ -616,62 +632,76 @@ private fun SuccessState(
             listState.animateScrollToItem(targetIndex, scrollOffset = -chromePx)
         }
 
-        LazyColumn(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues),
-            state = listState,
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
         ) {
-            if (document.properties.isNotEmpty()) {
-                item(key = "properties") {
-                    PropertiesSection(
-                        properties = document.properties,
-                        expanded = propertiesExpanded,
-                        onToggle = { propertiesExpanded = !propertiesExpanded },
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                state = listState,
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+            ) {
+                if (document.properties.isNotEmpty()) {
+                    item(key = "properties") {
+                        PropertiesSection(
+                            properties = document.properties,
+                            expanded = propertiesExpanded,
+                            onToggle = { propertiesExpanded = !propertiesExpanded },
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+                }
+
+                item(key = "title-card") {
+                    NoteHeaderCard(
+                        title = note.title,
+                        path = note.id.path,
+                        fileTags = document.fileTags,
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                 }
-            }
 
-            item(key = "title-card") {
-                NoteHeaderCard(
-                    title = note.title,
-                    path = note.id.path,
-                    fileTags = document.fileTags,
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-
-            items(
-                items = contentItems,
-                key = { it.key },
-            ) { item ->
-                when (item) {
-                    is NoteBodyItem.SpacerItem -> Spacer(modifier = Modifier.height(item.height))
-                    is NoteBodyItem.SectionHeaderItem -> SectionHeaderRow(
-                        section = item.section,
-                        expandedState = sectionExpansion,
-                        palette = palette,
-                        indent = item.indent,
-                        searchActive = searchState.isActive,
-                        matchListByBlockId = matchListByBlockId,
-                        activeMatch = if (searchState.isActive) searchState.activeMatch else null,
-                    )
-                    is NoteBodyItem.SectionTagsItem -> TagRow(
-                        tags = item.tags,
-                        modifier = Modifier.padding(start = item.indent, bottom = 8.dp),
-                    )
-                    is NoteBodyItem.BlockItem -> {
-                        Column(modifier = Modifier.padding(start = item.indent)) {
-                            OrgBlockView(
-                                block = item.block,
-                                blockId = item.blockId,
-                                context = renderContext,
-                            )
+                items(
+                    items = contentItems,
+                    key = { it.key },
+                ) { item ->
+                    when (item) {
+                        is NoteBodyItem.SpacerItem -> Spacer(modifier = Modifier.height(item.height))
+                        is NoteBodyItem.SectionHeaderItem -> SectionHeaderRow(
+                            section = item.section,
+                            expandedState = sectionExpansion,
+                            palette = palette,
+                            indent = item.indent,
+                            searchActive = searchState.isActive,
+                            matchListByBlockId = matchListByBlockId,
+                            activeMatch = if (searchState.isActive) searchState.activeMatch else null,
+                        )
+                        is NoteBodyItem.SectionTagsItem -> TagRow(
+                            tags = item.tags,
+                            modifier = Modifier.padding(start = item.indent, bottom = 8.dp),
+                        )
+                        is NoteBodyItem.BlockItem -> {
+                            Column(modifier = Modifier.padding(start = item.indent)) {
+                                OrgBlockView(
+                                    block = item.block,
+                                    blockId = item.blockId,
+                                    context = renderContext,
+                                    nodeId = item.nodeId,
+                                    nodeDir = item.nodeDir,
+                                )
+                            }
                         }
                     }
                 }
+            }
+
+            if (viewerUri != null) {
+                FullscreenImageViewer(
+                    uri = viewerUri!!,
+                    onClose = { viewerUri = null },
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
     }
@@ -696,6 +726,8 @@ private sealed interface NoteBodyItem {
         override val key: String,
         val blockId: String,
         val block: OrgBlock,
+        val nodeId: String?,
+        val nodeDir: String?,
         val indent: androidx.compose.ui.unit.Dp,
     ) : NoteBodyItem
 
@@ -716,13 +748,17 @@ private fun buildNoteBodyItems(
                 key = "preface/block-$index",
                 blockId = "preface/block-$index",
                 block = block,
+                nodeId = null,
+                nodeDir = null,
                 indent = 0.dp,
             )
             items += NoteBodyItem.SpacerItem(key = "preface/block-$index/spacer", height = 8.dp)
         }
     }
 
-    fun visit(section: OrgSection) {
+    fun visit(section: OrgSection, inheritedId: String?, inheritedDir: String?) {
+        val nodeId = section.properties["ID"]?.takeIf { it.isNotBlank() } ?: inheritedId
+        val nodeDir = section.properties["DIR"]?.takeIf { it.isNotBlank() } ?: inheritedDir
         val indentLevel = (section.level - 1).coerceIn(0, 5)
         val headerIndent = (indentLevel * 12).dp
         val blocksIndent = headerIndent + 24.dp
@@ -744,6 +780,8 @@ private fun buildNoteBodyItems(
                     key = "section/${section.id}/block-$blockIndex",
                     blockId = "section/${section.id}/block-$blockIndex",
                     block = block,
+                    nodeId = nodeId,
+                    nodeDir = nodeDir,
                     indent = blocksIndent,
                 )
                 items += NoteBodyItem.SpacerItem(
@@ -751,11 +789,11 @@ private fun buildNoteBodyItems(
                     height = 8.dp,
                 )
             }
-            section.children.forEach { child -> visit(child) }
+            section.children.forEach { child -> visit(child, nodeId, nodeDir) }
         }
     }
 
-    document.sections.forEach { visit(it) }
+    document.sections.forEach { visit(it, inheritedId = null, inheritedDir = null) }
     return items
 }
 
@@ -1037,6 +1075,7 @@ private fun NoteViewSuccessPreview() {
                 ),
                 onOpenLink = {},
                 onOpenExternalLink = {},
+                resolveStorageUri = { Result.failure(IllegalStateException("preview")) },
                 onEditNote = {},
                 onNavigateHome = {},
                 onBack = {},

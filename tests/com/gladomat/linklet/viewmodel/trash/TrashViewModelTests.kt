@@ -47,6 +47,8 @@ class TrashViewModelTests {
             override suspend fun getAllTags(): Result<List<String>> = Result.success(emptyList())
             override suspend fun updateNoteProperties(path: String, properties: Map<String, String>): Result<Unit> = Result.success(Unit)
             override suspend fun updateNoteTags(path: String, tags: List<String>): Result<Unit> = Result.success(Unit)
+            override suspend fun resolveStorageUri(path: String): Result<android.net.Uri> =
+                Result.failure(UnsupportedOperationException("Not used in these tests"))
         }
 
         val viewModel = TrashViewModel(repository)
@@ -58,4 +60,3 @@ class TrashViewModelTests {
         assertEquals(setOf("_trash_bin/1_a.org", "_trash_bin/2_b.org"), deleted.toSet())
     }
 }
-

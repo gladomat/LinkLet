@@ -1,5 +1,6 @@
 package com.gladomat.linklet.domain.repository
 
+import android.net.Uri
 import com.gladomat.linklet.data.model.Note
 import kotlinx.coroutines.flow.Flow
 
@@ -56,6 +57,9 @@ interface INoteRepository {
     suspend fun updateNoteProperties(path: String, properties: Map<String, String>): Result<Unit>
     /** Updates the #+filetags: line in a note. */
     suspend fun updateNoteTags(path: String, tags: List<String>): Result<Unit>
+
+    /** Resolves a storage-relative path (note or attachment) to a readable [Uri]. */
+    suspend fun resolveStorageUri(path: String): Result<Uri>
 }
 
 data class LinkEntityDto(

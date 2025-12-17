@@ -1,0 +1,6 @@
+beans:
+    path: .beans
+    prefix: org_roam_mobile-
+    id_length: 4
+    default_status: todo
+    default_type: task
