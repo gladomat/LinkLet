@@ -43,7 +43,7 @@ class SettingsViewModel @Inject constructor(
             folderSettingsRepository.folderUriFlow.collectLatest { uri ->
                 _state.update { current ->
                     if (current.selectedFolder != uri) {
-                        current.copy(selectedFolder = uri, message = null)
+                        current.copy(selectedFolder = uri)
                     } else {
                         current
                     }

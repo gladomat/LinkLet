@@ -15,7 +15,9 @@ import com.gladomat.linklet.testing.MainDispatcherRule
 import java.io.File
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.runTest
 import io.mockk.coEvery
 import io.mockk.mockk
@@ -45,13 +47,22 @@ class SettingsViewModelTests {
     private val folderSettingsRepository = FolderSettingsRepository(context)
 
     @After
-    fun tearDown() = runTest {
+    fun tearDown() = runTest(dispatcherRule.dispatcher) {
         folderSettingsRepository.clearFolderUri()
         tempDir.delete()
     }
 
+    private suspend fun awaitMessage(viewModel: SettingsViewModel): String =
+        viewModel.state
+            .map { it.message }
+            .filterNotNull()
+            .first()
+
     @Test
-    fun `requestManualSync reports success message`() = runTest {
+    fun `requestManualSync reports success message`() = runTest(dispatcherRule.dispatcher) {
+        val folder = tempDir.newFolder("notes")
+        folderSettingsRepository.setFolderUri(Uri.fromFile(folder))
+
         val notes = MutableStateFlow<List<Note>>(emptyList())
         val repository = object : INoteRepository {
             override fun observeNotes() = notes
@@ -91,20 +102,18 @@ class SettingsViewModelTests {
         )
         val viewModel = SettingsViewModel(folderSettingsRepository, repository, syncEngine, provider, syncStateDao)
 
-        val folder = tempDir.newFolder("notes")
-        folderSettingsRepository.setFolderUri(Uri.fromFile(folder))
-        advanceUntilIdle()
-
         viewModel.requestManualSync()
-        advanceUntilIdle()
 
-        val state = viewModel.state.value
-        assertTrue("message was ${state.message}", state.message?.startsWith("Sync complete") == true)
+        val message = awaitMessage(viewModel)
+        assertTrue("message was $message", message.startsWith("Sync complete"))
         viewModel.clearMessage()
     }
 
     @Test
-    fun `requestManualSync reports error when reindex fails`() = runTest {
+    fun `requestManualSync reports error when reindex fails`() = runTest(dispatcherRule.dispatcher) {
+        val folder = tempDir.newFolder("notes")
+        folderSettingsRepository.setFolderUri(Uri.fromFile(folder))
+
         val notes = MutableStateFlow<List<Note>>(emptyList())
         val repository = object : INoteRepository {
             override fun observeNotes() = notes
@@ -136,20 +145,18 @@ class SettingsViewModelTests {
         )
         val viewModel = SettingsViewModel(folderSettingsRepository, repository, syncEngine, provider, syncStateDao)
 
-        val folder = tempDir.newFolder("notes")
-        folderSettingsRepository.setFolderUri(Uri.fromFile(folder))
-        advanceUntilIdle()
-
         viewModel.requestManualSync()
-        advanceUntilIdle()
 
-        val state = viewModel.state.value
-        assertTrue(state.message?.contains("Sync failed") == true)
+        val message = awaitMessage(viewModel)
+        assertTrue("message was $message", message.startsWith("Sync failed"))
         viewModel.clearMessage()
     }
 
     @Test
-    fun `requestManualSync runs local reindex when WebDAV disabled`() = runTest {
+    fun `requestManualSync runs local reindex when WebDAV disabled`() = runTest(dispatcherRule.dispatcher) {
+        val folder = tempDir.newFolder("notes")
+        folderSettingsRepository.setFolderUri(Uri.fromFile(folder))
+
         val notes = MutableStateFlow<List<Note>>(emptyList())
         val repository = object : INoteRepository {
             override fun observeNotes() = notes
@@ -178,19 +185,12 @@ class SettingsViewModelTests {
         coEvery { provider.isReadyForSync() } returns false
         val viewModel = SettingsViewModel(folderSettingsRepository, repository, syncEngine, provider, syncStateDao)
 
-        val folder = tempDir.newFolder("notes")
-        folderSettingsRepository.setFolderUri(Uri.fromFile(folder))
-        advanceUntilIdle()
-
-        assertNotNull("Folder should be selected before sync", viewModel.state.value.selectedFolder)
-
         viewModel.requestManualSync()
-        advanceUntilIdle()
 
-        val state = viewModel.state.value
+        val message = awaitMessage(viewModel)
         assertTrue(
-            "message was ${state.message}",
-            state.message?.startsWith("Local reindex complete") == true,
+            "message was $message",
+            message.startsWith("Local reindex complete"),
         )
         viewModel.clearMessage()
     }

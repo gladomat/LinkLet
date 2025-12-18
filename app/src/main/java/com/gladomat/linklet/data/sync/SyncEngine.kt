@@ -84,7 +84,7 @@ class SyncEngine @Inject constructor(
                 pendingDownloads = pendingStates.count { it.pendingAction == SyncPendingAction.DOWNLOAD },
                 pendingDeletes = pendingStates.count { it.pendingAction == SyncPendingAction.DELETE },
                 conflicts = pendingStates.count { it.pendingAction == SyncPendingAction.CONFLICT },
-                resolvedConflicts = operations.count { it is SyncOperation.ConflictResolved },
+                resolvedConflicts = operations.count { it is SyncOperation.Conflict },
             )
         }.onFailure {
             Log.e(TAG, "Sync run failed", it)
@@ -200,7 +200,6 @@ class SyncEngine @Inject constructor(
         data class DeleteRemote(override val path: String, val remoteId: String, val etag: String?) : SyncOperation()
         data class SoftDeleteLocal(override val path: String) : SyncOperation() // Move to trash
         data class Conflict(override val path: String, val remoteId: String, val fingerprint: String?) : SyncOperation()
-        data class ConflictResolved(override val path: String) : SyncOperation() // Marker for summary
         data class UpdateState(override val path: String) : SyncOperation() // Just update DB
         data class CleanupOrphanState(override val path: String) : SyncOperation() // Remove orphan sync state
     }
@@ -349,16 +348,35 @@ class SyncEngine @Inject constructor(
             Log.w(TAG, "DEBUG Execute: Delete operations detected:")
             deleteOps.forEach { op -> Log.w(TAG, "DEBUG Execute:   - DELETE '${op.path}' (remoteId=${op.remoteId})") }
             
-            if (totalRemoteFiles > 0 && deleteOps.size == totalRemoteFiles) {
+            if (totalRemoteFiles <= 0) {
+                throw CatastrophicDeleteException("Attempting remote deletes without a remote listing. Aborting.")
+            }
+
+            if (deleteOps.size == totalRemoteFiles) {
                 Log.e(TAG, "DEBUG Execute: GUARD RAIL TRIGGERED - All $totalRemoteFiles remote files would be deleted!")
                 throw CatastrophicDeleteException("Attempting to wipe 100% of remote files. Aborting.")
             }
             
             val deletePercentage = deleteOps.size.toDouble() / totalRemoteFiles.toDouble()
             Log.d(TAG, "DEBUG Execute: Delete percentage = $deletePercentage (${deleteOps.size}/$totalRemoteFiles)")
-            if (deleteOps.size > 50 || deletePercentage > 0.20) {
-                 Log.e(TAG, "DEBUG Execute: GUARD RAIL TRIGGERED - Delete threshold exceeded!")
-                 throw CatastrophicDeleteException("Delete threshold exceeded: ${deleteOps.size} files ($deletePercentage%). Aborting sync.")
+            if (deleteOps.size > 50) {
+                Log.e(TAG, "DEBUG Execute: GUARD RAIL TRIGGERED - Too many deletes!")
+                throw CatastrophicDeleteException("Attempting to delete ${deleteOps.size} remote files. Aborting.")
+            }
+
+            if (deletePercentage > 0.50) {
+                Log.e(TAG, "DEBUG Execute: GUARD RAIL TRIGGERED - Delete percentage catastrophic!")
+                val percentDisplay = "%.0f%%".format(deletePercentage * 100)
+                throw CatastrophicDeleteException("Attempting to delete ${deleteOps.size} remote files ($percentDisplay). Aborting.")
+            }
+
+            if (deletePercentage > 0.20) {
+                Log.e(TAG, "DEBUG Execute: GUARD RAIL TRIGGERED - Delete threshold exceeded, confirmation required")
+                val percentDisplay = "%.0f%%".format(deletePercentage * 100)
+                throw RequiresConfirmationException(
+                    pendingDeletesCount = deleteOps.size,
+                    message = "Sync wants to delete ${deleteOps.size} remote files ($percentDisplay). Confirmation required."
+                )
             }
         }
 

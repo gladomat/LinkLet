@@ -17,8 +17,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import com.gladomat.linklet.data.sync.CatastrophicDeleteException
-import com.gladomat.linklet.data.sync.RequiresConfirmationException
 import com.gladomat.linklet.data.settings.WebDavSettingsRepository
 import io.mockk.mockk
 
@@ -55,11 +53,14 @@ class SyncEngineTests {
 
         val summary = engine.run(provider).getOrThrow()
 
-        assertEquals(1, summary.pendingUploads)
+        assertEquals(0, summary.pendingUploads)
         assertEquals(0, summary.pendingDownloads)
-        val states = database.syncStateDao().getPendingStates()
-        assertEquals(1, states.size)
-        assertEquals(SyncPendingAction.UPLOAD, states.first().pendingAction)
+        assertEquals(1, provider.uploadedPaths.size)
+        assertEquals("notes/a.org", provider.uploadedPaths.single())
+
+        val state = database.syncStateDao().getState("notes/a.org")
+        assertEquals(SyncPendingAction.NONE, state?.pendingAction)
+        assertEquals(provider.lastUploadFingerprint, state?.remoteFingerprint)
     }
 
     @Test
@@ -74,15 +75,19 @@ class SyncEngineTests {
                     lastModifiedEpochMillis = null,
                 ),
             ),
+            remoteFiles = mapOf("remote-1" to "Remote note"),
         )
         val settingsRepo = mockk<WebDavSettingsRepository>(relaxed = true)
         engine = SyncEngine(storage, database.syncStateDao(), settingsRepo, dispatcher)
 
         val summary = engine.run(provider).getOrThrow()
 
-        assertEquals(1, summary.pendingDownloads)
-        val states = database.syncStateDao().getPendingStates()
-        assertEquals(SyncPendingAction.DOWNLOAD, states.first().pendingAction)
+        assertEquals(0, summary.pendingDownloads)
+        assertEquals("Remote note", storage.files["notes/b.org"])
+
+        val state = database.syncStateDao().getState("notes/b.org")
+        assertEquals(SyncPendingAction.NONE, state?.pendingAction)
+        assertEquals("etag-1", state?.remoteFingerprint)
     }
 
     @Test
@@ -97,7 +102,9 @@ class SyncEngineTests {
                 path = "notes/a.org",
                 remoteId = "remote-1",
                 remoteFingerprint = "etag-1",
+                localContentHash = NoteHashCalculator.compute("old"),
                 lastKnownHash = NoteHashCalculator.compute("old"),
+                lastSyncedAtEpochMillis = 1L,
                 pendingAction = SyncPendingAction.NONE,
             ),
         )
@@ -117,7 +124,8 @@ class SyncEngineTests {
             ),
         )
         val summaryUpload = engine.run(providerUpload).getOrThrow()
-        assertEquals(1, summaryUpload.pendingUploads)
+        assertEquals(0, summaryUpload.pendingUploads)
+        assertEquals(listOf("notes/a.org"), providerUpload.uploadedPaths)
 
         // Remote changed but local content unchanged -> expect download
         val providerDownload = FakeRemoteSyncProvider(
@@ -129,10 +137,12 @@ class SyncEngineTests {
                     lastModifiedEpochMillis = null,
                 ),
             ),
+            remoteFiles = mapOf("remote-1" to "remote-content-2"),
         )
         storage.files["notes/a.org"] = "local" // ensure same hash
         val summaryDownload = engine.run(providerDownload).getOrThrow()
-        assertEquals(1, summaryDownload.pendingDownloads)
+        assertEquals(0, summaryDownload.pendingDownloads)
+        assertEquals("remote-content-2", storage.files["notes/a.org"])
 
         // Remote and local both changed -> conflict
         storage.files["notes/a.org"] = "local-updated"
@@ -145,31 +155,98 @@ class SyncEngineTests {
                     lastModifiedEpochMillis = null,
                 ),
             ),
+            remoteFiles = mapOf("remote-1" to "remote-content-3"),
         )
         val summaryConflict = engine.run(providerConflict).getOrThrow()
-        assertEquals(1, summaryConflict.conflicts)
-        val states = dao.getPendingStates()
-        assertTrue(states.any { it.pendingAction == SyncPendingAction.CONFLICT })
+        assertEquals(1, summaryConflict.resolvedConflicts)
+        assertEquals("remote-content-3", storage.files["notes/a.org"])
+        val conflictFile = storage.files.keys.find { it.contains("(Conflicted Copy") }
+        assertTrue("Conflict copy created", conflictFile != null)
+        assertEquals("local-updated", storage.files[conflictFile])
+        assertEquals(SyncPendingAction.UPLOAD, dao.getState(conflictFile!!)?.pendingAction)
     }
 
     @Test
     fun `local deletion queued as remote delete`() = runTest(dispatcher) {
-        val storage = FakeStorage(mutableMapOf())
+        val storage = FakeStorage(
+            mutableMapOf(
+                "notes/other.org" to "keep-local-storage-nonempty",
+                "notes/b.org" to "content-remote-b",
+                "notes/c.org" to "content-remote-c",
+                "notes/d.org" to "content-remote-d",
+            ),
+        )
         val dao = database.syncStateDao()
         dao.upsert(
             SyncStateEntity(
                 path = "notes/a.org",
+                lifecycle = NoteLifecycle.DELETED_LOCALLY,
                 remoteId = "remote-1",
                 remoteFingerprint = "etag-1",
+                localContentHash = NoteHashCalculator.compute("old"),
                 lastKnownHash = NoteHashCalculator.compute("old"),
+                lastSyncedAtEpochMillis = 1L,
             ),
         )
+        dao.upsert(
+            SyncStateEntity(
+                path = "notes/other.org",
+                lifecycle = NoteLifecycle.ACTIVE,
+                remoteId = "remote-other",
+                remoteFingerprint = "etag-other",
+                localContentHash = NoteHashCalculator.compute("keep-local-storage-nonempty"),
+                lastKnownHash = NoteHashCalculator.compute("keep-local-storage-nonempty"),
+                lastSyncedAtEpochMillis = 1L,
+            ),
+        )
+        listOf(
+            Triple("notes/b.org", "remote-b", "content-remote-b"),
+            Triple("notes/c.org", "remote-c", "content-remote-c"),
+            Triple("notes/d.org", "remote-d", "content-remote-d"),
+        ).forEach { (path, remoteId, content) ->
+            val hash = NoteHashCalculator.compute(content)
+            dao.upsert(
+                SyncStateEntity(
+                    path = path,
+                    lifecycle = NoteLifecycle.ACTIVE,
+                    remoteId = remoteId,
+                    remoteFingerprint = "etag-$remoteId",
+                    localContentHash = hash,
+                    lastKnownHash = hash,
+                    lastSyncedAtEpochMillis = 1L,
+                ),
+            )
+        }
         val provider = FakeRemoteSyncProvider(
             metadata = listOf(
                 RemoteNoteMetadata(
                     remoteId = "remote-1",
                     path = "notes/a.org",
                     fingerprint = "etag-1",
+                    lastModifiedEpochMillis = null,
+                ),
+                RemoteNoteMetadata(
+                    remoteId = "remote-other",
+                    path = "notes/other.org",
+                    fingerprint = "etag-other",
+                    lastModifiedEpochMillis = null,
+                ),
+                RemoteNoteMetadata(
+                    remoteId = "remote-b",
+                    path = "notes/b.org",
+                    fingerprint = "etag-remote-b",
+                    lastModifiedEpochMillis = null,
+                ),
+                RemoteNoteMetadata(
+                    remoteId = "remote-c",
+                    path = "notes/c.org",
+                    fingerprint = "etag-remote-c",
+                    lastModifiedEpochMillis = null,
+                ),
+                RemoteNoteMetadata(
+                    remoteId = "remote-d",
+                    path = "notes/d.org",
+                    fingerprint = "etag-remote-d",
                     lastModifiedEpochMillis = null,
                 ),
             ),
@@ -179,9 +256,9 @@ class SyncEngineTests {
         engine = SyncEngine(storage, dao, settingsRepo, dispatcher)
         val summary = engine.run(provider).getOrThrow()
 
-        assertEquals(1, summary.pendingDeletes)
-        val states = dao.getPendingStates()
-        assertEquals(SyncPendingAction.DELETE, states.first().pendingAction)
+        assertEquals(0, summary.pendingDeletes)
+        assertEquals(listOf("notes/a.org"), provider.deletedPaths)
+        assertEquals(null, dao.getState("notes/a.org"))
     }
 
     @Test
@@ -222,7 +299,7 @@ class SyncEngineTests {
 
         // 2. Verify conflict resolved
         assertEquals(1, summary.resolvedConflicts)
-        assertEquals(0, summary.conflicts) // pending conflicts should be 0 after resolution
+        assertEquals(0, summary.conflicts) // conflicts are resolved immediately
 
         // 3. Verify storage
         // Original file should be overwritten by remote content
@@ -246,10 +323,14 @@ class SyncEngineTests {
 
     @Test
     fun `catastrophic delete throws exception`() = runTest(dispatcher) {
-        val storage = FakeStorage(mutableMapOf()) // Empty local storage
+        val storage = FakeStorage(
+            mutableMapOf(
+                "notes/keep.org" to "keep-local-storage-nonempty",
+            ),
+        )
         val dao = database.syncStateDao()
 
-        // Seed many existing states, implying they were once local/synced but are now gone
+        // Seed many existing states marked "deleted locally" so they'd all be pushed as deletes.
         val remoteNotes = (1..10).map {
             RemoteNoteMetadata(
                 remoteId = "remote-$it",
@@ -262,15 +343,18 @@ class SyncEngineTests {
             dao.upsert(
                 SyncStateEntity(
                     path = it.path,
+                    lifecycle = NoteLifecycle.DELETED_LOCALLY,
                     remoteId = it.remoteId,
                     remoteFingerprint = it.fingerprint,
+                    localContentHash = NoteHashCalculator.compute("some content"),
                     lastKnownHash = NoteHashCalculator.compute("some content"),
+                    lastSyncedAtEpochMillis = 1L,
                 ),
             )
         }
 
-        // Simulate that all these files are now missing remotely
-        val provider = FakeRemoteSyncProvider(metadata = emptyList())
+        // Simulate that the remote still has all of these files (100% delete attempt)
+        val provider = FakeRemoteSyncProvider(metadata = remoteNotes)
 
         val settingsRepo = mockk<WebDavSettingsRepository>(relaxed = true)
         engine = SyncEngine(storage, dao, settingsRepo, dispatcher)
@@ -281,11 +365,11 @@ class SyncEngineTests {
 
     @Test
     fun `threshold delete throws confirmation exception`() = runTest(dispatcher) {
-        val storage = FakeStorage(mutableMapOf()) // Empty local storage
+        val storage = FakeStorage(mutableMapOf()) // Some local, some deleted
         val dao = database.syncStateDao()
 
-        // Seed 6 existing states, so they will be marked for remote deletion
-        val remoteNotes = (1..6).map {
+        // Seed 20 remote notes; mark 6 as deleted locally so deletePercentage = 30% (> 20%).
+        val remoteNotes = (1..20).map {
             RemoteNoteMetadata(
                 remoteId = "remote-$it",
                 path = "notes/$it.org",
@@ -293,19 +377,40 @@ class SyncEngineTests {
                 lastModifiedEpochMillis = null,
             )
         }
-        remoteNotes.forEach {
+
+        remoteNotes.take(6).forEach {
             dao.upsert(
                 SyncStateEntity(
                     path = it.path,
+                    lifecycle = NoteLifecycle.DELETED_LOCALLY,
                     remoteId = it.remoteId,
                     remoteFingerprint = it.fingerprint,
+                    localContentHash = NoteHashCalculator.compute("some content"),
                     lastKnownHash = NoteHashCalculator.compute("some content"),
+                    lastSyncedAtEpochMillis = 1L,
                 ),
             )
         }
 
-        // Simulate that these 6 files are now missing remotely (triggering 6 deletes)
-        val provider = FakeRemoteSyncProvider(metadata = emptyList())
+        // Keep the other notes in sync (avoid scheduling operations for them).
+        remoteNotes.drop(6).forEach {
+            val content = "content-${it.remoteId}"
+            storage.files[it.path] = content
+            val hash = NoteHashCalculator.compute(content)
+            dao.upsert(
+                SyncStateEntity(
+                    path = it.path,
+                    lifecycle = NoteLifecycle.ACTIVE,
+                    remoteId = it.remoteId,
+                    remoteFingerprint = it.fingerprint,
+                    localContentHash = hash,
+                    lastKnownHash = hash,
+                    lastSyncedAtEpochMillis = 1L,
+                ),
+            )
+        }
+
+        val provider = FakeRemoteSyncProvider(metadata = remoteNotes)
 
         val settingsRepo = mockk<WebDavSettingsRepository>(relaxed = true)
         engine = SyncEngine(storage, dao, settingsRepo, dispatcher)
@@ -352,6 +457,10 @@ class SyncEngineTests {
     ) : RemoteSyncProvider {
         override val name: String = "fake"
 
+        val uploadedPaths = mutableListOf<String>()
+        val deletedPaths = mutableListOf<String>()
+        var lastUploadFingerprint: String? = null
+
         override suspend fun listRemoteNotes(): Result<List<RemoteNoteMetadata>> = Result.success(metadata)
 
         override suspend fun download(path: String, remoteId: String): Result<java.io.InputStream> =
@@ -365,9 +474,19 @@ class SyncEngineTests {
             remoteId: String?,
             expectedFingerprint: String?,
         ): Result<RemoteUploadResult> =
-            Result.failure(UnsupportedOperationException())
+            runCatching {
+                val uploadedContent = content.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                uploadedPaths.add(path)
+                lastUploadFingerprint = "etag-${uploadedContent.hashCode()}"
+                RemoteUploadResult(
+                    remoteId = remoteId ?: "remote-uploaded",
+                    fingerprint = lastUploadFingerprint,
+                )
+            }
 
         override suspend fun delete(path: String, remoteId: String, fingerprint: String?): Result<Unit> =
-            Result.failure(UnsupportedOperationException())
+            runCatching {
+                deletedPaths.add(path)
+            }.map { Unit }
     }
 }
