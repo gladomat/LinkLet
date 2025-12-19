@@ -64,6 +64,23 @@ class SyncEngineTests {
     }
 
     @Test
+    fun `new local non-org file marked for upload`() = runTest(dispatcher) {
+        val storage = FakeStorage(
+            mutableMapOf("img/cat.png" to "binary"),
+        )
+        val provider = FakeRemoteSyncProvider()
+        val settingsRepo = mockk<WebDavSettingsRepository>(relaxed = true)
+        engine = SyncEngine(storage, database.syncStateDao(), settingsRepo, dispatcher)
+
+        val summary = engine.run(provider).getOrThrow()
+
+        assertEquals(0, summary.pendingUploads)
+        assertEquals(0, summary.pendingDownloads)
+        assertEquals(1, provider.uploadedPaths.size)
+        assertEquals("img/cat.png", provider.uploadedPaths.single())
+    }
+
+    @Test
     fun `remote note without local copy marked download`() = runTest(dispatcher) {
         val storage = FakeStorage(mutableMapOf())
         val provider = FakeRemoteSyncProvider(
@@ -422,7 +439,8 @@ class SyncEngineTests {
     private class FakeStorage(
         val files: MutableMap<String, String>,
     ) : IStorage {
-        override suspend fun listNotes(): Result<List<String>> = Result.success(files.keys.toList())
+        override suspend fun listNotes(): Result<List<String>> =
+            Result.success(files.keys.filter { it.endsWith(".org", ignoreCase = true) })
 
         override suspend fun listFiles(): Result<List<String>> = Result.success(files.keys.toList())
 

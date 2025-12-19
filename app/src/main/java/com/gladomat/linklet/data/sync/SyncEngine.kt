@@ -99,19 +99,20 @@ class SyncEngine @Inject constructor(
         val syncStates: Map<String, SyncStateEntity>,
     )
 
-    data class LocalFile(val path: String, val content: String, val hash: String)
+    data class LocalFile(val path: String, val hash: String)
 
     private suspend fun discoverState(provider: RemoteSyncProvider): DiscoveryResult {
         // 1. Local Files (excluding trash bin - that's local-only)
-        val localPaths = storage.listNotes().getOrThrow()
+        val localPaths = storage.listFiles().getOrThrow()
             .filter { !it.startsWith(TRASH_DIR) }
+            .filter { SyncPathFilter.shouldInclude(it) }
         Log.d(TAG, "DEBUG Discovery: Found ${localPaths.size} local paths (excluding $TRASH_DIR)")
         localPaths.forEach { path -> Log.d(TAG, "DEBUG Discovery: Local path: '$path'") }
         
         val localFiles = localPaths.mapNotNull { path ->
-            val content = storage.readNote(path).getOrNull()
-            if (content != null) {
-                path to LocalFile(path, content, NoteHashCalculator.compute(content))
+            val bytes = storage.readFileBytes(path).getOrNull()
+            if (bytes != null) {
+                path to LocalFile(path, NoteHashCalculator.computeBytes(bytes))
             } else {
                 Log.w(TAG, "DEBUG Discovery: Could not read local file: '$path'")
                 null
@@ -401,14 +402,14 @@ class SyncEngine @Inject constructor(
     private suspend fun performUpload(op: SyncOperation.Upload, provider: RemoteSyncProvider) {
         Log.d(TAG, "Executing Upload: ${op.path}")
         val state = syncStateDao.getState(op.path)
-        val content = storage.readNote(op.path).getOrElse { return }
-        val hash = NoteHashCalculator.compute(content)
+        val bytes = storage.readFileBytes(op.path).getOrElse { return }
+        val hash = NoteHashCalculator.computeBytes(bytes)
         
         // Assuming state exists or we create new
         val remoteId = state?.remoteId
         val expectedFingerprint = state?.remoteFingerprint
         
-        provider.upload(op.path, content.byteInputStream(Charsets.UTF_8), remoteId, expectedFingerprint)
+        provider.upload(op.path, bytes.inputStream(), remoteId, expectedFingerprint)
             .onSuccess { result ->
                 val newState = (state ?: SyncStateEntity(op.path)).copy(
                     lifecycle = NoteLifecycle.ACTIVE,
@@ -433,9 +434,9 @@ class SyncEngine @Inject constructor(
         Log.d(TAG, "Executing Download: ${op.path} (fingerprint=${op.fingerprint})")
         provider.download(op.path, op.remoteId)
             .onSuccess { stream ->
-                val content = stream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-                storage.writeNote(op.path, content)
-                val hash = NoteHashCalculator.compute(content)
+                val bytes = stream.use { it.readBytes() }
+                writeLocalBytes(op.path, bytes)
+                val hash = NoteHashCalculator.computeBytes(bytes)
                 
                 val state = syncStateDao.getState(op.path) ?: SyncStateEntity(op.path)
                 val newState = state.copy(
@@ -472,9 +473,9 @@ class SyncEngine @Inject constructor(
     private suspend fun performSoftDelete(op: SyncOperation.SoftDeleteLocal) {
         Log.d(TAG, "Executing Soft Delete (Move to Trash): ${op.path}")
         runCatching {
-            val content = storage.readNote(op.path).getOrThrow()
             val trashPath = "$TRASH_DIR/${op.path}"
-            storage.writeNote(trashPath, content)
+            val bytes = storage.readFileBytes(op.path).getOrThrow()
+            writeLocalBytes(trashPath, bytes)
             storage.deleteNote(op.path)
             
             val state = syncStateDao.getState(op.path)
@@ -491,15 +492,15 @@ class SyncEngine @Inject constructor(
     private suspend fun performConflictResolution(op: SyncOperation.Conflict, provider: RemoteSyncProvider) {
         Log.i(TAG, "DEBUG Conflict: Resolving conflict for ${op.path}")
         // 1. Rename local to "Conflicted Copy"
-        val localContent = storage.readNote(op.path).getOrNull()
-        Log.d(TAG, "DEBUG Conflict: Local content exists=${localContent != null}, length=${localContent?.length ?: 0}")
+        val localBytes = storage.readFileBytes(op.path).getOrNull()
+        Log.d(TAG, "DEBUG Conflict: Local content exists=${localBytes != null}, length=${localBytes?.size ?: 0}")
         
-        if (localContent != null) {
+        if (localBytes != null) {
             val conflictPath = createConflictPath(op.path)
             Log.d(TAG, "DEBUG Conflict: Creating conflicted copy at '$conflictPath'")
-            storage.writeNote(conflictPath, localContent)
+            writeLocalBytes(conflictPath, localBytes)
             // Create new sync state for conflict copy so it gets uploaded
-            val conflictHash = NoteHashCalculator.compute(localContent)
+            val conflictHash = NoteHashCalculator.computeBytes(localBytes)
             val conflictState = SyncStateEntity(
                 path = conflictPath,
                 lifecycle = NoteLifecycle.ACTIVE,
@@ -528,6 +529,17 @@ class SyncEngine @Inject constructor(
         val conflictName = "$name (Conflicted Copy $timestamp)$extension"
 
         return if (dir.isNotEmpty()) "$dir/$conflictName" else conflictName
+    }
+
+    private fun isOrgPath(path: String): Boolean =
+        path.endsWith(".org", ignoreCase = true)
+
+    private suspend fun writeLocalBytes(path: String, bytes: ByteArray) {
+        if (isOrgPath(path)) {
+            storage.writeNote(path, bytes.toString(Charsets.UTF_8))
+        } else {
+            storage.writeFileBytes(path, bytes)
+        }
     }
 }
 

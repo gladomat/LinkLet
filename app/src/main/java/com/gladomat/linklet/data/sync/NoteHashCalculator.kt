@@ -10,9 +10,12 @@ import java.util.Locale
 object NoteHashCalculator {
 
     fun compute(content: String): String {
+        return computeBytes(content.toByteArray(Charsets.UTF_8))
+    }
+
+    fun computeBytes(content: ByteArray): String {
         val digest = MessageDigest.getInstance("SHA-256")
-        val bytes = content.toByteArray(Charsets.UTF_8)
-        val hashed = digest.digest(bytes)
+        val hashed = digest.digest(content)
         return hashed.joinToString(separator = "") { byte ->
             String.format(Locale.US, "%02x", byte)
         }
