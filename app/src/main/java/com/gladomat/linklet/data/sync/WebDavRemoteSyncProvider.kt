@@ -36,6 +36,10 @@ class WebDavRemoteSyncProvider @Inject constructor(
 
     override val name: String = "webdav"
 
+    companion object {
+        internal fun isSyncableRemotePath(path: String): Boolean = SyncPathFilter.shouldInclude(path)
+    }
+
     // 1. The container for the captured ETag.
     private val capturedPutEtag = ThreadLocal<String>()
     
@@ -78,16 +82,11 @@ class WebDavRemoteSyncProvider @Inject constructor(
             Log.d(TAG, "Listing remote notes from: $url")
             Log.d(TAG, "DEBUG: Settings - baseUrl=${settings.baseUrl}, rootPath=${settings.rootPath}, normalizedRootPath=${settings.normalizedRootPath}")
             
-            val resources = sardine.list(url, 1)
+            val resources = listAllRemoteResources(sardine, settings)
             Log.d(TAG, "DEBUG: PROPFIND returned ${resources.size} total resources")
             
             val result = resources.mapNotNull { resource ->
                 Log.d(TAG, "DEBUG: Resource href='${resource.href}', isDirectory=${resource.isDirectory}, contentType=${resource.contentType}, etag=${resource.etag}")
-                
-                if (resource.isDirectory) {
-                    Log.d(TAG, "DEBUG: Skipping directory: ${resource.href}")
-                    return@mapNotNull null
-                }
                 
                 val relativePath = relativePathFromUrl(resource.href.toString(), settings)
                 Log.d(TAG, "DEBUG: Calculated relativePath='$relativePath' from href='${resource.href}'")
@@ -96,8 +95,8 @@ class WebDavRemoteSyncProvider @Inject constructor(
                     Log.w(TAG, "DEBUG: relativePath is null for href='${resource.href}'")
                     return@mapNotNull null
                 }
-                if (!relativePath.endsWith(".org")) {
-                    Log.d(TAG, "DEBUG: Skipping non-.org file: $relativePath")
+                if (!isSyncableRemotePath(relativePath)) {
+                    Log.d(TAG, "DEBUG: Skipping ignored path: $relativePath")
                     return@mapNotNull null
                 }
                 
@@ -326,6 +325,36 @@ class WebDavRemoteSyncProvider @Inject constructor(
         }.onFailure { e ->
             Log.e(TAG, "DEBUG relativePathFromUrl: Exception while processing url='$url'", e)
         }.getOrNull()
+    }
+
+    private fun listAllRemoteResources(
+        sardine: Sardine,
+        settings: WebDavSettings,
+    ): List<com.thegrizzlylabs.sardineandroid.DavResource> {
+        val resources = mutableListOf<com.thegrizzlylabs.sardineandroid.DavResource>()
+        val visitedDirs = mutableSetOf<String>()
+        val queue = ArrayDeque<String>()
+        queue.add("")
+
+        while (queue.isNotEmpty()) {
+            val relativeDir = queue.removeFirst()
+            val url = buildUrl(settings, relativeDir)
+            val entries = sardine.list(url, 1)
+            entries.forEach { resource ->
+                if (resource.isDirectory) {
+                    val dirPath = relativePathFromUrl(resource.href.toString(), settings)
+                    if (!dirPath.isNullOrBlank() && visitedDirs.add(dirPath)) {
+                        if (isSyncableRemotePath(dirPath)) {
+                            queue.add(dirPath)
+                        }
+                    }
+                    return@forEach
+                }
+                resources.add(resource)
+            }
+        }
+
+        return resources
     }
 
     private fun normalizeEtag(raw: String?): String? {
