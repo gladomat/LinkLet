@@ -33,6 +33,18 @@ class FileStorageImpl(
         }
     }
 
+    override suspend fun listFiles(): Result<List<String>> = withContext(dispatcher) {
+        runCatching {
+            ensureBaseDir()
+            baseDir
+                .walkTopDown()
+                .filter { it.isFile }
+                .map { it.relativeTo(baseDir).invariantSeparatorsPath }
+                .sorted()
+                .toList()
+        }
+    }
+
     override suspend fun readNote(path: String): Result<String> = withContext(dispatcher) {
         runCatching {
             val file = resolvePath(path)
@@ -41,11 +53,27 @@ class FileStorageImpl(
         }
     }
 
+    override suspend fun readFileBytes(path: String): Result<ByteArray> = withContext(dispatcher) {
+        runCatching {
+            val file = resolvePath(path)
+            if (!file.exists()) throw IOException("File not found: $path")
+            file.readBytes()
+        }
+    }
+
     override suspend fun writeNote(path: String, content: String): Result<Unit> = withContext(dispatcher) {
         runCatching {
             val file = resolvePath(path)
             file.parentFile?.mkdirs()
             file.writeText(content)
+        }
+    }
+
+    override suspend fun writeFileBytes(path: String, content: ByteArray): Result<Unit> = withContext(dispatcher) {
+        runCatching {
+            val file = resolvePath(path)
+            file.parentFile?.mkdirs()
+            file.writeBytes(content)
         }
     }
 

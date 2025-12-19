@@ -33,7 +33,16 @@ class DocumentTreeStorageImpl @Inject constructor(
         runCatching {
             val base = baseDocumentFile() ?: throw IllegalStateException("Folder not selected")
             val result = mutableListOf<String>()
-            traverse(base, currentPath = "", into = result)
+            traverse(base, currentPath = "", into = result, includeAllFiles = false)
+            result.sorted()
+        }
+    }
+
+    override suspend fun listFiles(): Result<List<String>> = withContext(dispatcher) {
+        runCatching {
+            val base = baseDocumentFile() ?: throw IllegalStateException("Folder not selected")
+            val result = mutableListOf<String>()
+            traverse(base, currentPath = "", into = result, includeAllFiles = true)
             result.sorted()
         }
     }
@@ -42,6 +51,13 @@ class DocumentTreeStorageImpl @Inject constructor(
         runCatching {
             val target = resolveFile(path) ?: throw IOException("Note not found: $path")
             readFromDocument(target)
+        }
+    }
+
+    override suspend fun readFileBytes(path: String): Result<ByteArray> = withContext(dispatcher) {
+        runCatching {
+            val target = resolveFile(path) ?: throw IOException("File not found: $path")
+            readBytesFromDocument(target)
         }
     }
 
@@ -63,6 +79,25 @@ class DocumentTreeStorageImpl @Inject constructor(
                     ?: throw IOException("Unable to create file: $path")
             }
             writeToDocument(target, content)
+        }
+    }
+
+    override suspend fun writeFileBytes(path: String, content: ByteArray): Result<Unit> = withContext(dispatcher) {
+        runCatching {
+            val parent = ensureParentDirectories(path)
+            val fileName = path.substringAfterLast('/')
+            if (fileName.isBlank()) {
+                throw IllegalArgumentException("Invalid filename in path: $path")
+            }
+            val existing = parent.findFile(fileName)
+            val target = if (existing != null && existing.isFile) {
+                existing
+            } else {
+                existing?.takeIf { it.isFile }?.delete()
+                parent.createFile("application/octet-stream", fileName)
+                    ?: throw IOException("Unable to create file: $path")
+            }
+            writeBytesToDocument(target, content)
         }
     }
 
@@ -177,10 +212,15 @@ class DocumentTreeStorageImpl @Inject constructor(
         return current
     }
 
-    private fun traverse(document: DocumentFile, currentPath: String, into: MutableList<String>) {
+    private fun traverse(
+        document: DocumentFile,
+        currentPath: String,
+        into: MutableList<String>,
+        includeAllFiles: Boolean,
+    ) {
         if (!document.exists()) return
         if (document.isFile) {
-            if (currentPath.endsWith(".org", ignoreCase = true)) {
+            if (includeAllFiles || currentPath.endsWith(".org", ignoreCase = true)) {
                 into += currentPath
             }
             return
@@ -189,7 +229,7 @@ class DocumentTreeStorageImpl @Inject constructor(
         for (child in children) {
             val childName = child.name ?: continue
             val nextPath = if (currentPath.isEmpty()) childName else "$currentPath/$childName"
-            traverse(child, nextPath, into)
+            traverse(child, nextPath, into, includeAllFiles)
         }
     }
 
@@ -215,6 +255,33 @@ class DocumentTreeStorageImpl @Inject constructor(
             }
         output?.use { stream ->
             stream.bufferedWriter().use { it.write(content) }
+            return
+        }
+        throw IOException("Unable to open output stream for ${document.uri}")
+    }
+
+    private fun readBytesFromDocument(document: DocumentFile): ByteArray {
+        val input = contentResolver.openInputStream(document.uri)
+            ?: if (document.uri.scheme == "file") {
+                File(document.uri.path!!).inputStream()
+            } else {
+                null
+            }
+        input?.use { stream ->
+            return stream.readBytes()
+        }
+        throw IOException("Unable to open input stream for ${document.uri}")
+    }
+
+    private fun writeBytesToDocument(document: DocumentFile, content: ByteArray) {
+        val output = contentResolver.openOutputStream(document.uri, "wt")
+            ?: if (document.uri.scheme == "file") {
+                FileOutputStream(File(document.uri.path!!))
+            } else {
+                null
+            }
+        output?.use { stream ->
+            stream.write(content)
             return
         }
         throw IOException("Unable to open output stream for ${document.uri}")

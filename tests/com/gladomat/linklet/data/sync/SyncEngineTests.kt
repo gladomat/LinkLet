@@ -424,13 +424,21 @@ class SyncEngineTests {
     ) : IStorage {
         override suspend fun listNotes(): Result<List<String>> = Result.success(files.keys.toList())
 
+        override suspend fun listFiles(): Result<List<String>> = Result.success(files.keys.toList())
+
         override suspend fun readNote(path: String): Result<String> =
             files[path]?.let { Result.success(it) } ?: Result.failure(IOException("missing"))
+
+        override suspend fun readFileBytes(path: String): Result<ByteArray> =
+            readNote(path).map { it.toByteArray(Charsets.UTF_8) }
 
         override suspend fun writeNote(path: String, content: String): Result<Unit> {
             files[path] = content
             return Result.success(Unit)
         }
+
+        override suspend fun writeFileBytes(path: String, content: ByteArray): Result<Unit> =
+            writeNote(path, content.toString(Charsets.UTF_8))
 
         override suspend fun deleteNote(path: String): Result<Unit> {
             files.remove(path)

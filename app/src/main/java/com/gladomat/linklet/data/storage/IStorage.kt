@@ -12,14 +12,29 @@ interface IStorage {
     suspend fun listNotes(): Result<List<String>>
 
     /**
+     * Lists all file paths relative to the storage root.
+     */
+    suspend fun listFiles(): Result<List<String>>
+
+    /**
      * Reads full note content for the given path.
      */
     suspend fun readNote(path: String): Result<String>
 
     /**
+     * Reads raw bytes for the given path.
+     */
+    suspend fun readFileBytes(path: String): Result<ByteArray>
+
+    /**
      * Writes note content at the given path, creating intermediary directories if needed.
      */
     suspend fun writeNote(path: String, content: String): Result<Unit>
+
+    /**
+     * Writes raw bytes at the given path, creating intermediary directories if needed.
+     */
+    suspend fun writeFileBytes(path: String, content: ByteArray): Result<Unit>
 
     /**
      * Deletes the note at the given path.
