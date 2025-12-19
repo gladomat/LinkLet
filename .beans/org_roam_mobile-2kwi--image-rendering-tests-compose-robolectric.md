@@ -1,7 +1,7 @@
 ---
 # org_roam_mobile-2kwi
 title: Image rendering tests (Compose + Robolectric)
-status: todo
+status: in-progress
 type: task
 priority: normal
 tags:
@@ -9,7 +9,7 @@ tags:
     - ui
     - images
 created_at: 2025-12-16T14:04:39Z
-updated_at: 2025-12-16T14:04:39Z
+updated_at: 2025-12-19T16:52:20Z
 parent: org_roam_mobile-4kf2
 ---
 
