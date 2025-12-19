@@ -1,7 +1,7 @@
 ---
 # org_roam_mobile-c9xk
 title: Sync non-org attachments in subfolders
-status: todo
+status: completed
 type: feature
 priority: normal
 tags:
@@ -9,7 +9,7 @@ tags:
     - storage
     - attachments
 created_at: 2025-12-16T16:05:34Z
-updated_at: 2025-12-16T16:05:34Z
+updated_at: 2025-12-19T17:39:22Z
 ---
 
 Synchronize non-Org files (images/attachments) that live alongside notes in subfolders.
