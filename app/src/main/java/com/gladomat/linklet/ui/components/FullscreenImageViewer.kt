@@ -27,6 +27,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -66,6 +67,7 @@ fun FullscreenImageViewer(
     Box(
         modifier = modifier
             .fillMaxSize()
+            .testTag("fullscreen-image-viewer")
             .background(Color.Black)
             .combinedClickable(
                 onClick = onClose,
