@@ -38,8 +38,8 @@ class NoteViewScreenImageTests {
             title = "Inline Image",
             content = """
                 * Images
-                #+CAPTION: Inline image
-                [[file:inline-image-test.png]]
+                #+CAPTION: Inline image caption
+                [[file:inline-image-test.png][Bracket caption]]
             """.trimIndent(),
             links = emptyList(),
         )
@@ -92,7 +92,8 @@ class NoteViewScreenImageTests {
         composeRule.waitForIdle()
         assertTrue(composeRule.onAllNodesWithText("Loading image…").fetchSemanticsNodes().isEmpty())
 
-        composeRule.onNodeWithText("Inline image").assertExists()
+        composeRule.onNodeWithText("Inline image caption").assertExists()
+        assertTrue(composeRule.onAllNodesWithText("Bracket caption").fetchSemanticsNodes().isEmpty())
         composeRule.onNodeWithTag("org-inline-image").assertExists()
         composeRule.onNodeWithTag("org-inline-image").performClick()
         composeRule.waitForIdle()

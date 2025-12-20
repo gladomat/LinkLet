@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,14 +27,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 @Composable
 fun OrgInlineImageBlock(
     uri: Uri,
     caption: String?,
     align: String?,
+    widthHint: String?,
     onOpen: (Uri) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -45,6 +49,7 @@ fun OrgInlineImageBlock(
         val density = LocalDensity.current
         val maxWidthPx = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1)
         val maxHeightPx = maxWidthPx.coerceAtLeast(1) * 3
+        val preferredWidth = remember(maxWidth, widthHint) { parsePreferredWidth(maxWidth = maxWidth, widthHint = widthHint) }
 
         LaunchedEffect(uri, maxWidthPx, maxHeightPx) {
             bitmap = null
@@ -63,7 +68,7 @@ fun OrgInlineImageBlock(
         }
 
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = if (preferredWidth != null) Modifier.width(preferredWidth) else Modifier.fillMaxWidth(),
             horizontalAlignment = when (contentAlignment) {
                 Alignment.Center -> Alignment.CenterHorizontally
                 Alignment.CenterEnd -> Alignment.End
@@ -106,7 +111,6 @@ fun OrgInlineImageBlock(
                         bitmap = loaded,
                         contentDescription = caption,
                         modifier = Modifier
-                            .fillMaxWidth()
                             .aspectRatio(ratio)
                             .testTag("org-inline-image")
                             .clickable { onOpen(uri) }
@@ -120,7 +124,6 @@ fun OrgInlineImageBlock(
                 Text(
                     text = caption,
                     modifier = Modifier
-                        .fillMaxWidth()
                         .padding(top = 2.dp, bottom = 6.dp),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -128,4 +131,19 @@ fun OrgInlineImageBlock(
             }
         }
     }
+}
+
+private fun parsePreferredWidth(maxWidth: Dp, widthHint: String?): Dp? {
+    val raw = widthHint?.trim()?.lowercase().orEmpty()
+    if (raw.isBlank()) return null
+
+    if (raw.endsWith('%')) {
+        val percent = raw.removeSuffix("%").trim().toFloatOrNull() ?: return null
+        val clamped = percent.coerceIn(1f, 100f) / 100f
+        return maxWidth * clamped
+    }
+
+    val numeric = raw.removeSuffix("dp").trim().toFloatOrNull() ?: return null
+    val clamped = numeric.coerceAtLeast(1f).roundToInt().dp
+    return if (clamped > maxWidth) maxWidth else clamped
 }

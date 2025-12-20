@@ -1,7 +1,7 @@
 ---
 # org_roam_mobile-5ck6
 title: Org image captions and size hints
-status: todo
+status: in-progress
 type: feature
 priority: low
 tags:
@@ -9,7 +9,7 @@ tags:
     - images
     - ui
 created_at: 2025-12-16T14:04:55Z
-updated_at: 2025-12-16T14:04:55Z
+updated_at: 2025-12-20T11:45:13Z
 parent: org_roam_mobile-4kf2
 ---
 

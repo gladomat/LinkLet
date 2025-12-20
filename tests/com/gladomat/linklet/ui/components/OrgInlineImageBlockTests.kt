@@ -31,6 +31,7 @@ class OrgInlineImageBlockTests {
                     uri = uri,
                     caption = null,
                     align = null,
+                    widthHint = null,
                     onOpen = {},
                 )
             }
