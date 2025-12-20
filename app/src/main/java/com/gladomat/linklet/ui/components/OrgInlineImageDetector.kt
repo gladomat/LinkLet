@@ -3,6 +3,7 @@ package com.gladomat.linklet.ui.components
 private val OrgKeywordRegex = Regex("""^#\+([A-Za-z_]+):\s*(.*)$""")
 private val OrgNoDescLinkRegex = Regex("""^\[\[([^\]]+)\]\]$""")
 private val OrgTypedNoDescLinkRegex = Regex("""^\[\[(file|attachment):([^\]]+)\]\]$""", RegexOption.IGNORE_CASE)
+private val OrgTypedDescLinkRegex = Regex("""^\[\[(file|attachment):([^\]]+?)\]\[([^\]]*)\]\]$""", RegexOption.IGNORE_CASE)
 
 data class OrgInlineImageCandidate(
     val target: String,
@@ -49,6 +50,21 @@ fun detectInlineImageCandidate(paragraphText: String): OrgInlineImageCandidate? 
             target = target,
             scheme = scheme,
             caption = caption,
+            name = name,
+            attrs = attrs,
+        )
+    }
+
+    val typedDesc = OrgTypedDescLinkRegex.matchEntire(imageLine)
+    if (typedDesc != null) {
+        val scheme = typedDesc.groupValues[1].lowercase()
+        val target = typedDesc.groupValues[2].trim()
+        val bracketCaption = typedDesc.groupValues[3].trim().takeIf { it.isNotBlank() }
+        if (!isImagePath(target)) return null
+        return OrgInlineImageCandidate(
+            target = target,
+            scheme = scheme,
+            caption = caption ?: bracketCaption,
             name = name,
             attrs = attrs,
         )
