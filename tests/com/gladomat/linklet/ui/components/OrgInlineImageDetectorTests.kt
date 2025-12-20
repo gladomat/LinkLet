@@ -40,10 +40,37 @@ class OrgInlineImageDetectorTests {
     }
 
     @Test
+    fun `detectInlineImageCandidate accepts mixed-case extensions`() {
+        val candidate = detectInlineImageCandidate("[[file:img/CAT.PNG]]")
+        assertEquals("file", candidate?.scheme)
+        assertEquals("img/CAT.PNG", candidate?.target)
+    }
+
+    @Test
+    fun `detectInlineImageCandidate rejects image links with query fragments`() {
+        val candidate = detectInlineImageCandidate("[[file:img/cat.jpg?raw=1]]")
+        assertNull(candidate)
+    }
+
+    @Test
+    fun `detectInlineImageCandidate supports CAPTION NAME and ATTR_HTML lines`() {
+        val text = """
+            #+CAPTION: A cat
+            #+NAME: CatImage
+            #+ATTR_HTML: :align center
+            [[file:img/cat.jpg]]
+        """.trimIndent()
+        val candidate = detectInlineImageCandidate(text)
+        assertEquals("A cat", candidate?.caption)
+        assertEquals("CatImage", candidate?.name)
+        assertEquals("center", candidate?.attrs?.get("align"))
+        assertEquals("img/cat.jpg", candidate?.target)
+    }
+
+    @Test
     fun `detectInlineImageCandidate matches standalone path line`() {
         val candidate = detectInlineImageCandidate("./img/cat.webp")
         assertEquals("file", candidate?.scheme)
         assertEquals("./img/cat.webp", candidate?.target)
     }
 }
-

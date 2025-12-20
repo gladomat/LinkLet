@@ -6,6 +6,8 @@ import android.net.Uri
 import android.util.Log
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import java.io.File
+import java.io.FileInputStream
 import java.io.InputStream
 import kotlin.math.max
 
@@ -51,6 +53,11 @@ suspend fun loadImageBitmap(
 }
 
 private fun openInputStreamForDecode(context: Context, uri: Uri): InputStream {
+    if (uri.scheme == null || uri.scheme.equals("file", ignoreCase = true)) {
+        val path = uri.path ?: throw IllegalStateException("Missing file path for uri=$uri")
+        return FileInputStream(File(path))
+    }
+
     val resolver = context.contentResolver
     resolver.openInputStream(uri)?.let { return it }
 

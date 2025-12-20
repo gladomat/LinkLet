@@ -56,12 +56,17 @@ android {
     }
 
     testOptions {
+        unitTests.isIncludeAndroidResources = true
         unitTests.isReturnDefaultValues = true
+        unitTests.all {
+            it.systemProperty("robolectric.manifest", "${project.projectDir}/src/test/AndroidManifest.xml")
+        }
     }
 
     sourceSets {
         getByName("test") {
             java.srcDirs("src/test/java", "../tests")
+            resources.srcDirs("src/test/resources", "../tests/resources")
         }
     }
 }
@@ -121,6 +126,7 @@ dependencies {
     testImplementation("app.cash.turbine:turbine:1.1.0")
     testImplementation("androidx.test:core:1.5.0")
     testImplementation("org.robolectric:robolectric:4.11.1")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
 
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
