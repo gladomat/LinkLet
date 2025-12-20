@@ -212,6 +212,7 @@ private fun OrgParagraphBlock(
                 uri = uri!!,
                 caption = inlineImage.caption,
                 align = inlineImage.attrs["align"],
+                widthHint = inlineImage.attrs["width"],
                 onOpen = context.onOpenImage,
                 modifier = modifier,
             )
