@@ -6,6 +6,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithTag
 import java.io.File
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -37,11 +38,9 @@ class OrgInlineImageBlockTests {
             }
         }
 
-        composeRule.waitForIdle()
-        Thread.sleep(750)
-        composeRule.waitForIdle()
-
-        assertTrue(composeRule.onAllNodesWithText("Loading image…").fetchSemanticsNodes().isEmpty())
+        composeRule.waitUntil(10_000) {
+            composeRule.onAllNodesWithTag("org-inline-image").fetchSemanticsNodes().isNotEmpty()
+        }
         composeRule.onNodeWithTag("org-inline-image").assertExists()
     }
 }

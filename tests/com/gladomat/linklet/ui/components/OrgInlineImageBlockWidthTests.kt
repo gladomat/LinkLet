@@ -50,4 +50,58 @@ class OrgInlineImageBlockWidthTests {
         val actualWidthDp = (rect.right - rect.left).value
         assertTrue("Expected width ~${expectedWidthDp}dp, got ${actualWidthDp}dp", abs(actualWidthDp - expectedWidthDp) <= 1.0f)
     }
+
+    @Test
+    fun `width hint dp constrains image width`() {
+        val resource = checkNotNull(javaClass.classLoader?.getResource("inline-image-test.png"))
+        val uri = Uri.fromFile(File(resource.toURI()))
+
+        composeRule.setContent {
+            Box(modifier = Modifier.width(200.dp)) {
+                OrgInlineImageBlock(
+                    uri = uri,
+                    caption = "Caption",
+                    align = null,
+                    widthHint = "120",
+                    onOpen = {},
+                )
+            }
+        }
+
+        composeRule.waitUntil(10_000) {
+            composeRule.onAllNodesWithTag("org-inline-image").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        val rect = composeRule.onNodeWithTag("org-inline-image").assertIsDisplayed().getUnclippedBoundsInRoot()
+        val expectedWidthDp = 120f
+        val actualWidthDp = (rect.right - rect.left).value
+        assertTrue("Expected width ~${expectedWidthDp}dp, got ${actualWidthDp}dp", abs(actualWidthDp - expectedWidthDp) <= 1.0f)
+    }
+
+    @Test
+    fun `invalid width hint falls back to full width`() {
+        val resource = checkNotNull(javaClass.classLoader?.getResource("inline-image-test.png"))
+        val uri = Uri.fromFile(File(resource.toURI()))
+
+        composeRule.setContent {
+            Box(modifier = Modifier.width(200.dp)) {
+                OrgInlineImageBlock(
+                    uri = uri,
+                    caption = "Caption",
+                    align = null,
+                    widthHint = "0%",
+                    onOpen = {},
+                )
+            }
+        }
+
+        composeRule.waitUntil(10_000) {
+            composeRule.onAllNodesWithTag("org-inline-image").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        val rect = composeRule.onNodeWithTag("org-inline-image").assertIsDisplayed().getUnclippedBoundsInRoot()
+        val expectedWidthDp = 200f
+        val actualWidthDp = (rect.right - rect.left).value
+        assertTrue("Expected width ~${expectedWidthDp}dp, got ${actualWidthDp}dp", abs(actualWidthDp - expectedWidthDp) <= 1.0f)
+    }
 }

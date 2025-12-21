@@ -10,6 +10,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import com.gladomat.linklet.data.model.Note
 import com.gladomat.linklet.data.model.NoteId
 import com.gladomat.linklet.viewmodel.note.NoteViewUiState
@@ -87,10 +88,9 @@ class NoteViewScreenImageTests {
         }
 
         composeRule.onNodeWithText("Loading image…").assertExists()
-        composeRule.waitForIdle()
-        Thread.sleep(750)
-        composeRule.waitForIdle()
-        assertTrue(composeRule.onAllNodesWithText("Loading image…").fetchSemanticsNodes().isEmpty())
+        composeRule.waitUntil(10_000) {
+            composeRule.onAllNodesWithTag("org-inline-image").fetchSemanticsNodes().isNotEmpty()
+        }
 
         composeRule.onNodeWithText("Inline image caption").assertExists()
         assertTrue(composeRule.onAllNodesWithText("Bracket caption").fetchSemanticsNodes().isEmpty())

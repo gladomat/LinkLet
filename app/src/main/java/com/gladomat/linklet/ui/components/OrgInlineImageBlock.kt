@@ -139,11 +139,12 @@ private fun parsePreferredWidth(maxWidth: Dp, widthHint: String?): Dp? {
 
     if (raw.endsWith('%')) {
         val percent = raw.removeSuffix("%").trim().toFloatOrNull() ?: return null
-        val clamped = percent.coerceIn(1f, 100f) / 100f
-        return maxWidth * clamped
+        if (percent <= 0f || percent > 100f) return null
+        return maxWidth * (percent / 100f)
     }
 
     val numeric = raw.removeSuffix("dp").trim().toFloatOrNull() ?: return null
-    val clamped = numeric.coerceAtLeast(1f).roundToInt().dp
+    if (numeric <= 0f) return null
+    val clamped = numeric.roundToInt().dp
     return if (clamped > maxWidth) maxWidth else clamped
 }
