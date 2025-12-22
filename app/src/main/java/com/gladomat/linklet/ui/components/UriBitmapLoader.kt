@@ -1,6 +1,7 @@
 package com.gladomat.linklet.ui.components
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
@@ -22,8 +23,35 @@ suspend fun loadImageBitmap(
     maxWidthPx: Int,
     maxHeightPx: Int,
 ): Result<ImageBitmap> {
-    val safeWidth = max(1, maxWidthPx)
-    val safeHeight = max(1, maxHeightPx)
+    return loadImageBitmap(
+        context = context,
+        uri = uri,
+        spec = ImageDecodeSpec(
+            maxWidthPx = maxWidthPx,
+            maxHeightPx = maxHeightPx,
+            maxDecodedPixels = DEFAULT_MAX_DECODED_PIXELS,
+            preferredConfig = Bitmap.Config.ARGB_8888,
+        ),
+    )
+}
+
+data class ImageDecodeSpec(
+    val maxWidthPx: Int,
+    val maxHeightPx: Int,
+    val maxDecodedPixels: Long,
+    val preferredConfig: Bitmap.Config,
+)
+
+private const val DEFAULT_MAX_DECODED_PIXELS: Long = 16_000_000L
+
+suspend fun loadImageBitmap(
+    context: Context,
+    uri: Uri,
+    spec: ImageDecodeSpec,
+): Result<ImageBitmap> {
+    val safeWidth = max(1, spec.maxWidthPx)
+    val safeHeight = max(1, spec.maxHeightPx)
+    val safeMaxDecodedPixels = spec.maxDecodedPixels.coerceAtLeast(1L)
 
     return runCatching {
         val lower = uri.toString().lowercase()
@@ -39,10 +67,14 @@ suspend fun loadImageBitmap(
             }
         }
 
-        val sampleSize = calculateInSampleSize(bounds, safeWidth, safeHeight)
+        val sampleSize = calculateInSampleSizeWithPixelCap(bounds, safeWidth, safeHeight, safeMaxDecodedPixels)
         val decode = BitmapFactory.Options().apply {
             inJustDecodeBounds = false
             inSampleSize = sampleSize
+            inPreferredConfig = spec.preferredConfig
+            if (spec.preferredConfig == Bitmap.Config.RGB_565) {
+                inDither = true
+            }
         }
         val bitmap = openInputStreamForDecode(context, uri).use { stream ->
             BitmapFactory.decodeStream(stream, null, decode)
@@ -67,6 +99,7 @@ private fun openInputStreamForDecode(context: Context, uri: Uri): InputStream {
     return afd.createInputStream()
 }
 
+@Suppress("SameParameterValue")
 private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
     val height = options.outHeight
     val width = options.outWidth
@@ -77,4 +110,30 @@ private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int,
         }
     }
     return inSampleSize.coerceAtLeast(1)
+}
+
+internal fun calculateInSampleSizeWithPixelCap(
+    options: BitmapFactory.Options,
+    reqWidth: Int,
+    reqHeight: Int,
+    maxDecodedPixels: Long,
+): Int {
+    val base = calculateInSampleSize(options, reqWidth, reqHeight)
+    val width = options.outWidth.coerceAtLeast(0)
+    val height = options.outHeight.coerceAtLeast(0)
+    if (width == 0 || height == 0) return base.coerceAtLeast(1)
+
+    var sampleSize = base.coerceAtLeast(1)
+    val safeMax = maxDecodedPixels.coerceAtLeast(1L)
+    while (decodedPixelsForSampleSize(width, height, sampleSize) > safeMax) {
+        sampleSize *= 2
+    }
+    return sampleSize.coerceAtLeast(1)
+}
+
+private fun decodedPixelsForSampleSize(width: Int, height: Int, sampleSize: Int): Long {
+    val safeSample = sampleSize.coerceAtLeast(1)
+    val decodedWidth = (width / safeSample).coerceAtLeast(1)
+    val decodedHeight = (height / safeSample).coerceAtLeast(1)
+    return decodedWidth.toLong() * decodedHeight.toLong()
 }

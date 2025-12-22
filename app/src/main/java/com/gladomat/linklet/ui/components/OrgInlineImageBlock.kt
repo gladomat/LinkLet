@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import android.graphics.Bitmap
 import kotlin.math.roundToInt
 
 @Composable
@@ -54,7 +55,18 @@ fun OrgInlineImageBlock(
         LaunchedEffect(uri, maxWidthPx, maxHeightPx) {
             bitmap = null
             error = null
-            val result = withContext(Dispatchers.IO) { loadImageBitmap(context, uri, maxWidthPx, maxHeightPx) }
+            val result = withContext(Dispatchers.IO) {
+                loadImageBitmap(
+                    context = context,
+                    uri = uri,
+                    spec = ImageDecodeSpec(
+                        maxWidthPx = maxWidthPx,
+                        maxHeightPx = maxHeightPx,
+                        maxDecodedPixels = 8_000_000L,
+                        preferredConfig = Bitmap.Config.RGB_565,
+                    ),
+                )
+            }
             result.fold(
                 onSuccess = { bitmap = it },
                 onFailure = { error = it.message ?: "Failed to decode image" },
