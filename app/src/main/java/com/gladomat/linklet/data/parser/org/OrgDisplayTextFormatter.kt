@@ -2,12 +2,13 @@ package com.gladomat.linklet.data.parser.org
 
 import com.gladomat.linklet.data.model.LinkTarget
 import com.gladomat.linklet.data.model.NoteLink
+import com.gladomat.linklet.data.parser.org.BracketLinkTarget
+import com.gladomat.linklet.data.parser.org.OrgLinkParsing
 
 private val HeadingRegex = Regex("""^(\*{1,3})\s+(.*)$""")
 private val BulletRegex = Regex("""^([+-])\s+(.*)$""")
 private val NumberedRegex = Regex("""^(\d+)\.\s+(.*)$""")
-private val OrgLinkRegex = Regex("""\[\[(file|id):([^\]]+)\](?:\[([^\]]+)\])?\]""", RegexOption.IGNORE_CASE)
-private val UrlRegex = Regex("""((?:https?://|www\.)[^\s]+|[A-Za-z0-9._%+-]+(?:\.[A-Za-z0-9.-]+)+/[^\s]+|[A-Za-z0-9.-]+\.[A-Za-z]{2,})""")
+private val UrlRegex = OrgLinkParsing.UrlRegex
 
 /**
  * Builds the exact plain-text display output used by the Org note renderer.
@@ -62,18 +63,21 @@ private fun StringBuilder.appendInlineText(
     val plain = StringBuilder()
     var index = 0
     while (index < text.length) {
-        val linkMatch = OrgLinkRegex.find(text, index)
-        if (linkMatch != null && linkMatch.range.first == index) {
+        val linkMatch = OrgLinkParsing.findBracketLink(text, index)
+        if (linkMatch != null) {
             flushPlain(plain)
-            val scheme = linkMatch.groupValues[1].lowercase()
-            val rawTarget = linkMatch.groupValues[2].trim()
-            val alias = linkMatch.groupValues.getOrNull(3)?.takeIf { it.isNotBlank() }
-            val destination = linkBuckets[LinkKey(scheme, rawTarget)]?.removeFirstOrNull()
-            val displayText = alias ?: rawTarget
-            if (destination != null) {
-                append(displayText)
-            } else {
-                append(linkMatch.value)
+            val displayText = linkMatch.description ?: linkMatch.rawTarget
+            when (val target = OrgLinkParsing.parseBracketTarget(linkMatch.rawTarget)) {
+                is BracketLinkTarget.Org -> {
+                    val destination = linkBuckets[LinkKey(target.scheme, target.value)]?.removeFirstOrNull()
+                    if (destination != null) {
+                        append(displayText)
+                    } else {
+                        append(text.substring(linkMatch.range))
+                    }
+                }
+                is BracketLinkTarget.External -> append(displayText)
+                BracketLinkTarget.Unknown -> append(text.substring(linkMatch.range))
             }
             index = linkMatch.range.last + 1
             continue
@@ -186,4 +190,3 @@ private enum class EmphasisDelimiter(val char: Char) {
         fun fromChar(char: Char): EmphasisDelimiter? = entries.firstOrNull { it.char == char }
     }
 }
-

@@ -1,7 +1,7 @@
 ---
 # org_roam_mobile-go85
 title: Render Org bracket links with descriptions
-status: todo
+status: in-progress
 type: bug
 priority: normal
 tags:
@@ -9,7 +9,7 @@ tags:
     - ui
     - links
 created_at: 2025-12-16T16:05:34Z
-updated_at: 2025-12-16T16:05:34Z
+updated_at: 2025-12-21T12:28:57Z
 ---
 
 Render Org bracket links like `[[https://example.com][click here]]` showing only the description text.

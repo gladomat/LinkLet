@@ -95,6 +95,24 @@ class OrgTextFormatterTests {
     }
 
     @Test
+    fun `bracketed external links render description text and annotation`() {
+        val content = "Open [[https://example.com][click here]] for details."
+
+        val annotated = buildOrgContentAnnotatedString(
+            content = content,
+            links = emptyList(),
+            palette = palette,
+        )
+
+        assertEquals("Open click here for details.", annotated.text)
+        val linkAnnotation = annotated.findExternalAnnotation("click here")
+        assertEquals("https://example.com", linkAnnotation?.item)
+
+        val displayText = buildOrgDisplayText(content, emptyList())
+        assertEquals(annotated.text, displayText)
+    }
+
+    @Test
     fun `applyHighlights adds spans for matches and active match`() {
         val base = buildOrgContentAnnotatedString(
             content = "Hello hello HELLO",
