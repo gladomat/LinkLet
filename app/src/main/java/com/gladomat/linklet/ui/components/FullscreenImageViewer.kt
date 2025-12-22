@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import android.graphics.Bitmap
 
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
@@ -53,7 +54,18 @@ fun FullscreenImageViewer(
     LaunchedEffect(uri, maxWidthPx, maxHeightPx) {
         bitmap = null
         error = null
-        val result = withContext(Dispatchers.IO) { loadImageBitmap(context, uri, maxWidthPx, maxHeightPx) }
+        val result = withContext(Dispatchers.IO) {
+            loadImageBitmap(
+                context = context,
+                uri = uri,
+                spec = ImageDecodeSpec(
+                    maxWidthPx = maxWidthPx,
+                    maxHeightPx = maxHeightPx,
+                    maxDecodedPixels = 16_000_000L,
+                    preferredConfig = Bitmap.Config.ARGB_8888,
+                ),
+            )
+        }
         result.fold(
             onSuccess = { bitmap = it },
             onFailure = { error = it.message ?: "Failed to decode image" },
