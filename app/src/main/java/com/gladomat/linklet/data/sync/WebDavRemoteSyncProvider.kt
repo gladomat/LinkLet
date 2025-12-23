@@ -1,5 +1,6 @@
 package com.gladomat.linklet.data.sync
 
+import android.net.Uri
 import android.util.Log
 import com.burgstaller.okhttp.AuthenticationCacheInterceptor
 import com.burgstaller.okhttp.CachingAuthenticatorDecorator
@@ -15,7 +16,6 @@ import com.thegrizzlylabs.sardineandroid.impl.OkHttpSardine
 import java.io.IOException
 import java.io.InputStream
 import java.net.URI
-import java.net.URLDecoder
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -27,6 +27,7 @@ import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 
 private const val TAG = "WebDavSync"
+private const val ENCODED_SLASH_PLACEHOLDER = "__ENC_SLASH__"
 
 @Singleton
 class WebDavRemoteSyncProvider @Inject constructor(
@@ -279,8 +280,8 @@ class WebDavRemoteSyncProvider @Inject constructor(
 
     private fun buildUrl(settings: WebDavSettings, relativePath: String): String {
         val baseUrl = settings.baseUrl.trimEnd('/')
-        val root = settings.normalizedRootPath.trim('/')
-        val path = relativePath.trim('/')
+        val root = encodePathSegments(settings.normalizedRootPath)
+        val path = encodePathSegments(relativePath)
         
         return buildString {
             append(baseUrl)
@@ -289,42 +290,70 @@ class WebDavRemoteSyncProvider @Inject constructor(
         }
     }
     
+    /**
+     * Returns a decoded path relative to the WebDAV root.
+     * Percent-escapes are decoded except for "%2F", which remains encoded to avoid
+     * changing path structure.
+     */
     private fun relativePathFromUrl(url: String, settings: WebDavSettings): String? {
         return runCatching {
-            val decodedUrl = URLDecoder.decode(url, "UTF-8")
-            val decodedPrefix = URLDecoder.decode(buildUrl(settings, ""), "UTF-8")
-            val prefixUri = URI(decodedPrefix)
-            
-            Log.d(TAG, "DEBUG relativePathFromUrl: url='$url', decodedUrl='$decodedUrl'")
-            Log.d(TAG, "DEBUG relativePathFromUrl: decodedPrefix='$decodedPrefix', prefixUri.path='${prefixUri.path}'")
+            val prefixUri = URI(buildUrl(settings, ""))
+            Log.d(TAG, "DEBUG relativePathFromUrl: url='$url', prefix='${prefixUri}'")
 
-            val normalizedUri = when {
-                decodedUrl.startsWith("http://") || decodedUrl.startsWith("https://") -> URI(decodedUrl)
-                decodedUrl.startsWith("/") -> URI("${prefixUri.scheme}://${prefixUri.authority}$decodedUrl")
-                else -> URI("${prefixUri.scheme}://${prefixUri.authority}/${decodedUrl.trimStart('/')}")
+            val normalizedUri = if (url.startsWith("http://") || url.startsWith("https://")) {
+                URI(url)
+            } else {
+                null
             }
-            Log.d(TAG, "DEBUG relativePathFromUrl: normalizedUri='$normalizedUri', path='${normalizedUri.path}'")
-
-            if (normalizedUri.authority != prefixUri.authority) {
-                Log.w(TAG, "DEBUG relativePathFromUrl: Authority mismatch - ${normalizedUri.authority} vs ${prefixUri.authority}")
+            val normalizedAuthority = normalizedUri?.authority ?: prefixUri.authority
+            if (normalizedAuthority != prefixUri.authority) {
+                Log.w(
+                    TAG,
+                    "DEBUG relativePathFromUrl: Authority mismatch - $normalizedAuthority vs ${prefixUri.authority}",
+                )
                 return@runCatching null
             }
 
-            val prefixPath = prefixUri.path.trimEnd('/')
-            val urlPath = normalizedUri.path
+            val prefixPath = (prefixUri.rawPath ?: "").trimEnd('/')
+            val urlPath = when {
+                normalizedUri != null -> normalizedUri.rawPath
+                url.startsWith("/") -> url
+                else -> "$prefixPath/${url.trimStart('/')}"
+            }
+            Log.d(TAG, "DEBUG relativePathFromUrl: normalizedUri='$normalizedUri', urlPath='$urlPath'")
             Log.d(TAG, "DEBUG relativePathFromUrl: prefixPath='$prefixPath', urlPath='$urlPath'")
             
-            if (!urlPath.startsWith(prefixPath)) {
+            if (urlPath == null || !urlPath.startsWith(prefixPath)) {
                 Log.w(TAG, "DEBUG relativePathFromUrl: Path doesn't start with prefix - '$urlPath' doesn't start with '$prefixPath'")
                 return@runCatching null
             }
 
-            val result = urlPath.removePrefix(prefixPath).trim('/').ifEmpty { null }
+            val relativeRaw = urlPath.removePrefix(prefixPath).trim('/')
+            val result = relativeRaw.takeIf { it.isNotEmpty() }?.let(::decodePreservingEncodedSlashes)
             Log.d(TAG, "DEBUG relativePathFromUrl: result='$result'")
             result
         }.onFailure { e ->
             Log.e(TAG, "DEBUG relativePathFromUrl: Exception while processing url='$url'", e)
         }.getOrNull()
+    }
+
+    private fun decodePreservingEncodedSlashes(value: String): String {
+        val protected = value.replace(Regex("(?i)%2f"), ENCODED_SLASH_PLACEHOLDER)
+        return Uri.decode(protected).replace(ENCODED_SLASH_PLACEHOLDER, "%2F")
+    }
+
+    private fun encodePathSegments(path: String): String {
+        val trimmed = path.trim('/')
+        if (trimmed.isEmpty()) return ""
+        return trimmed.split('/')
+            .filter { it.isNotEmpty() }
+            .joinToString("/") { encodePathSegment(it) }
+    }
+
+    private fun encodePathSegment(segment: String): String {
+        val protected = segment.replace(Regex("(?i)%2f"), ENCODED_SLASH_PLACEHOLDER)
+        val encoded = Uri.encode(protected)
+        return encoded.replace(ENCODED_SLASH_PLACEHOLDER, "%2F")
     }
 
     private fun listAllRemoteResources(

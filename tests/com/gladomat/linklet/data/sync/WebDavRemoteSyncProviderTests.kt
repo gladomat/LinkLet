@@ -102,6 +102,115 @@ class WebDavRemoteSyncProviderTests {
     }
 
     @Test
+    fun `listRemoteNotes decodes percent-encoded paths`() = runTest {
+        val body = """
+            <d:multistatus xmlns:d="DAV:">
+              <d:response>
+                <d:href>/remote.php/dav/files/testuser/Org/</d:href>
+                <d:propstat>
+                  <d:prop>
+                    <d:resourcetype>
+                      <d:collection/>
+                    </d:resourcetype>
+                  </d:prop>
+                  <d:status>HTTP/1.1 200 OK</d:status>
+                </d:propstat>
+              </d:response>
+              <d:response>
+                <d:href>/remote.php/dav/files/testuser/Org/My%20Folder/note.org</d:href>
+                <d:propstat>
+                  <d:prop>
+                    <d:getetag>"abc123"</d:getetag>
+                    <d:resourcetype/>
+                  </d:prop>
+                  <d:status>HTTP/1.1 200 OK</d:status>
+                </d:propstat>
+              </d:response>
+            </d:multistatus>
+        """.trimIndent()
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(207)
+                .setBody(body),
+        )
+
+        val notes = provider.listRemoteNotes().getOrThrow()
+
+        assertEquals(1, notes.size)
+        assertEquals("My Folder/note.org", notes.first().path)
+        assertEquals("abc123", notes.first().fingerprint)
+    }
+
+    @Test
+    fun `listRemoteNotes handles relative hrefs without dropping root`() = runTest {
+        val body = """
+            <d:multistatus xmlns:d="DAV:">
+              <d:response>
+                <d:href>My%20Folder/note.org</d:href>
+                <d:propstat>
+                  <d:prop>
+                    <d:getetag>"rel123"</d:getetag>
+                    <d:resourcetype/>
+                  </d:prop>
+                  <d:status>HTTP/1.1 200 OK</d:status>
+                </d:propstat>
+              </d:response>
+            </d:multistatus>
+        """.trimIndent()
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(207)
+                .setBody(body),
+        )
+
+        val notes = provider.listRemoteNotes().getOrThrow()
+
+        assertEquals(1, notes.size)
+        assertEquals("My Folder/note.org", notes.first().path)
+        assertEquals("rel123", notes.first().fingerprint)
+    }
+
+    @Test
+    fun `listRemoteNotes preserves encoded slashes in paths`() = runTest {
+        val body = """
+            <d:multistatus xmlns:d="DAV:">
+              <d:response>
+                <d:href>/remote.php/dav/files/testuser/Org/</d:href>
+                <d:propstat>
+                  <d:prop>
+                    <d:resourcetype>
+                      <d:collection/>
+                    </d:resourcetype>
+                  </d:prop>
+                  <d:status>HTTP/1.1 200 OK</d:status>
+                </d:propstat>
+              </d:response>
+              <d:response>
+                <d:href>/remote.php/dav/files/testuser/Org/Foo%2FBar/note.org</d:href>
+                <d:propstat>
+                  <d:prop>
+                    <d:getetag>"slash123"</d:getetag>
+                    <d:resourcetype/>
+                  </d:prop>
+                  <d:status>HTTP/1.1 200 OK</d:status>
+                </d:propstat>
+              </d:response>
+            </d:multistatus>
+        """.trimIndent()
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(207)
+                .setBody(body),
+        )
+
+        val notes = provider.listRemoteNotes().getOrThrow()
+
+        assertEquals(1, notes.size)
+        assertEquals("Foo%2FBar/note.org", notes.first().path)
+        assertEquals("slash123", notes.first().fingerprint)
+    }
+
+    @Test
     fun `download issues GET request`() = runTest {
         server.enqueue(
             MockResponse()
@@ -115,6 +224,24 @@ class WebDavRemoteSyncProviderTests {
         val request = server.takeRequest()
         assertEquals("GET", request.method)
         assertEquals("content", content)
+    }
+
+    @Test
+    fun `download encodes spaces in request path`() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setBody("content"),
+        )
+
+        val inputStream = provider.download("My Folder/note.org", "My Folder/note.org").getOrThrow()
+        inputStream.close()
+
+        val request = server.takeRequest()
+        assertEquals(
+            "/remote.php/dav/files/testuser/Org/My%20Folder/note.org",
+            request.path,
+        )
     }
 
     @Test
