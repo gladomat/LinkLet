@@ -9,7 +9,10 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkManager
+import androidx.work.workDataOf
+import com.gladomat.linklet.data.sync.worker.SyncEnqueueWorker
 import com.gladomat.linklet.data.sync.worker.SyncWorker
+import com.gladomat.linklet.data.sync.worker.SyncWorkType
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -22,43 +25,61 @@ class SyncScheduler @Inject constructor(
 
     private val workManager by lazy { WorkManager.getInstance(context) }
 
+    fun scheduleInitial() {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+
+        val request = OneTimeWorkRequest.Builder(SyncWorker::class.java)
+            .setConstraints(constraints)
+            .setInputData(workDataOf(SyncWorker.KEY_WORK_TYPE to SyncWorkType.INITIAL.name))
+            .addTag(SyncWork.TAG)
+            .build()
+
+        workManager.enqueueUniqueWork(
+            SyncWork.UNIQUE_ONE_TIME_NAME,
+            ExistingWorkPolicy.KEEP,
+            request,
+        )
+    }
+
+    fun scheduleManual() {
+        val request = OneTimeWorkRequest.Builder(SyncWorker::class.java)
+            .setInputData(workDataOf(SyncWorker.KEY_WORK_TYPE to SyncWorkType.MANUAL.name))
+            .addTag(SyncWork.TAG)
+            .build()
+
+        workManager.enqueueUniqueWork(
+            SyncWork.UNIQUE_ONE_TIME_NAME,
+            ExistingWorkPolicy.KEEP,
+            request,
+        )
+    }
+
     fun schedulePeriodic() {
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
 
         val periodicRequest = PeriodicWorkRequest.Builder(
-            SyncWorker::class.java,
+            SyncEnqueueWorker::class.java,
             15,
             TimeUnit.MINUTES
         )
             .setConstraints(constraints)
+            .addTag(SyncWork.TAG)
             .build()
 
         workManager.enqueueUniquePeriodicWork(
-            "LinkletPeriodicSync",
+            SyncWork.UNIQUE_PERIODIC_TRIGGER_NAME,
             ExistingPeriodicWorkPolicy.KEEP,
             periodicRequest
         )
     }
 
     fun scheduleImmediate() {
-        Log.d(TAG, "scheduleImmediate() called - creating sync work request")
-        val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .build()
-
-        val immediateRequest = OneTimeWorkRequest.Builder(SyncWorker::class.java)
-            .setConstraints(constraints)
-            .build()
-
-        Log.d(TAG, "Enqueuing immediate sync work with id: ${immediateRequest.id}")
-        workManager.enqueueUniqueWork(
-            "LinkletImmediateSync",
-            ExistingWorkPolicy.REPLACE,  // Use REPLACE to ensure latest sync runs
-            immediateRequest
-        )
-        Log.d(TAG, "Immediate sync work enqueued successfully")
+        Log.d(TAG, "scheduleImmediate() called")
+        scheduleManual()
     }
 
     companion object {

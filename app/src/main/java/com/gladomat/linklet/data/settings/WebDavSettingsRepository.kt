@@ -165,13 +165,20 @@ class WebDavSettingsRepository @Inject constructor(
     }
 
     suspend fun clear() {
-        sharedPreferences.edit()
+        val editor = sharedPreferences.edit()
             .remove(Keys.BASE_URL)
             .remove(Keys.ROOT_PATH)
             .remove(Keys.USERNAME)
             .remove(Keys.PASSWORD)
             .remove(Keys.ENABLED)
-            .apply()
+            .remove(Keys.LAST_SYNCED_ROOT_PATH)
+        
+        // Remove all initial sync completed flags
+        sharedPreferences.all.keys
+            .filter { it.startsWith(Keys.INITIAL_SYNC_COMPLETED_PREFIX) }
+            .forEach { editor.remove(it) }
+            
+        editor.apply()
     }
 
     suspend fun currentSettings(): WebDavSettings? = settingsFlow.firstOrNull()

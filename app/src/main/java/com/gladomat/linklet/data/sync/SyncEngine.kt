@@ -2,6 +2,7 @@ package com.gladomat.linklet.data.sync
 
 import android.util.Log
 import com.gladomat.linklet.data.index.SyncStateDao
+import com.gladomat.linklet.data.settings.WebDavSettings
 import com.gladomat.linklet.data.settings.WebDavSettingsRepository
 import com.gladomat.linklet.data.storage.IStorage
 import javax.inject.Inject
@@ -31,31 +32,24 @@ class SyncEngine @Inject constructor(
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
 
-    suspend fun run(provider: RemoteSyncProvider): Result<SyncSummary> = withContext(dispatcher) {
+    suspend fun preflight(provider: RemoteSyncProvider): Result<Unit> = withContext(dispatcher) {
+        runCatching {
+            val currentSettings = webDavSettingsRepository.currentSettings()
+            checkDirectoryChange(provider, currentSettings)
+        }
+    }
+
+    suspend fun run(
+        provider: RemoteSyncProvider,
+        onProgress: suspend (SyncProgress) -> Unit = {},
+    ): Result<SyncSummary> = withContext(dispatcher) {
         Log.i(TAG, "Starting sync run with provider: ${provider.name}")
         runCatching {
-            // Check for directory change before syncing
             val currentSettings = webDavSettingsRepository.currentSettings()
-            if (currentSettings != null && provider is WebDavRemoteSyncProvider) {
-                val currentPath = currentSettings.normalizedRootPath
-                val lastSyncedPath = currentSettings.lastSyncedRootPath
-                val syncStateCount = syncStateDao.count()
-                
-                if (detectDirectoryChange(currentPath, lastSyncedPath, syncStateCount)) {
-                    val message = if (lastSyncedPath == null) {
-                        "Sync state detected from previous version. To ensure data safety, please confirm you want to sync to '$currentPath'."
-                    } else {
-                        "WebDAV directory changed from '$lastSyncedPath' to '$currentPath'. Clear sync state to continue."
-                    }
-                    throw SyncDirectoryChangedException(
-                        oldPath = lastSyncedPath,
-                        newPath = currentPath,
-                        message = message
-                    )
-                }
-            }
+            checkDirectoryChange(provider, currentSettings)
             
             // Phase A: Discovery
+            onProgress(SyncProgress(phase = SyncPhase.DISCOVERY, message = "Discovering changes"))
             val discovery = discoverState(provider)
 
             // Check for Fresh Install
@@ -65,10 +59,19 @@ class SyncEngine @Inject constructor(
             }
 
             // Phase B: Reconciliation
+            onProgress(SyncProgress(phase = SyncPhase.RECONCILE, message = "Planning sync operations"))
             val operations = reconcile(discovery, isFreshInstall)
 
             // Phase C: Execution with Guard Rails
-            execute(operations, provider, discovery.remoteFiles.size)
+            onProgress(
+                SyncProgress(
+                    phase = SyncPhase.EXECUTE,
+                    completed = 0,
+                    total = operations.size,
+                    message = "Applying changes",
+                ),
+            )
+            execute(operations, provider, discovery.remoteFiles.size, onProgress)
             
             // Update last synced path after successful sync
             if (currentSettings != null && provider is WebDavRemoteSyncProvider) {
@@ -88,6 +91,30 @@ class SyncEngine @Inject constructor(
             )
         }.onFailure {
             Log.e(TAG, "Sync run failed", it)
+        }
+    }
+
+    private suspend fun checkDirectoryChange(
+        provider: RemoteSyncProvider,
+        currentSettings: WebDavSettings?,
+    ) {
+        if (currentSettings == null || provider !is WebDavRemoteSyncProvider) return
+
+        val currentPath = currentSettings.normalizedRootPath
+        val lastSyncedPath = currentSettings.lastSyncedRootPath
+        val syncStateCount = syncStateDao.count()
+
+        if (detectDirectoryChange(currentPath, lastSyncedPath, syncStateCount)) {
+            val message = if (lastSyncedPath == null) {
+                "Sync state detected from previous version. To ensure data safety, please confirm you want to sync to '$currentPath'."
+            } else {
+                "WebDAV directory changed from '$lastSyncedPath' to '$currentPath'. Clear sync state to continue."
+            }
+            throw SyncDirectoryChangedException(
+                oldPath = lastSyncedPath,
+                newPath = currentPath,
+                message = message,
+            )
         }
     }
 
@@ -338,7 +365,12 @@ class SyncEngine @Inject constructor(
 
     // --- Phase C: Execution ---
 
-    private suspend fun execute(operations: List<SyncOperation>, provider: RemoteSyncProvider, totalRemoteFiles: Int) {
+    private suspend fun execute(
+        operations: List<SyncOperation>,
+        provider: RemoteSyncProvider,
+        totalRemoteFiles: Int,
+        onProgress: suspend (SyncProgress) -> Unit,
+    ) {
         Log.d(TAG, "DEBUG Execute: Starting execution with ${operations.size} operations, totalRemoteFiles=$totalRemoteFiles")
         
         // GUARD RAILS
@@ -382,6 +414,8 @@ class SyncEngine @Inject constructor(
         }
 
         // Process
+        val totalOperations = operations.size
+        var completedOperations = 0
         for (op in operations) {
             when (op) {
                 is SyncOperation.Upload -> performUpload(op, provider)
@@ -395,6 +429,18 @@ class SyncEngine @Inject constructor(
                     syncStateDao.deleteState(op.path)
                 }
                 else -> Unit
+            }
+
+            completedOperations += 1
+            if (totalOperations > 0 && (completedOperations == totalOperations || completedOperations % 25 == 0)) {
+                onProgress(
+                    SyncProgress(
+                        phase = SyncPhase.EXECUTE,
+                        completed = completedOperations,
+                        total = totalOperations,
+                        message = "Applying changes",
+                    ),
+                )
             }
         }
     }

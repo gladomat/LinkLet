@@ -31,9 +31,9 @@
 **Step 3: Implement minimal code**
 - Add preference key(s) for initial sync completion (and optionally root-path association).
 - Add methods:
-  - `suspend fun hasCompletedInitialSync(): Boolean`
-  - `suspend fun markInitialSyncCompleted(rootPath: String)`
-  - `suspend fun resetInitialSyncCompleted()`
+  - `fun hasCompletedInitialSync(rootPath: String): Boolean`
+  - `fun markInitialSyncCompleted(rootPath: String)`
+  - `fun resetInitialSyncCompleted()`
 
 **Step 4: Run test to verify it passes**
 - Run: `./gradlew test --tests '*WebDavSettingsRepositoryTests*'`
@@ -49,11 +49,7 @@
 - Create: `app/src/main/java/com/gladomat/linklet/data/sync/worker/SyncWorkType.kt`
 - Create: `app/src/main/java/com/gladomat/linklet/data/sync/worker/SyncWorkerNotifications.kt`
 
-**Step 1: Write failing test**
-- Add/adjust tests to assert `SyncScheduler` enqueues the correct unique work name + input data for `INITIAL` vs `MANUAL` work requests.
-  - If WorkManager is hard to unit-test in this repo, limit tests to ViewModels (Task 4) and rely on compilation + manual verification.
-
-**Step 2: Implement minimal code**
+**Step 1: Implement minimal code**
 - Add `SyncWorkType` (`INITIAL`, `MANUAL`).
 - Add `SyncScheduler.scheduleInitial()` and `SyncScheduler.scheduleManual()`, both enqueueing `SyncWorker` with unique names (e.g. `LinkletInitialSync`, `LinkletManualSync`).
 - Update `SyncWorker`:
@@ -62,7 +58,7 @@
   - Run `syncEngine.run(...)` if WebDAV is ready, then run `noteRepository.reindex()`.
   - On successful initial sync, call `markInitialSyncCompleted(...)`.
 
-**Step 3: Run compilation**
+**Step 2: Run compilation**
 - Run: `./gradlew :app:compileDebugKotlin`
 
 ---
@@ -127,4 +123,3 @@
 **Step 2: Manual QA**
 1. Configure WebDAV (first time): observe foreground notification and sync continues when navigating away.
 2. With WebDAV already configured: tap “Sync now” and navigate away; sync continues.
-
