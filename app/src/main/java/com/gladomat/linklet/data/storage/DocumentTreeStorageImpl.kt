@@ -234,12 +234,12 @@ class DocumentTreeStorageImpl @Inject constructor(
     }
 
     private fun readFromDocument(document: DocumentFile): String {
-        val input = contentResolver.openInputStream(document.uri)
-            ?: if (document.uri.scheme == "file") {
-                File(document.uri.path!!).inputStream()
-            } else {
-                null
-            }
+        val uri = document.uri
+        val input = if (uri.scheme == ContentResolver.SCHEME_FILE) {
+            File(uri.path!!).inputStream()
+        } else {
+            contentResolver.openInputStream(uri)
+        }
         input?.use { stream ->
             return stream.bufferedReader().use { it.readText() }
         }
@@ -247,12 +247,12 @@ class DocumentTreeStorageImpl @Inject constructor(
     }
 
     private fun writeToDocument(document: DocumentFile, content: String) {
-        val output = contentResolver.openOutputStream(document.uri, "wt")
-            ?: if (document.uri.scheme == "file") {
-                FileOutputStream(File(document.uri.path!!))
-            } else {
-                null
-            }
+        val uri = document.uri
+        val output = if (uri.scheme == ContentResolver.SCHEME_FILE) {
+            FileOutputStream(File(uri.path!!))
+        } else {
+            contentResolver.openOutputStream(uri, "wt")
+        }
         output?.use { stream ->
             stream.bufferedWriter().use { it.write(content) }
             return
@@ -261,12 +261,12 @@ class DocumentTreeStorageImpl @Inject constructor(
     }
 
     private fun readBytesFromDocument(document: DocumentFile): ByteArray {
-        val input = contentResolver.openInputStream(document.uri)
-            ?: if (document.uri.scheme == "file") {
-                File(document.uri.path!!).inputStream()
-            } else {
-                null
-            }
+        val uri = document.uri
+        val input = if (uri.scheme == ContentResolver.SCHEME_FILE) {
+            File(uri.path!!).inputStream()
+        } else {
+            contentResolver.openInputStream(uri)
+        }
         input?.use { stream ->
             return stream.readBytes()
         }
@@ -274,12 +274,12 @@ class DocumentTreeStorageImpl @Inject constructor(
     }
 
     private fun writeBytesToDocument(document: DocumentFile, content: ByteArray) {
-        val output = contentResolver.openOutputStream(document.uri, "wt")
-            ?: if (document.uri.scheme == "file") {
-                FileOutputStream(File(document.uri.path!!))
-            } else {
-                null
-            }
+        val uri = document.uri
+        val output = if (uri.scheme == ContentResolver.SCHEME_FILE) {
+            FileOutputStream(File(uri.path!!))
+        } else {
+            contentResolver.openOutputStream(uri, "wt")
+        }
         output?.use { stream ->
             stream.write(content)
             return
@@ -288,18 +288,18 @@ class DocumentTreeStorageImpl @Inject constructor(
     }
 
     private fun copyDocument(source: DocumentFile, target: DocumentFile) {
-        val input = contentResolver.openInputStream(source.uri)
-            ?: if (source.uri.scheme == "file") {
-                File(source.uri.path!!).inputStream()
-            } else {
-                null
-            }
-        val output = contentResolver.openOutputStream(target.uri, "wt")
-            ?: if (target.uri.scheme == "file") {
-                FileOutputStream(File(target.uri.path!!))
-            } else {
-                null
-            }
+        val sourceUri = source.uri
+        val targetUri = target.uri
+        val input = if (sourceUri.scheme == ContentResolver.SCHEME_FILE) {
+            File(sourceUri.path!!).inputStream()
+        } else {
+            contentResolver.openInputStream(sourceUri)
+        }
+        val output = if (targetUri.scheme == ContentResolver.SCHEME_FILE) {
+            FileOutputStream(File(targetUri.path!!))
+        } else {
+            contentResolver.openOutputStream(targetUri, "wt")
+        }
         if (input == null || output == null) {
             input?.close()
             output?.close()
