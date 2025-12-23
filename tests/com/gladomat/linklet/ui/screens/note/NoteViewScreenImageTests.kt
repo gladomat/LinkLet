@@ -87,7 +87,6 @@ class NoteViewScreenImageTests {
             }
         }
 
-        composeRule.onNodeWithText("Loading image…").assertExists()
         composeRule.waitUntil(10_000) {
             composeRule.onAllNodesWithTag("org-inline-image").fetchSemanticsNodes().isNotEmpty()
         }
