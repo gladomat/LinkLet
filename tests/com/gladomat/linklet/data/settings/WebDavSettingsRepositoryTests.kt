@@ -26,5 +26,23 @@ class WebDavSettingsRepositoryTests {
         assertTrue(repository.consumeResetDueToErrorFlag())
         assertFalse(repository.consumeResetDueToErrorFlag())
     }
-}
 
+    @Test
+    fun `initial sync completion is tracked per root path`() {
+        val prefs = context.getSharedPreferences("webdav_test_prefs_initial_sync", Context.MODE_PRIVATE)
+        prefs.edit().clear().apply()
+
+        val repository = WebDavSettingsRepository(context, prefs)
+
+        assertFalse(repository.hasCompletedInitialSync(rootPath = "/Roam"))
+
+        repository.markInitialSyncCompleted(rootPath = "/Roam")
+
+        assertTrue(repository.hasCompletedInitialSync(rootPath = "/Roam"))
+        assertFalse(repository.hasCompletedInitialSync(rootPath = "/Other"))
+
+        repository.resetInitialSyncCompleted()
+
+        assertFalse(repository.hasCompletedInitialSync(rootPath = "/Roam"))
+    }
+}

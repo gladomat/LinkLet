@@ -1,7 +1,7 @@
 ---
 # org_roam_mobile-tqgr
 title: Image downsampling + memory safety
-status: todo
+status: completed
 type: task
 priority: low
 tags:
@@ -9,7 +9,7 @@ tags:
     - performance
     - ui
 created_at: 2025-12-16T14:04:48Z
-updated_at: 2025-12-16T14:04:48Z
+updated_at: 2025-12-23T13:57:43Z
 parent: org_roam_mobile-4kf2
 ---
 

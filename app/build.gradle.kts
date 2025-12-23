@@ -1,8 +1,16 @@
+import com.android.build.gradle.tasks.factory.AndroidUnitTest
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.dagger.hilt.android")
     kotlin("kapt")
+}
+
+afterEvaluate {
+    tasks.withType<AndroidUnitTest>().configureEach {
+        jvmArgs("--add-opens=java.base/java.io=ALL-UNNAMED")
+    }
 }
 
 android {
@@ -60,6 +68,8 @@ android {
         unitTests.isReturnDefaultValues = true
         unitTests.all {
             it.systemProperty("robolectric.manifest", "${project.projectDir}/src/test/AndroidManifest.xml")
+            it.setJvmArgs(listOf("--add-opens=java.base/java.io=ALL-UNNAMED"))
+            it.environment("JAVA_TOOL_OPTIONS", "--add-opens=java.base/java.io=ALL-UNNAMED")
         }
     }
 

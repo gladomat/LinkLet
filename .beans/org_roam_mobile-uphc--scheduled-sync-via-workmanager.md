@@ -1,7 +1,7 @@
 ---
 # org_roam_mobile-uphc
 title: Scheduled sync via WorkManager
-status: in_progress
+status: todo
 type: task
 priority: high
 tags:
@@ -9,7 +9,7 @@ tags:
     - workmanager
     - ui
 created_at: 2025-12-16T14:00:15Z
-updated_at: 2025-12-20T11:56:00Z
+updated_at: 2025-12-23T13:58:39Z
 ---
 
 Add background scheduled sync using WorkManager with UI feedback.
