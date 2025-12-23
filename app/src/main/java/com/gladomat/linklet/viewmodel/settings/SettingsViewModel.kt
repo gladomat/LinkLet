@@ -8,13 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gladomat.linklet.data.index.SyncStateDao
 import com.gladomat.linklet.data.settings.FolderSettingsRepository
-import com.gladomat.linklet.data.sync.CatastrophicDeleteException
-import com.gladomat.linklet.data.sync.LocalStorageMisconfiguredException
-import com.gladomat.linklet.data.sync.RequiresConfirmationException
-import com.gladomat.linklet.data.sync.SyncDirectoryChangedException
-import com.gladomat.linklet.data.sync.SyncEngine
-import com.gladomat.linklet.data.sync.WebDavRemoteSyncProvider
-import com.gladomat.linklet.domain.repository.INoteRepository
+import com.gladomat.linklet.data.sync.SyncScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,9 +23,7 @@ private const val TAG = "SettingsViewModel"
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val folderSettingsRepository: FolderSettingsRepository,
-    private val noteRepository: INoteRepository,
-    private val syncEngine: SyncEngine,
-    private val webDavRemoteSyncProvider: WebDavRemoteSyncProvider,
+    private val syncScheduler: SyncScheduler,
     private val syncStateDao: SyncStateDao,
 ) : ViewModel() {
 
@@ -70,9 +62,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun requestManualSync() {
-        viewModelScope.launch {
-            triggerSync()
-        }
+        triggerSync()
     }
 
     fun clearMessage() {
@@ -100,71 +90,17 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    private suspend fun triggerSync() {
+    private fun triggerSync() {
         Log.i(TAG, "Manual sync requested")
-        val folderUri = _state.value.selectedFolder ?: folderSettingsRepository.currentFolderUri().also { uri ->
-            if (uri != null) {
-                _state.update { it.copy(selectedFolder = uri) }
-            }
-        }
-        if (folderUri == null) {
-            _state.update { it.copy(message = "Select a folder before syncing") }
-            return
-        }
         _state.update { it.copy(isSyncing = true, message = null) }
-        val remoteReady = webDavRemoteSyncProvider.isReadyForSync()
-        val syncResult = if (remoteReady) {
-            runCatching {
-                val summary = syncEngine.run(webDavRemoteSyncProvider).getOrThrow()
-                noteRepository.reindex().getOrThrow()
-                summary
+        runCatching { syncScheduler.scheduleManual() }
+            .onSuccess {
+                Log.i(TAG, "Sync scheduled successfully")
+                _state.update { it.copy(isSyncing = false, message = "Sync scheduled") }
             }
-        } else {
-            runCatching {
-                noteRepository.reindex().getOrThrow()
-                null
+            .onFailure { error ->
+                Log.e(TAG, "Sync scheduling failed", error)
+                _state.update { it.copy(isSyncing = false, message = "Sync failed: ${error.localizedMessage}") }
             }
-        }
-        _state.update { current ->
-            syncResult.fold(
-                onSuccess = { summary ->
-                    val status = when {
-                        summary != null && summary.resolvedConflicts > 0 ->
-                            "Sync complete. ${summary.resolvedConflicts} conflict(s) resolved (check file list)."
-                        remoteReady && summary != null ->
-                            "Sync complete (uploads pending: ${summary.pendingUploads}, downloads pending: ${summary.pendingDownloads})"
-                        remoteReady -> "Sync complete"
-                        else -> "Local reindex complete. Configure WebDAV sync to push remote changes."
-                    }
-                    Log.i(TAG, "Sync finished successfully: $status")
-                    current.copy(isSyncing = false, message = status)
-                },
-                onFailure = { error ->
-                    Log.e(TAG, "Sync failed", error)
-                    when (error) {
-                        is SyncDirectoryChangedException -> {
-                            // Show dialog instead of error message
-                            current.copy(
-                                isSyncing = false,
-                                directoryChangeDialog = DirectoryChangeDialogState(
-                                    oldPath = error.oldPath,
-                                    newPath = error.newPath,
-                                )
-                            )
-                        }
-                        else -> {
-                            val errorMessage = when (error) {
-                                is CatastrophicDeleteException -> "Sync aborted: ${error.message}"
-                                is RequiresConfirmationException -> "Sync paused: ${error.message} Please review."
-                                is LocalStorageMisconfiguredException -> 
-                                    "Local folder issue: Cannot read notes from local folder. Please re-select the notes folder in Settings."
-                                else -> "Sync failed: ${error.localizedMessage}"
-                            }
-                            current.copy(isSyncing = false, message = errorMessage)
-                        }
-                    }
-                },
-            )
-        }
     }
 }

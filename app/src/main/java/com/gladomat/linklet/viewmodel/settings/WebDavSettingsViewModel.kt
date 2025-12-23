@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gladomat.linklet.data.settings.WebDavSettings
 import com.gladomat.linklet.data.settings.WebDavSettingsRepository
+import com.gladomat.linklet.data.sync.SyncScheduler
 import com.gladomat.linklet.data.sync.WebDavRemoteSyncProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -29,6 +30,7 @@ data class WebDavSettingsUiState(
 class WebDavSettingsViewModel @Inject constructor(
     private val settingsRepository: WebDavSettingsRepository,
     private val webDavRemoteSyncProvider: WebDavRemoteSyncProvider,
+    private val syncScheduler: SyncScheduler,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(WebDavSettingsUiState())
@@ -92,16 +94,20 @@ class WebDavSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isSaving = true, message = null) }
             runCatching {
+                val previousSettings = settingsRepository.currentSettings()
                 val sanitizedRoot = current.rootPath.ifBlank { "/" }
-                settingsRepository.save(
-                    WebDavSettings(
-                        baseUrl = current.baseUrl.trim(),
-                        rootPath = sanitizedRoot,
-                        username = current.username.trim(),
-                        password = current.password,
-                        enabled = current.enabled,
-                    ),
+                val newSettings = WebDavSettings(
+                    baseUrl = current.baseUrl.trim(),
+                    rootPath = sanitizedRoot,
+                    username = current.username.trim(),
+                    password = current.password,
+                    enabled = current.enabled,
                 )
+                settingsRepository.save(newSettings)
+
+                if (previousSettings == null && newSettings.enabled && newSettings.isConfigured()) {
+                    syncScheduler.scheduleInitial()
+                }
             }.onSuccess {
                 _state.update { it.copy(isSaving = false, message = "Saved") }
             }.onFailure { error ->

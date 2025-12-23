@@ -103,6 +103,7 @@ class WebDavSettingsRepository @Inject constructor(
         const val PASSWORD = "webdav_password"
         const val ENABLED = "webdav_enabled"
         const val LAST_SYNCED_ROOT_PATH = "webdav_last_synced_root_path"
+        const val INITIAL_SYNC_COMPLETED_ROOT_PATH = "webdav_initial_sync_completed_root_path"
         const val RESET_DUE_TO_ERROR = "webdav_reset_due_to_error"
     }
 
@@ -170,6 +171,8 @@ class WebDavSettingsRepository @Inject constructor(
             .remove(Keys.USERNAME)
             .remove(Keys.PASSWORD)
             .remove(Keys.ENABLED)
+            .remove(Keys.LAST_SYNCED_ROOT_PATH)
+            .remove(Keys.INITIAL_SYNC_COMPLETED_ROOT_PATH)
             .apply()
     }
 
@@ -178,6 +181,21 @@ class WebDavSettingsRepository @Inject constructor(
     suspend fun updateLastSyncedPath(path: String) {
         sharedPreferences.edit()
             .putString(Keys.LAST_SYNCED_ROOT_PATH, path)
+            .apply()
+    }
+
+    fun hasCompletedInitialSync(rootPath: String): Boolean =
+        sharedPreferences.getString(Keys.INITIAL_SYNC_COMPLETED_ROOT_PATH, null) == rootPath
+
+    fun markInitialSyncCompleted(rootPath: String) {
+        sharedPreferences.edit()
+            .putString(Keys.INITIAL_SYNC_COMPLETED_ROOT_PATH, rootPath)
+            .apply()
+    }
+
+    fun resetInitialSyncCompleted() {
+        sharedPreferences.edit()
+            .remove(Keys.INITIAL_SYNC_COMPLETED_ROOT_PATH)
             .apply()
     }
 }
