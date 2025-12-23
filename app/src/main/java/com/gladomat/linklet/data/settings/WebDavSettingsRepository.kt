@@ -104,6 +104,7 @@ class WebDavSettingsRepository @Inject constructor(
         const val ENABLED = "webdav_enabled"
         const val LAST_SYNCED_ROOT_PATH = "webdav_last_synced_root_path"
         const val RESET_DUE_TO_ERROR = "webdav_reset_due_to_error"
+        const val INITIAL_SYNC_COMPLETED_PREFIX = "webdav_initial_sync_completed_"
     }
 
     val settingsFlow: Flow<WebDavSettings?> = callbackFlow {
@@ -179,5 +180,23 @@ class WebDavSettingsRepository @Inject constructor(
         sharedPreferences.edit()
             .putString(Keys.LAST_SYNCED_ROOT_PATH, path)
             .apply()
+    }
+
+    fun hasCompletedInitialSync(rootPath: String): Boolean {
+        return sharedPreferences.getBoolean(Keys.INITIAL_SYNC_COMPLETED_PREFIX + rootPath, false)
+    }
+
+    fun markInitialSyncCompleted(rootPath: String) {
+        sharedPreferences.edit()
+            .putBoolean(Keys.INITIAL_SYNC_COMPLETED_PREFIX + rootPath, true)
+            .apply()
+    }
+
+    fun resetInitialSyncCompleted() {
+        val editor = sharedPreferences.edit()
+        sharedPreferences.all.keys
+            .filter { it.startsWith(Keys.INITIAL_SYNC_COMPLETED_PREFIX) }
+            .forEach { editor.remove(it) }
+        editor.apply()
     }
 }

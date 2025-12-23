@@ -37,8 +37,7 @@
         </activity>
         <activity
             android:name="androidx.activity.ComponentActivity"
-            android:exported="false"
-            tools:replace="android:exported" />
+            android:exported="true" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
