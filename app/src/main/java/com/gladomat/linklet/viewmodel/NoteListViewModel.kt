@@ -1,9 +1,15 @@
 package com.gladomat.linklet.viewmodel
 
+import android.app.Application
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import com.gladomat.linklet.data.model.Note
 import com.gladomat.linklet.data.model.NoteId
+import com.gladomat.linklet.data.sync.SyncScheduler
+import com.gladomat.linklet.data.sync.SyncWork
+import com.gladomat.linklet.data.sync.worker.SyncWorker
 import com.gladomat.linklet.domain.repository.INoteRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -11,17 +17,23 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 @HiltViewModel
 class NoteListViewModel @Inject constructor(
     private val repository: INoteRepository,
+    private val syncScheduler: SyncScheduler,
+    private val application: Application,
 ) : ViewModel() {
 
     private val errorState = MutableStateFlow<String?>(null)
     private val searchQuery = MutableStateFlow("")
     private val hasLoaded = MutableStateFlow(false)
+    private val _snackbarMessage = MutableStateFlow<String?>(null)
+
+    private val workManager = WorkManager.getInstance(application)
 
     val state: StateFlow<NoteListUiState> = combine(
         repository.observeNotes(),
@@ -59,8 +71,37 @@ class NoteListViewModel @Inject constructor(
 
     val query: StateFlow<String> = searchQuery
 
+    // Sync state observation
+    private val syncWorkInfo = workManager.getWorkInfosForUniqueWorkFlow(SyncWork.UNIQUE_ONE_TIME_NAME)
+        .map { workInfos -> workInfos.firstOrNull() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    val isSyncing: StateFlow<Boolean> = syncWorkInfo
+        .map { it?.state == WorkInfo.State.RUNNING }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    val syncProgress: StateFlow<Float> = syncWorkInfo
+        .map { workInfo ->
+            if (workInfo?.state == WorkInfo.State.RUNNING) {
+                val completed = workInfo.progress.getInt(SyncWorker.KEY_PROGRESS_COMPLETED, -1)
+                val total = workInfo.progress.getInt(SyncWorker.KEY_PROGRESS_TOTAL, -1)
+                if (completed >= 0 && total > 0) {
+                    completed.toFloat() / total.toFloat()
+                } else {
+                    0f // Indeterminate
+                }
+            } else {
+                0f
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0f)
+
+    val snackbarMessage: StateFlow<String?> = _snackbarMessage
+
     init {
         refresh()
+        // Trigger opportunistic sync on app open
+        syncScheduler.scheduleImmediate()
     }
 
     fun refresh() {
@@ -81,6 +122,14 @@ class NoteListViewModel @Inject constructor(
 
     fun clearSearchQuery() {
         searchQuery.value = ""
+    }
+
+    fun triggerSync() {
+        syncScheduler.scheduleImmediate()
+    }
+
+    fun clearSnackbar() {
+        _snackbarMessage.value = null
     }
 
     private fun Note.matchesQuery(rawQuery: String): Boolean {

@@ -41,8 +41,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -50,6 +54,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -84,9 +89,16 @@ fun NoteListRoute(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val query by viewModel.query.collectAsStateWithLifecycle()
+    val isSyncing by viewModel.isSyncing.collectAsStateWithLifecycle()
+    val syncProgress by viewModel.syncProgress.collectAsStateWithLifecycle()
+    val snackbarMessage by viewModel.snackbarMessage.collectAsStateWithLifecycle()
+    
     NoteListScreen(
         state = state,
         query = query,
+        isSyncing = isSyncing,
+        syncProgress = syncProgress,
+        snackbarMessage = snackbarMessage,
         onQueryChange = viewModel::updateSearchQuery,
         onClearQuery = viewModel::clearSearchQuery,
         onOpenNote = onOpenNote,
@@ -94,14 +106,20 @@ fun NoteListRoute(
         onOpenSettings = onOpenSettings,
         onOpenTrash = onOpenTrash,
         onCreateNote = onCreateNote,
+        onTriggerSync = viewModel::triggerSync,
+        onClearSnackbar = viewModel::clearSnackbar,
     )
 }
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NoteListScreen(
     state: NoteListUiState,
     query: String,
+    isSyncing: Boolean,
+    syncProgress: Float,
+    snackbarMessage: String?,
     onQueryChange: (String) -> Unit,
     onClearQuery: () -> Unit,
     onOpenNote: (String) -> Unit,
@@ -109,59 +127,93 @@ fun NoteListScreen(
     onOpenSettings: () -> Unit,
     onOpenTrash: () -> Unit,
     onCreateNote: () -> Unit,
+    onTriggerSync: () -> Unit,
+    onClearSnackbar: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val moreMenuExpanded = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val moreMenuExpanded = androidx.compose.runtime.mutableStateOf(false)
+    val snackbarHostState = remember { SnackbarHostState() }
+    
+    // Show snackbar when message changes
+    LaunchedEffect(snackbarMessage) {
+        snackbarMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            onClearSnackbar()
+        }
+    }
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "Notes",
-                        style = MaterialTheme.typography.headlineMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = (-0.5).sp,
-                        ),
-                    )
-                },
-                actions = {
-                    IconButton(
-                        onClick = { moreMenuExpanded.value = true },
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.MoreVert,
-                            contentDescription = "More",
+            Column {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "Notes",
+                            style = MaterialTheme.typography.headlineMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = (-0.5).sp,
+                            ),
+                        )
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = { moreMenuExpanded.value = true },
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.MoreVert,
+                                contentDescription = "More",
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = moreMenuExpanded.value,
+                            onDismissRequest = { moreMenuExpanded.value = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Show Deleted Notes") },
+                                onClick = {
+                                    moreMenuExpanded.value = false
+                                    onOpenTrash()
+                                },
+                            )
+                        }
+                        IconButton(
+                            onClick = onOpenSettings,
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Settings,
+                                contentDescription = "Open settings",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                    ),
+                )
+                
+                // Sync progress indicator
+                if (isSyncing) {
+                    if (syncProgress > 0f) {
+                        LinearProgressIndicator(
+                            progress = { syncProgress },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    } else {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.primary,
                         )
                     }
-                    DropdownMenu(
-                        expanded = moreMenuExpanded.value,
-                        onDismissRequest = { moreMenuExpanded.value = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Show Deleted Notes") },
-                            onClick = {
-                                moreMenuExpanded.value = false
-                                onOpenTrash()
-                            },
-                        )
-                    }
-                    IconButton(
-                        onClick = onOpenSettings,
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Settings,
-                            contentDescription = "Open settings",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                ),
-            )
+                }
+            }
+        },
+        snackbarHost = {
+            SnackbarHost(hostState = snackbarHostState) { data ->
+                Snackbar(snackbarData = data)
+            }
         },
         floatingActionButton = {
             FloatingActionButton(
@@ -211,6 +263,8 @@ fun NoteListScreen(
                 is NoteListUiState.Success -> SuccessState(
                     notes = state.notes,
                     onOpenNote = onOpenNote,
+                    isSyncing = isSyncing,
+                    onRefresh = onTriggerSync,
                     modifier = Modifier.weight(1f),
                 )
                 is NoteListUiState.Error -> ErrorState(
@@ -236,16 +290,22 @@ private fun LoadingState(modifier: Modifier) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SuccessState(
     notes: List<NoteListItemUiModel>,
     onOpenNote: (String) -> Unit,
+    isSyncing: Boolean,
+    onRefresh: () -> Unit,
     modifier: Modifier,
 ) {
     if (notes.isEmpty()) {
         EmptyState(modifier)
         return
     }
+
+    // Note: Pull-to-refresh is not available in this Material3 version
+    // Sync can still be triggered via scheduled worker and app-open triggers
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -519,6 +579,9 @@ private fun NoteListLoadingPreview() {
             NoteListScreen(
                 state = NoteListUiState.Loading,
                 query = "",
+                isSyncing = false,
+                syncProgress = 0f,
+                snackbarMessage = null,
                 onQueryChange = {},
                 onClearQuery = {},
                 onOpenNote = {},
@@ -526,6 +589,8 @@ private fun NoteListLoadingPreview() {
                 onOpenSettings = {},
                 onOpenTrash = {},
                 onCreateNote = {},
+                onTriggerSync = {},
+                onClearSnackbar = {},
             )
         }
     }
@@ -559,6 +624,9 @@ private fun NoteListSuccessPreview() {
                     ),
                 ),
                 query = "sample",
+                isSyncing = true,
+                syncProgress = 0.5f,
+                snackbarMessage = null,
                 onQueryChange = {},
                 onClearQuery = {},
                 onOpenNote = {},
@@ -566,6 +634,8 @@ private fun NoteListSuccessPreview() {
                 onOpenSettings = {},
                 onOpenTrash = {},
                 onCreateNote = {},
+                onTriggerSync = {},
+                onClearSnackbar = {},
             )
         }
     }
@@ -599,6 +669,9 @@ private fun NoteListSuccessWithConflictsPreview() {
                     ),
                 ),
                 query = "",
+                isSyncing = false,
+                syncProgress = 0f,
+                snackbarMessage = null,
                 onQueryChange = {},
                 onClearQuery = {},
                 onOpenNote = {},
@@ -606,6 +679,8 @@ private fun NoteListSuccessWithConflictsPreview() {
                 onOpenSettings = {},
                 onOpenTrash = {},
                 onCreateNote = {},
+                onTriggerSync = {},
+                onClearSnackbar = {},
             )
         }
     }
@@ -619,6 +694,9 @@ private fun NoteListErrorPreview() {
             NoteListScreen(
                 state = NoteListUiState.Error("Something went wrong"),
                 query = "",
+                isSyncing = false,
+                syncProgress = 0f,
+                snackbarMessage = null,
                 onQueryChange = {},
                 onClearQuery = {},
                 onOpenNote = {},
@@ -626,6 +704,8 @@ private fun NoteListErrorPreview() {
                 onOpenSettings = {},
                 onOpenTrash = {},
                 onCreateNote = {},
+                onTriggerSync = {},
+                onClearSnackbar = {},
             )
         }
     }
@@ -639,6 +719,9 @@ private fun NoteListEmptyPreview() {
             NoteListScreen(
                 state = NoteListUiState.Success(notes = emptyList()),
                 query = "",
+                isSyncing = false,
+                syncProgress = 0f,
+                snackbarMessage = null,
                 onQueryChange = {},
                 onClearQuery = {},
                 onOpenNote = {},
@@ -646,6 +729,8 @@ private fun NoteListEmptyPreview() {
                 onOpenSettings = {},
                 onOpenTrash = {},
                 onCreateNote = {},
+                onTriggerSync = {},
+                onClearSnackbar = {},
             )
         }
     }
