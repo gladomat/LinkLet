@@ -10,6 +10,7 @@ import androidx.work.OneTimeWorkRequest
 import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import com.gladomat.linklet.data.settings.SyncSettingsRepository
 import com.gladomat.linklet.data.sync.worker.SyncEnqueueWorker
 import com.gladomat.linklet.data.sync.worker.SyncWorker
 import com.gladomat.linklet.data.sync.worker.SyncWorkType
@@ -20,7 +21,8 @@ import javax.inject.Singleton
 
 @Singleton
 class SyncScheduler @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val syncSettingsRepository: SyncSettingsRepository
 ) {
 
     private val workManager by lazy { WorkManager.getInstance(context) }
@@ -56,14 +58,14 @@ class SyncScheduler @Inject constructor(
         )
     }
 
-    fun schedulePeriodic() {
+    fun schedulePeriodic(intervalMinutes: Long = 60) {
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
 
         val periodicRequest = PeriodicWorkRequest.Builder(
             SyncEnqueueWorker::class.java,
-            15,
+            intervalMinutes,
             TimeUnit.MINUTES
         )
             .setConstraints(constraints)
@@ -72,9 +74,15 @@ class SyncScheduler @Inject constructor(
 
         workManager.enqueueUniquePeriodicWork(
             SyncWork.UNIQUE_PERIODIC_TRIGGER_NAME,
-            ExistingPeriodicWorkPolicy.KEEP,
+            ExistingPeriodicWorkPolicy.UPDATE,
             periodicRequest
         )
+        Log.d(TAG, "Scheduled periodic sync with interval: $intervalMinutes minutes")
+    }
+
+    fun cancelPeriodic() {
+        workManager.cancelUniqueWork(SyncWork.UNIQUE_PERIODIC_TRIGGER_NAME)
+        Log.d(TAG, "Cancelled periodic sync")
     }
 
     fun scheduleImmediate() {
