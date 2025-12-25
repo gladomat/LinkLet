@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,22 +13,31 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
@@ -78,6 +88,8 @@ fun SettingsRoute(
         onOpenWebDavSettings = onOpenWebDavSettings,
         onPickFolder = { launcher.launch(state.selectedFolder) },
         onManualSync = viewModel::requestManualSync,
+        onTogglePeriodicSync = viewModel::togglePeriodicSync,
+        onUpdateSyncInterval = viewModel::updateSyncInterval,
         snackbarHostState = snackbarHostState,
     )
 }
@@ -90,6 +102,8 @@ fun SettingsScreen(
     onOpenWebDavSettings: () -> Unit,
     onPickFolder: () -> Unit,
     onManualSync: () -> Unit,
+    onTogglePeriodicSync: (Boolean) -> Unit,
+    onUpdateSyncInterval: (Long) -> Unit,
     snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier,
 ) {
@@ -147,6 +161,98 @@ fun SettingsScreen(
                 }
                 Text(text = "Sync now")
             }
+            
+            // Sync Settings Section
+            Spacer(modifier = Modifier.height(24.dp))
+            Text(
+                text = "Sync Settings",
+                style = MaterialTheme.typography.titleLarge,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            OutlinedCard(
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                ) {
+                    // Periodic Sync Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Periodic Sync",
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            Text(
+                                text = "Automatically sync on schedule",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = state.periodicSyncEnabled,
+                            onCheckedChange = onTogglePeriodicSync,
+                        )
+                    }
+                    
+                    // Sync Interval Selector
+                    if (state.periodicSyncEnabled) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        HorizontalDivider()
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        var intervalMenuExpanded by remember { mutableStateOf(false) }
+                        val intervalOptions = listOf(
+                            15L to "15 minutes",
+                            30L to "30 minutes",
+                            60L to "1 hour",
+                            120L to "2 hours",
+                            360L to "6 hours",
+                            720L to "12 hours",
+                            1440L to "24 hours",
+                        )
+                        
+                        Column {
+                            Text(
+                                text = "Sync Interval",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Button(
+                                onClick = { intervalMenuExpanded = true },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    text = intervalOptions.find { it.first == state.syncIntervalMinutes }?.second ?: "${state.syncIntervalMinutes} minutes",
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Icon(
+                                    imageVector = Icons.Filled.ArrowDropDown,
+                                    contentDescription = null,
+                                )
+                            }
+                            
+                            DropdownMenu(
+                                expanded = intervalMenuExpanded,
+                                onDismissRequest = { intervalMenuExpanded = false },
+                            ) {
+                                intervalOptions.forEach { (minutes, label) ->
+                                    DropdownMenuItem(
+                                        text = { Text(label) },
+                                        onClick = {
+                                            onUpdateSyncInterval(minutes)
+                                            intervalMenuExpanded = false
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -165,6 +271,8 @@ private fun SettingsScreenPreview() {
                 onOpenWebDavSettings = {},
                 onPickFolder = {},
                 onManualSync = {},
+                onTogglePeriodicSync = {},
+                onUpdateSyncInterval = {},
                 snackbarHostState = SnackbarHostState(),
             )
         }
