@@ -1,6 +1,8 @@
 package com.gladomat.linklet.domain.repository
 
 import android.util.Log
+import android.os.SystemClock
+import com.gladomat.linklet.BuildConfig
 import com.gladomat.linklet.data.index.LinkEntity
 import com.gladomat.linklet.data.index.NoteDao
 import com.gladomat.linklet.data.index.NoteEntity
@@ -76,9 +78,13 @@ class NoteRepositoryImpl(
 
     override suspend fun reindex(): Result<Unit> = withContext(ioDispatcher) {
         runCatching {
+            val startedAt = SystemClock.elapsedRealtime()
             // Invalidate storage cache to ensure we see newly synced files
             storage.invalidateCache()
             val parsedNotes = scanNotes(IndexScope.ACTIVE_NOTES, shouldResolveLinks = false)
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "reindex() - Parsed ${parsedNotes.size} notes in ${SystemClock.elapsedRealtime() - startedAt}ms")
+            }
 
             noteIdIndex.clear()
             parsedNotes.forEach { note ->
@@ -106,6 +112,9 @@ class NoteRepositoryImpl(
             )
 
             notesState.update { resolvedNotes }
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "reindex() - Completed in ${SystemClock.elapsedRealtime() - startedAt}ms")
+            }
         }
     }
 
@@ -534,12 +543,19 @@ class NoteRepositoryImpl(
     }
 
     private suspend fun scanNotes(scope: IndexScope, shouldResolveLinks: Boolean): List<Note> {
+        val startedAt = SystemClock.elapsedRealtime()
         val allPaths = storage.listNotes().getOrThrow()
         val filteredPaths = when (scope) {
             IndexScope.ACTIVE_NOTES -> allPaths.filterNot { isTrashPath(it) }
             IndexScope.TRASH_ONLY -> allPaths.filter { isTrashPath(it) }
         }
-        return filteredPaths.map { path ->
+        return filteredPaths.mapIndexed { index, path ->
+            if (BuildConfig.DEBUG && index > 0 && index % 100 == 0) {
+                Log.d(
+                    TAG,
+                    "scanNotes() - Parsed $index/${filteredPaths.size} in ${SystemClock.elapsedRealtime() - startedAt}ms",
+                )
+            }
             val content = storage.readNote(path).getOrThrow()
             val parsed = parser.parse(content = content, path = path)
             if (shouldResolveLinks) parsed.copy(links = resolveLinks(parsed.links)) else parsed

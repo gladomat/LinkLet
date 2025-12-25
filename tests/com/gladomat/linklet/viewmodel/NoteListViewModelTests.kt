@@ -81,7 +81,7 @@ class NoteListViewModelTests {
         }
 
         val syncScheduler = mockk<SyncScheduler>(relaxed = true)
-        val application = mockk<Application>(relaxed = true)
+        val application = ApplicationProvider.getApplicationContext<Application>()
         val viewModel = NoteListViewModel(repository, syncScheduler, application)
 
         advanceUntilIdle()
@@ -119,7 +119,7 @@ class NoteListViewModelTests {
         }
 
         val syncScheduler = mockk<SyncScheduler>(relaxed = true)
-        val application = mockk<Application>(relaxed = true)
+        val application = ApplicationProvider.getApplicationContext<Application>()
         val viewModel = NoteListViewModel(repository, syncScheduler, application)
 
         advanceUntilIdle()
@@ -154,7 +154,7 @@ class NoteListViewModelTests {
         }
 
         val syncScheduler = mockk<SyncScheduler>(relaxed = true)
-        val application = mockk<Application>(relaxed = true)
+        val application = ApplicationProvider.getApplicationContext<Application>()
         val viewModel = NoteListViewModel(repository, syncScheduler, application)
 
         advanceUntilIdle()
@@ -212,7 +212,7 @@ class NoteListViewModelTests {
         }
 
         val syncScheduler = mockk<SyncScheduler>(relaxed = true)
-        val application = mockk<Application>(relaxed = true)
+        val application = ApplicationProvider.getApplicationContext<Application>()
         val viewModel = NoteListViewModel(repository, syncScheduler, application)
 
         advanceUntilIdle()

@@ -122,6 +122,7 @@ dependencies {
     implementation("io.github.rburgst:okhttp-digest:3.1.0")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("androidx.work:work-runtime-ktx:2.9.0")
+    testImplementation("androidx.work:work-testing:2.9.0")
     implementation("org.bitbucket.cowwoc:diff-match-patch:1.2")
 
     implementation("com.google.dagger:hilt-android:2.51.1")

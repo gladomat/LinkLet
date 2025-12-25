@@ -8,11 +8,14 @@ import com.gladomat.linklet.data.settings.FolderSettingsRepository
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
 
 @Singleton
 class DocumentTreeStorageImpl @Inject constructor(
@@ -29,11 +32,28 @@ class DocumentTreeStorageImpl @Inject constructor(
     private var cachedBaseDocumentFile: DocumentFile? = null
     private var cachedFolderUri: Uri? = null
 
+    /**
+     * Cache mapping storage-relative paths to concrete document URIs.
+     *
+     * SAF lookups like `findFile()` can be extremely slow when repeated for many files.
+     * Populating this cache during directory traversal allows subsequent reads to open
+     * streams directly from the final file URI.
+     */
+    private val pathUriCache = AtomicReference(ConcurrentHashMap<String, Uri>())
+
     override suspend fun listNotes(): Result<List<String>> = withContext(dispatcher) {
         runCatching {
             val base = baseDocumentFile() ?: throw IllegalStateException("Folder not selected")
             val result = mutableListOf<String>()
-            traverse(base, currentPath = "", into = result, includeAllFiles = false)
+            val newCache = ConcurrentHashMap<String, Uri>()
+            traverse(
+                document = base,
+                currentPath = "",
+                into = result,
+                includeAllFiles = false,
+                cache = newCache,
+            )
+            pathUriCache.set(newCache)
             result.sorted()
         }
     }
@@ -42,22 +62,42 @@ class DocumentTreeStorageImpl @Inject constructor(
         runCatching {
             val base = baseDocumentFile() ?: throw IllegalStateException("Folder not selected")
             val result = mutableListOf<String>()
-            traverse(base, currentPath = "", into = result, includeAllFiles = true)
+            val newCache = ConcurrentHashMap<String, Uri>()
+            traverse(
+                document = base,
+                currentPath = "",
+                into = result,
+                includeAllFiles = true,
+                cache = newCache,
+            )
+            pathUriCache.set(newCache)
             result.sorted()
         }
     }
 
     override suspend fun readNote(path: String): Result<String> = withContext(dispatcher) {
         runCatching {
+            val cachedUri = pathUriCache.get()[path]
+            if (cachedUri != null) {
+                return@runCatching readFromUri(cachedUri)
+            }
+
             val target = resolveFile(path) ?: throw IOException("Note not found: $path")
-            readFromDocument(target)
+            pathUriCache.get()[path] = target.uri
+            readFromUri(target.uri)
         }
     }
 
     override suspend fun readFileBytes(path: String): Result<ByteArray> = withContext(dispatcher) {
         runCatching {
+            val cachedUri = pathUriCache.get()[path]
+            if (cachedUri != null) {
+                return@runCatching readBytesFromUri(cachedUri)
+            }
+
             val target = resolveFile(path) ?: throw IOException("File not found: $path")
-            readBytesFromDocument(target)
+            pathUriCache.get()[path] = target.uri
+            readBytesFromUri(target.uri)
         }
     }
 
@@ -79,6 +119,8 @@ class DocumentTreeStorageImpl @Inject constructor(
                     ?: throw IOException("Unable to create file: $path")
             }
             writeToDocument(target, content)
+            // Directory structure/content changed; clear cached snapshot.
+            pathUriCache.set(ConcurrentHashMap())
         }
     }
 
@@ -98,6 +140,8 @@ class DocumentTreeStorageImpl @Inject constructor(
                     ?: throw IOException("Unable to create file: $path")
             }
             writeBytesToDocument(target, content)
+            // Directory structure/content changed; clear cached snapshot.
+            pathUriCache.set(ConcurrentHashMap())
         }
     }
 
@@ -105,6 +149,7 @@ class DocumentTreeStorageImpl @Inject constructor(
         runCatching {
             val target = resolveFile(path)
             target?.delete()
+            pathUriCache.get().remove(path)
             Unit
         }
     }
@@ -129,6 +174,7 @@ class DocumentTreeStorageImpl @Inject constructor(
                 if (!sourceFile.renameTo(newFileName)) {
                     throw IOException("Failed to rename file from $oldPath to $newPath")
                 }
+                pathUriCache.set(ConcurrentHashMap())
                 return@runCatching Unit
             }
 
@@ -149,12 +195,16 @@ class DocumentTreeStorageImpl @Inject constructor(
                 newFile.delete()
                 throw IOException("Failed to delete source file after copy: $oldPath")
             }
+            pathUriCache.set(ConcurrentHashMap())
         }
     }
 
     override suspend fun resolveUri(path: String): Result<Uri> = withContext(dispatcher) {
         runCatching {
+            val cachedUri = pathUriCache.get()[path]
+            if (cachedUri != null) return@runCatching cachedUri
             val target = resolveFile(path) ?: throw IOException("File not found: $path")
+            pathUriCache.get()[path] = target.uri
             target.uri
         }
     }
@@ -217,11 +267,13 @@ class DocumentTreeStorageImpl @Inject constructor(
         currentPath: String,
         into: MutableList<String>,
         includeAllFiles: Boolean,
+        cache: MutableMap<String, Uri>,
     ) {
         if (!document.exists()) return
         if (document.isFile) {
             if (includeAllFiles || currentPath.endsWith(".org", ignoreCase = true)) {
                 into += currentPath
+                cache[currentPath] = document.uri
             }
             return
         }
@@ -229,21 +281,23 @@ class DocumentTreeStorageImpl @Inject constructor(
         for (child in children) {
             val childName = child.name ?: continue
             val nextPath = if (currentPath.isEmpty()) childName else "$currentPath/$childName"
-            traverse(child, nextPath, into, includeAllFiles)
+            traverse(child, nextPath, into, includeAllFiles, cache)
         }
     }
 
-    private fun readFromDocument(document: DocumentFile): String {
-        val uri = document.uri
-        val input = if (uri.scheme == ContentResolver.SCHEME_FILE) {
+    private fun openInputStream(uri: Uri): InputStream? {
+        return if (uri.scheme == ContentResolver.SCHEME_FILE) {
             File(uri.path!!).inputStream()
         } else {
             contentResolver.openInputStream(uri)
         }
-        input?.use { stream ->
+    }
+
+    private fun readFromUri(uri: Uri): String {
+        openInputStream(uri)?.use { stream ->
             return stream.bufferedReader().use { it.readText() }
         }
-        throw IOException("Unable to open input stream for ${document.uri}")
+        throw IOException("Unable to open input stream for $uri")
     }
 
     private fun writeToDocument(document: DocumentFile, content: String) {
@@ -260,17 +314,11 @@ class DocumentTreeStorageImpl @Inject constructor(
         throw IOException("Unable to open output stream for ${document.uri}")
     }
 
-    private fun readBytesFromDocument(document: DocumentFile): ByteArray {
-        val uri = document.uri
-        val input = if (uri.scheme == ContentResolver.SCHEME_FILE) {
-            File(uri.path!!).inputStream()
-        } else {
-            contentResolver.openInputStream(uri)
-        }
-        input?.use { stream ->
+    private fun readBytesFromUri(uri: Uri): ByteArray {
+        openInputStream(uri)?.use { stream ->
             return stream.readBytes()
         }
-        throw IOException("Unable to open input stream for ${document.uri}")
+        throw IOException("Unable to open input stream for $uri")
     }
 
     private fun writeBytesToDocument(document: DocumentFile, content: ByteArray) {
@@ -327,5 +375,6 @@ class DocumentTreeStorageImpl @Inject constructor(
         // Clear the cached DocumentFile to force fresh directory listings
         cachedBaseDocumentFile = null
         cachedFolderUri = null
+        pathUriCache.set(ConcurrentHashMap())
     }
 }

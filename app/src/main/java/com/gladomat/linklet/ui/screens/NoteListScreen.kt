@@ -147,7 +147,7 @@ fun NoteListScreen(
                 TopAppBar(
                     title = {
                         Text(
-                            text = "Notes",
+                            text = "Org-roam Notes",
                             style = MaterialTheme.typography.headlineMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = (-0.5).sp,
