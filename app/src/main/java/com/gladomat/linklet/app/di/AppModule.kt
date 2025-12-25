@@ -46,11 +46,7 @@ object AppModule {
         syncScheduler: SyncScheduler,
     ): INoteRepository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler)
 
-    @Provides
-    @Singleton
-    fun provideSyncScheduler(
-        @ApplicationContext context: Context,
-    ): SyncScheduler = SyncScheduler(context)
+
 
     @Provides
     fun provideSyncStateDao(

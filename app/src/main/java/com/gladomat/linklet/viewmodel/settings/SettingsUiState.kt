@@ -7,6 +7,8 @@ data class SettingsUiState(
     val isSyncing: Boolean = false,
     val message: String? = null,
     val directoryChangeDialog: DirectoryChangeDialogState? = null,
+    val periodicSyncEnabled: Boolean = true,
+    val syncIntervalMinutes: Long = 60L,
 )
 
 data class DirectoryChangeDialogState(

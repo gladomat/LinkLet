@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gladomat.linklet.data.index.SyncStateDao
 import com.gladomat.linklet.data.settings.FolderSettingsRepository
+import com.gladomat.linklet.data.settings.SyncSettingsRepository
 import com.gladomat.linklet.data.sync.SyncScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -25,6 +26,7 @@ class SettingsViewModel @Inject constructor(
     private val folderSettingsRepository: FolderSettingsRepository,
     private val syncScheduler: SyncScheduler,
     private val syncStateDao: SyncStateDao,
+    private val syncSettingsRepository: SyncSettingsRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsUiState())
@@ -40,6 +42,20 @@ class SettingsViewModel @Inject constructor(
                         current
                     }
                 }
+            }
+        }
+        
+        // Observe periodic sync enabled state
+        viewModelScope.launch {
+            syncSettingsRepository.periodicSyncEnabledFlow.collectLatest { enabled ->
+                _state.update { it.copy(periodicSyncEnabled = enabled) }
+            }
+        }
+        
+        // Observe sync interval
+        viewModelScope.launch {
+            syncSettingsRepository.syncIntervalMinutesFlow.collectLatest { interval ->
+                _state.update { it.copy(syncIntervalMinutes = interval) }
             }
         }
     }
@@ -102,5 +118,17 @@ class SettingsViewModel @Inject constructor(
                 Log.e(TAG, "Sync scheduling failed", error)
                 _state.update { it.copy(isSyncing = false, message = "Sync failed: ${error.localizedMessage}") }
             }
+    }
+    
+    fun togglePeriodicSync(enabled: Boolean) {
+        viewModelScope.launch {
+            syncSettingsRepository.setPeriodicSyncEnabled(enabled)
+        }
+    }
+    
+    fun updateSyncInterval(minutes: Long) {
+        viewModelScope.launch {
+            syncSettingsRepository.setSyncIntervalMinutes(minutes)
+        }
     }
 }

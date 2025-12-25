@@ -13,12 +13,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import com.gladomat.linklet.testing.MainDispatcherRule
+import com.gladomat.linklet.data.sync.SyncScheduler
+import android.app.Application
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import androidx.work.Configuration
+import androidx.work.testing.WorkManagerTestInitHelper
+import io.mockk.mockk
+import org.junit.Before
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class)
+@Config(manifest = Config.NONE)
 class NoteListViewModelTests {
 
     @get:Rule
     val dispatcherRule = MainDispatcherRule()
+    
+    @Before
+    fun setup() {
+        // Initialize WorkManager for testing
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val config = Configuration.Builder()
+            .setMinimumLoggingLevel(android.util.Log.DEBUG)
+            .build()
+        WorkManagerTestInitHelper.initializeTestWorkManager(context, config)
+    }
 
     @Test
     fun `refresh emits success when repository returns data`() = runTest {
@@ -57,7 +80,9 @@ class NoteListViewModelTests {
                 Result.failure(UnsupportedOperationException("Not used in these tests"))
         }
 
-        val viewModel = NoteListViewModel(repository)
+        val syncScheduler = mockk<SyncScheduler>(relaxed = true)
+        val application = mockk<Application>(relaxed = true)
+        val viewModel = NoteListViewModel(repository, syncScheduler, application)
 
         advanceUntilIdle()
 
@@ -93,7 +118,9 @@ class NoteListViewModelTests {
                 Result.failure(UnsupportedOperationException("Not used in these tests"))
         }
 
-        val viewModel = NoteListViewModel(repository)
+        val syncScheduler = mockk<SyncScheduler>(relaxed = true)
+        val application = mockk<Application>(relaxed = true)
+        val viewModel = NoteListViewModel(repository, syncScheduler, application)
 
         advanceUntilIdle()
 
@@ -126,7 +153,9 @@ class NoteListViewModelTests {
                 Result.failure(UnsupportedOperationException("Not used in these tests"))
         }
 
-        val viewModel = NoteListViewModel(repository)
+        val syncScheduler = mockk<SyncScheduler>(relaxed = true)
+        val application = mockk<Application>(relaxed = true)
+        val viewModel = NoteListViewModel(repository, syncScheduler, application)
 
         advanceUntilIdle()
 
@@ -182,7 +211,9 @@ class NoteListViewModelTests {
                 Result.failure(UnsupportedOperationException("Not used in these tests"))
         }
 
-        val viewModel = NoteListViewModel(repository)
+        val syncScheduler = mockk<SyncScheduler>(relaxed = true)
+        val application = mockk<Application>(relaxed = true)
+        val viewModel = NoteListViewModel(repository, syncScheduler, application)
 
         advanceUntilIdle()
 

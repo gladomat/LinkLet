@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
 import com.gladomat.linklet.data.index.SyncStateDao
 import com.gladomat.linklet.data.settings.FolderSettingsRepository
+import com.gladomat.linklet.data.settings.SyncSettingsRepository
 import com.gladomat.linklet.data.sync.SyncScheduler
 import com.gladomat.linklet.testing.MainDispatcherRule
 import io.mockk.mockk
@@ -53,7 +54,8 @@ class SettingsViewModelTests {
     fun `requestManualSync schedules work when folder selected`() = runTest(dispatcherRule.dispatcher) {
         val syncScheduler = mockk<SyncScheduler>(relaxed = true)
         val syncStateDao = mockk<SyncStateDao>(relaxed = true)
-        val viewModel = SettingsViewModel(folderSettingsRepository, syncScheduler, syncStateDao)
+        val syncSettingsRepository = mockk<SyncSettingsRepository>(relaxed = true)
+        val viewModel = SettingsViewModel(folderSettingsRepository, syncScheduler, syncStateDao, syncSettingsRepository)
 
         viewModel.requestManualSync()
 
@@ -68,7 +70,8 @@ class SettingsViewModelTests {
 
         val syncScheduler = mockk<SyncScheduler>(relaxed = true)
         val syncStateDao = mockk<SyncStateDao>(relaxed = true)
-        val viewModel = SettingsViewModel(folderSettingsRepository, syncScheduler, syncStateDao)
+        val syncSettingsRepository = mockk<SyncSettingsRepository>(relaxed = true)
+        val viewModel = SettingsViewModel(folderSettingsRepository, syncScheduler, syncStateDao, syncSettingsRepository)
 
         viewModel.requestManualSync()
 
