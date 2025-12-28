@@ -72,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.gladomat.linklet.data.model.IndexingProgress
 import com.gladomat.linklet.data.model.NoteId
 import com.gladomat.linklet.ui.theme.LinkLetAppTheme
 import com.gladomat.linklet.viewmodel.ConflictInfo
@@ -91,6 +92,9 @@ fun NoteListRoute(
     val query by viewModel.query.collectAsStateWithLifecycle()
     val isSyncing by viewModel.isSyncing.collectAsStateWithLifecycle()
     val syncProgress by viewModel.syncProgress.collectAsStateWithLifecycle()
+    val indexingProgressPass1 by viewModel.indexingProgressPass1.collectAsStateWithLifecycle()
+    val indexingProgressPass2 by viewModel.indexingProgressPass2.collectAsStateWithLifecycle()
+    val indexingFailuresPass2 by viewModel.indexingFailuresPass2.collectAsStateWithLifecycle()
     val snackbarMessage by viewModel.snackbarMessage.collectAsStateWithLifecycle()
     
     NoteListScreen(
@@ -98,15 +102,18 @@ fun NoteListRoute(
         query = query,
         isSyncing = isSyncing,
         syncProgress = syncProgress,
+        indexingProgressPass1 = indexingProgressPass1,
+        indexingProgressPass2 = indexingProgressPass2,
+        indexingFailuresPass2 = indexingFailuresPass2,
         snackbarMessage = snackbarMessage,
         onQueryChange = viewModel::updateSearchQuery,
         onClearQuery = viewModel::clearSearchQuery,
         onOpenNote = onOpenNote,
         onRetry = viewModel::refresh,
+        onRetryLinkIndexing = viewModel::retryLinkIndexing,
         onOpenSettings = onOpenSettings,
         onOpenTrash = onOpenTrash,
         onCreateNote = onCreateNote,
-        onTriggerSync = viewModel::triggerSync,
         onClearSnackbar = viewModel::clearSnackbar,
     )
 }
@@ -119,20 +126,29 @@ fun NoteListScreen(
     query: String,
     isSyncing: Boolean,
     syncProgress: Float,
+    indexingProgressPass1: IndexingProgress,
+    indexingProgressPass2: IndexingProgress,
+    indexingFailuresPass2: Int,
     snackbarMessage: String?,
     onQueryChange: (String) -> Unit,
     onClearQuery: () -> Unit,
     onOpenNote: (String) -> Unit,
     onRetry: () -> Unit,
+    onRetryLinkIndexing: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenTrash: () -> Unit,
     onCreateNote: () -> Unit,
-    onTriggerSync: () -> Unit,
     onClearSnackbar: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val moreMenuExpanded = androidx.compose.runtime.mutableStateOf(false)
     val snackbarHostState = remember { SnackbarHostState() }
+    val pass1Total = indexingProgressPass1.total
+    val pass1Completed = indexingProgressPass1.completed
+    val isIndexingPass1 = pass1Total > 0 && pass1Completed < pass1Total
+    val pass2Total = indexingProgressPass2.total
+    val pass2Completed = indexingProgressPass2.completed
+    val isIndexingPass2 = pass2Total > 0 && pass2Completed < pass2Total
     
     // Show snackbar when message changes
     LaunchedEffect(snackbarMessage) {
@@ -193,6 +209,83 @@ fun NoteListScreen(
                     ),
                 )
                 
+                if (isIndexingPass1) {
+                    val progress = (pass1Completed.toFloat() / pass1Total.toFloat()).coerceIn(0f, 1f)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Pass 1: Indexed $pass1Completed / $pass1Total notes",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = "${(progress * 100).toInt()}%",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+
+                if (isIndexingPass2 || indexingFailuresPass2 > 0) {
+                    val progress = if (pass2Total > 0) {
+                        (pass2Completed.toFloat() / pass2Total.toFloat()).coerceIn(0f, 1f)
+                    } else {
+                        0f
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Pass 2: Links $pass2Completed / $pass2Total",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = "${(progress * 100).toInt()}%",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+
+                    if (indexingFailuresPass2 > 0) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "Pass 2 failures: $indexingFailuresPass2",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                            Button(onClick = onRetryLinkIndexing) {
+                                Text("Retry")
+                            }
+                        }
+                    }
+                }
+
                 // Sync progress indicator
                 if (isSyncing) {
                     if (syncProgress > 0f) {
@@ -263,8 +356,6 @@ fun NoteListScreen(
                 is NoteListUiState.Success -> SuccessState(
                     notes = state.notes,
                     onOpenNote = onOpenNote,
-                    isSyncing = isSyncing,
-                    onRefresh = onTriggerSync,
                     modifier = Modifier.weight(1f),
                 )
                 is NoteListUiState.Error -> ErrorState(
@@ -295,8 +386,6 @@ private fun LoadingState(modifier: Modifier) {
 private fun SuccessState(
     notes: List<NoteListItemUiModel>,
     onOpenNote: (String) -> Unit,
-    isSyncing: Boolean,
-    onRefresh: () -> Unit,
     modifier: Modifier,
 ) {
     if (notes.isEmpty()) {
@@ -581,15 +670,18 @@ private fun NoteListLoadingPreview() {
                 query = "",
                 isSyncing = false,
                 syncProgress = 0f,
+                indexingProgressPass1 = IndexingProgress(completed = 0, total = 0),
+                indexingProgressPass2 = IndexingProgress(completed = 0, total = 0),
+                indexingFailuresPass2 = 0,
                 snackbarMessage = null,
                 onQueryChange = {},
                 onClearQuery = {},
                 onOpenNote = {},
                 onRetry = {},
+                onRetryLinkIndexing = {},
                 onOpenSettings = {},
                 onOpenTrash = {},
                 onCreateNote = {},
-                onTriggerSync = {},
                 onClearSnackbar = {},
             )
         }
@@ -626,15 +718,18 @@ private fun NoteListSuccessPreview() {
                 query = "sample",
                 isSyncing = true,
                 syncProgress = 0.5f,
+                indexingProgressPass1 = IndexingProgress(completed = 120, total = 240),
+                indexingProgressPass2 = IndexingProgress(completed = 20, total = 240),
+                indexingFailuresPass2 = 2,
                 snackbarMessage = null,
                 onQueryChange = {},
                 onClearQuery = {},
                 onOpenNote = {},
                 onRetry = {},
+                onRetryLinkIndexing = {},
                 onOpenSettings = {},
                 onOpenTrash = {},
                 onCreateNote = {},
-                onTriggerSync = {},
                 onClearSnackbar = {},
             )
         }
@@ -671,15 +766,18 @@ private fun NoteListSuccessWithConflictsPreview() {
                 query = "",
                 isSyncing = false,
                 syncProgress = 0f,
+                indexingProgressPass1 = IndexingProgress(completed = 0, total = 0),
+                indexingProgressPass2 = IndexingProgress(completed = 0, total = 0),
+                indexingFailuresPass2 = 0,
                 snackbarMessage = null,
                 onQueryChange = {},
                 onClearQuery = {},
                 onOpenNote = {},
                 onRetry = {},
+                onRetryLinkIndexing = {},
                 onOpenSettings = {},
                 onOpenTrash = {},
                 onCreateNote = {},
-                onTriggerSync = {},
                 onClearSnackbar = {},
             )
         }
@@ -696,15 +794,18 @@ private fun NoteListErrorPreview() {
                 query = "",
                 isSyncing = false,
                 syncProgress = 0f,
+                indexingProgressPass1 = IndexingProgress(completed = 0, total = 0),
+                indexingProgressPass2 = IndexingProgress(completed = 0, total = 0),
+                indexingFailuresPass2 = 0,
                 snackbarMessage = null,
                 onQueryChange = {},
                 onClearQuery = {},
                 onOpenNote = {},
                 onRetry = {},
+                onRetryLinkIndexing = {},
                 onOpenSettings = {},
                 onOpenTrash = {},
                 onCreateNote = {},
-                onTriggerSync = {},
                 onClearSnackbar = {},
             )
         }
@@ -721,15 +822,18 @@ private fun NoteListEmptyPreview() {
                 query = "",
                 isSyncing = false,
                 syncProgress = 0f,
+                indexingProgressPass1 = IndexingProgress(completed = 0, total = 0),
+                indexingProgressPass2 = IndexingProgress(completed = 0, total = 0),
+                indexingFailuresPass2 = 0,
                 snackbarMessage = null,
                 onQueryChange = {},
                 onClearQuery = {},
                 onOpenNote = {},
                 onRetry = {},
+                onRetryLinkIndexing = {},
                 onOpenSettings = {},
                 onOpenTrash = {},
                 onCreateNote = {},
-                onTriggerSync = {},
                 onClearSnackbar = {},
             )
         }

@@ -5,8 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import com.gladomat.linklet.data.model.Note
-import com.gladomat.linklet.data.model.NoteId
+import com.gladomat.linklet.data.model.IndexingProgress
+import com.gladomat.linklet.data.model.NoteIndexEntry
+import com.gladomat.linklet.data.index.IndexingScheduler
 import com.gladomat.linklet.data.sync.SyncScheduler
 import com.gladomat.linklet.data.sync.SyncWork
 import com.gladomat.linklet.data.sync.worker.SyncWorker
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -24,6 +26,7 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class NoteListViewModel @Inject constructor(
     private val repository: INoteRepository,
+    private val indexingScheduler: IndexingScheduler,
     private val syncScheduler: SyncScheduler,
     private val application: Application,
 ) : ViewModel() {
@@ -51,11 +54,7 @@ class NoteListViewModel @Inject constructor(
                     notes.filter { it.matchesQuery(trimmedQuery) }
                 }
                 val uiModels = filteredNotes.map { note ->
-                    val snippet = if (trimmedQuery.isEmpty()) {
-                        null
-                    } else {
-                        note.buildSnippet(trimmedQuery)
-                    }
+                    val snippet = if (trimmedQuery.isEmpty()) null else note.snippetForQuery(trimmedQuery)
                     note.toUiModel(snippet)
                 }
                 NoteListUiState.Success(uiModels)
@@ -96,23 +95,48 @@ class NoteListViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0f)
 
+    val indexingProgressPass1: StateFlow<IndexingProgress> = repository.observeIndexingProgress(pass = 1)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, IndexingProgress(completed = 0, total = 0))
+
+    val indexingFailuresPass1: StateFlow<Int> = repository.observeIndexingFailures(pass = 1)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+
+    val indexingProgressPass2: StateFlow<IndexingProgress> = repository.observeIndexingProgress(pass = 2)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, IndexingProgress(completed = 0, total = 0))
+
+    val indexingFailuresPass2: StateFlow<Int> = repository.observeIndexingFailures(pass = 2)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+
     val snackbarMessage: StateFlow<String?> = _snackbarMessage
 
     init {
         refresh()
         // Trigger opportunistic sync on app open
         syncScheduler.scheduleImmediate()
+
+        viewModelScope.launch {
+            combine(indexingFailuresPass1, indexingFailuresPass2) { pass1, pass2 -> pass1 to pass2 }
+                .distinctUntilChanged()
+                .collect { (pass1, pass2) ->
+                    if (pass1 > 0 || pass2 > 0) {
+                        _snackbarMessage.value = "Indexing failed (pass1=$pass1, pass2=$pass2)"
+                    }
+                }
+        }
     }
 
     fun refresh() {
         viewModelScope.launch {
             errorState.value = null
-            val result = repository.reindex()
-            if (result.isFailure) {
-                errorState.value = result.exceptionOrNull()?.message ?: "Unable to index notes"
-            } else {
-                hasLoaded.value = true
-            }
+            indexingScheduler.schedulePass1()
+            indexingScheduler.schedulePass2()
+            hasLoaded.value = true
+        }
+    }
+
+    fun retryLinkIndexing() {
+        viewModelScope.launch {
+            indexingScheduler.schedulePass2()
         }
     }
 
@@ -124,57 +148,21 @@ class NoteListViewModel @Inject constructor(
         searchQuery.value = ""
     }
 
-    fun triggerSync() {
-        syncScheduler.scheduleImmediate()
-    }
-
     fun clearSnackbar() {
         _snackbarMessage.value = null
     }
 
-    private fun Note.matchesQuery(rawQuery: String): Boolean {
+    private fun NoteIndexEntry.matchesQuery(rawQuery: String): Boolean {
         val query = rawQuery.lowercase()
         if (title.contains(query, ignoreCase = true)) return true
-        if (content.lowercase().contains(query)) return true
-        val tags = extractTagsFromContent(content)
-        if (tags.any { it.contains(query, ignoreCase = true) }) return true
-        return false
+        return fileTags.any { it.contains(query, ignoreCase = true) }
     }
 
-    private fun Note.buildSnippet(rawQuery: String): String? {
-        if (content.isEmpty()) return null
-        val contentLower = content.lowercase()
+    private fun NoteIndexEntry.snippetForQuery(rawQuery: String): String? {
         val queryLower = rawQuery.lowercase()
-        val index = contentLower.indexOf(queryLower)
-        if (index == -1) return null
-
-        val radius = 40
-        val start = (index - radius).coerceAtLeast(0)
-        val end = (index + rawQuery.length + radius).coerceAtMost(content.length)
-        var snippet = content.substring(start, end).replace('\n', ' ')
-
-        if (start > 0) {
-            snippet = "…$snippet"
-        }
-        if (end < content.length) {
-            snippet = "$snippet…"
-        }
-
-        return snippet
-    }
-
-    private fun extractTagsFromContent(content: String): List<String> {
-        val prefix = "#+filetags:"
-        val line = content.lineSequence()
-            .firstOrNull { it.trimStart().startsWith(prefix, ignoreCase = true) }
-            ?: return emptyList()
-        val raw = line.substringAfter(":").trim()
-        if (raw.isEmpty()) return emptyList()
-        return raw
-            .trim(':')
-            .split(':')
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
+        if (title.contains(queryLower, ignoreCase = true)) return null
+        val matchedTag = fileTags.firstOrNull { it.contains(queryLower, ignoreCase = true) } ?: return null
+        return "Tag: $matchedTag"
     }
 
     /**
@@ -199,7 +187,7 @@ class NoteListViewModel @Inject constructor(
         return filename.replace(regex, "")
     }
 
-    private fun Note.toUiModel(snippet: String? = null): NoteListItemUiModel = NoteListItemUiModel(
+    private fun NoteIndexEntry.toUiModel(snippet: String? = null): NoteListItemUiModel = NoteListItemUiModel(
         id = id,
         title = title,
         filename = extractCleanFilename(id.path),

@@ -1,11 +1,14 @@
 package com.gladomat.linklet.viewmodel
 
+import com.gladomat.linklet.data.model.IndexingProgress
 import com.gladomat.linklet.data.model.Note
+import com.gladomat.linklet.data.model.NoteIndexEntry
 import com.gladomat.linklet.data.model.NoteId
 import com.gladomat.linklet.domain.repository.INoteRepository
 import com.gladomat.linklet.domain.repository.LinkEntityDto
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -14,12 +17,14 @@ import org.junit.Rule
 import org.junit.Test
 import com.gladomat.linklet.testing.MainDispatcherRule
 import com.gladomat.linklet.data.sync.SyncScheduler
+import com.gladomat.linklet.data.index.IndexingScheduler
 import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.Configuration
 import androidx.work.testing.WorkManagerTestInitHelper
 import io.mockk.mockk
+import io.mockk.verify
 import org.junit.Before
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -27,7 +32,7 @@ import org.robolectric.annotation.Config
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE)
+@Config(manifest = Config.NONE, application = android.app.Application::class)
 class NoteListViewModelTests {
 
     @get:Rule
@@ -43,28 +48,35 @@ class NoteListViewModelTests {
         WorkManagerTestInitHelper.initializeTestWorkManager(context, config)
     }
 
+    private fun noteEntry(
+        path: String,
+        title: String,
+        tags: List<String> = emptyList(),
+    ) = NoteIndexEntry(
+        id = NoteId(path),
+        title = title,
+        fileTags = tags,
+        deletedAt = null,
+        linksReady = false,
+    )
+
     @Test
     fun `refresh emits success when repository returns data`() = runTest {
         val repository = object : INoteRepository {
-            private val notes = MutableStateFlow<List<Note>>(emptyList())
+            private val notes = MutableStateFlow<List<NoteIndexEntry>>(
+                listOf(noteEntry("note.org", "Note")),
+            )
 
             override fun observeNotes() = notes
+            override fun observeIndexingProgress(pass: Int) =
+                flowOf(IndexingProgress(completed = 0, total = 0))
+            override fun observeIndexingFailures(pass: Int) = flowOf(0)
 
-            override suspend fun listNotes(): Result<List<Note>> = Result.success(notes.value)
-            override suspend fun listAllNotes(): List<Note> = notes.value
+            override suspend fun listNotes(): Result<List<Note>> = Result.success(emptyList())
+            override suspend fun listAllNotes(): List<Note> = emptyList()
             override suspend fun listTrashNotes(): List<Note> = emptyList()
             override suspend fun getNote(path: String): Result<Note> = Result.failure(UnsupportedOperationException())
-            override suspend fun reindex(): Result<Unit> {
-                notes.value = listOf(
-                    Note(
-                        id = NoteId("note.org"),
-                        title = "Note",
-                        content = "",
-                        links = emptyList(),
-                    ),
-                )
-                return Result.success(Unit)
-            }
+            override suspend fun reindex(): Result<Unit> = Result.success(Unit)
             override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(emptyList())
             override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
             override suspend fun deleteNoteSoft(path: String): Result<Unit> = Result.success(Unit)
@@ -80,9 +92,10 @@ class NoteListViewModelTests {
                 Result.failure(UnsupportedOperationException("Not used in these tests"))
         }
 
+        val indexingScheduler = mockk<IndexingScheduler>(relaxed = true)
         val syncScheduler = mockk<SyncScheduler>(relaxed = true)
         val application = ApplicationProvider.getApplicationContext<Application>()
-        val viewModel = NoteListViewModel(repository, syncScheduler, application)
+        val viewModel = NoteListViewModel(repository, indexingScheduler, syncScheduler, application)
 
         advanceUntilIdle()
 
@@ -94,10 +107,13 @@ class NoteListViewModelTests {
     }
 
     @Test
-    fun `refresh emits error when reindex fails`() = runTest {
+    fun `refresh schedules pass 1 indexing`() = runTest {
         val repository = object : INoteRepository {
-            private val notes = MutableStateFlow<List<Note>>(emptyList())
+            private val notes = MutableStateFlow<List<NoteIndexEntry>>(emptyList())
             override fun observeNotes() = notes
+            override fun observeIndexingProgress(pass: Int) =
+                flowOf(IndexingProgress(completed = 0, total = 0))
+            override fun observeIndexingFailures(pass: Int) = flowOf(0)
             override suspend fun listNotes(): Result<List<Note>> = Result.success(emptyList())
             override suspend fun listAllNotes(): List<Note> = emptyList()
             override suspend fun listTrashNotes(): List<Note> = emptyList()
@@ -118,21 +134,29 @@ class NoteListViewModelTests {
                 Result.failure(UnsupportedOperationException("Not used in these tests"))
         }
 
+        val indexingScheduler = mockk<IndexingScheduler>(relaxed = true)
         val syncScheduler = mockk<SyncScheduler>(relaxed = true)
         val application = ApplicationProvider.getApplicationContext<Application>()
-        val viewModel = NoteListViewModel(repository, syncScheduler, application)
+        val viewModel = NoteListViewModel(repository, indexingScheduler, syncScheduler, application)
 
         advanceUntilIdle()
 
+        verify(atLeast = 1) { indexingScheduler.schedulePass1() }
+
         val state = viewModel.state.value
-        assertTrue(state is NoteListUiState.Error)
+        assertTrue(state is NoteListUiState.Success)
+        val items = (state as NoteListUiState.Success).notes
+        assertTrue(items.isEmpty())
     }
 
     @Test
     fun `refresh success with empty notes emits success state`() = runTest {
         val repository = object : INoteRepository {
-            private val notes = MutableStateFlow<List<Note>>(emptyList())
+            private val notes = MutableStateFlow<List<NoteIndexEntry>>(emptyList())
             override fun observeNotes() = notes
+            override fun observeIndexingProgress(pass: Int) =
+                flowOf(IndexingProgress(completed = 0, total = 0))
+            override fun observeIndexingFailures(pass: Int) = flowOf(0)
             override suspend fun listNotes(): Result<List<Note>> = Result.success(emptyList())
             override suspend fun listAllNotes(): List<Note> = emptyList()
             override suspend fun listTrashNotes(): List<Note> = emptyList()
@@ -153,9 +177,10 @@ class NoteListViewModelTests {
                 Result.failure(UnsupportedOperationException("Not used in these tests"))
         }
 
+        val indexingScheduler = mockk<IndexingScheduler>(relaxed = true)
         val syncScheduler = mockk<SyncScheduler>(relaxed = true)
         val application = ApplicationProvider.getApplicationContext<Application>()
-        val viewModel = NoteListViewModel(repository, syncScheduler, application)
+        val viewModel = NoteListViewModel(repository, indexingScheduler, syncScheduler, application)
 
         advanceUntilIdle()
 
@@ -167,32 +192,20 @@ class NoteListViewModelTests {
 
     @Test
     fun `search query filters notes and produces snippet`() = runTest {
-        val notes = MutableStateFlow<List<Note>>(
+        val notes = MutableStateFlow<List<NoteIndexEntry>>(
             listOf(
-                Note(
-                    id = NoteId("a.org"),
-                    title = "Kotlin Coroutines",
-                    content = """
-                        #+title: Kotlin Coroutines
-                        #+filetags: :kotlin:async:
-
-                        This note talks about structured concurrency and coroutine scopes.
-                    """.trimIndent(),
-                    links = emptyList(),
-                ),
-                Note(
-                    id = NoteId("b.org"),
-                    title = "Random Thoughts",
-                    content = "Nothing related here.",
-                    links = emptyList(),
-                ),
+                noteEntry("a.org", "Kotlin Coroutines", tags = listOf("kotlin", "async")),
+                noteEntry("b.org", "Random Thoughts"),
             ),
         )
 
         val repository = object : INoteRepository {
             override fun observeNotes() = notes
-            override suspend fun listNotes(): Result<List<Note>> = Result.success(notes.value)
-            override suspend fun listAllNotes(): List<Note> = notes.value
+            override fun observeIndexingProgress(pass: Int) =
+                flowOf(IndexingProgress(completed = 0, total = 0))
+            override fun observeIndexingFailures(pass: Int) = flowOf(0)
+            override suspend fun listNotes(): Result<List<Note>> = Result.success(emptyList())
+            override suspend fun listAllNotes(): List<Note> = emptyList()
             override suspend fun listTrashNotes(): List<Note> = emptyList()
             override suspend fun getNote(path: String): Result<Note> = Result.failure(RuntimeException("unused"))
             override suspend fun reindex(): Result<Unit> = Result.success(Unit)
@@ -211,13 +224,14 @@ class NoteListViewModelTests {
                 Result.failure(UnsupportedOperationException("Not used in these tests"))
         }
 
+        val indexingScheduler = mockk<IndexingScheduler>(relaxed = true)
         val syncScheduler = mockk<SyncScheduler>(relaxed = true)
         val application = ApplicationProvider.getApplicationContext<Application>()
-        val viewModel = NoteListViewModel(repository, syncScheduler, application)
+        val viewModel = NoteListViewModel(repository, indexingScheduler, syncScheduler, application)
 
         advanceUntilIdle()
 
-        viewModel.updateSearchQuery("coroutines")
+        viewModel.updateSearchQuery("async")
 
         advanceUntilIdle()
 
@@ -227,6 +241,6 @@ class NoteListViewModelTests {
         assertEquals(1, items.size)
         val item = items.first()
         assertEquals("a.org", item.id.path)
-        assertTrue(!item.snippet.isNullOrBlank())
+        assertEquals("Tag: async", item.snippet)
     }
 }
