@@ -61,6 +61,17 @@ class FileStorageImpl(
         }
     }
 
+    override suspend fun statNote(path: String): Result<StorageFileStat> = withContext(dispatcher) {
+        runCatching {
+            val file = resolvePath(path)
+            if (!file.exists()) throw IOException("File not found: $path")
+            StorageFileStat(
+                lastModifiedEpochMillis = file.lastModified().takeIf { it > 0 },
+                sizeBytes = file.length().takeIf { it >= 0 },
+            )
+        }
+    }
+
     override suspend fun writeNote(path: String, content: String): Result<Unit> = withContext(dispatcher) {
         runCatching {
             val file = resolvePath(path)

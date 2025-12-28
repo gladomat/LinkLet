@@ -12,7 +12,6 @@ import com.gladomat.linklet.data.sync.SyncScheduler
 import io.mockk.mockk
 import java.io.IOException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
@@ -29,7 +28,7 @@ import org.junit.Assert.assertNull
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE)
+@Config(manifest = Config.NONE, application = android.app.Application::class)
 class NoteRepositoryImplTests {
 
     private val parser = RegexParser()
@@ -54,7 +53,7 @@ class NoteRepositoryImplTests {
     @Test
     fun `getNote returns parsed note when storage succeeds`() = runTest(dispatcher) {
         val storage = FakeStorage(mutableMapOf("path.org" to "#+title: Sample\nBody"))
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
 
         val result = repository.getNote("path.org")
 
@@ -67,7 +66,7 @@ class NoteRepositoryImplTests {
     @Test
     fun `getNote propagates storage failure`() = runTest(dispatcher) {
         val storage = FakeStorage(mutableMapOf())
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
 
         val result = repository.getNote("missing.org")
 
@@ -82,7 +81,7 @@ class NoteRepositoryImplTests {
                 "b.org" to "#+title: B\nContent",
             ),
         )
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
 
         repository.reindex().getOrThrow()
 
@@ -93,7 +92,7 @@ class NoteRepositoryImplTests {
         assertEquals("Alias", backlink.alias)
         assertEquals("A", backlink.sourceTitle)
 
-        val notes = repository.observeNotes().first()
+        val notes = repository.listNotes().getOrThrow()
         assertEquals(2, notes.size)
         val resolvedLink = notes.first { it.id.path == "a.org" }.links.first()
         assertEquals("b.org", resolvedLink.resolvedPath)
@@ -119,7 +118,7 @@ class NoteRepositoryImplTests {
                 """.trimIndent(),
             ),
         )
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
 
         repository.reindex().getOrThrow()
 
@@ -149,7 +148,7 @@ class NoteRepositoryImplTests {
                 """.trimIndent(),
             ),
         )
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
 
         repository.reindex().getOrThrow()
 
@@ -169,7 +168,7 @@ class NoteRepositoryImplTests {
             """.trimIndent(),
         )
         val storage = FakeStorage(files)
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
 
         val first = repository.duplicateNote("a.org").getOrThrow()
         val second = repository.duplicateNote("a.org").getOrThrow()
@@ -190,7 +189,7 @@ class NoteRepositoryImplTests {
             "a.org" to "#+title: A\r\n:PROPERTIES:\r\n:ID: old-id\r\n:END:\r\nBody\r\n",
         )
         val storage = FakeStorage(files)
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
 
         val newPath = repository.duplicateNote("a.org").getOrThrow()
         val duplicated = files[newPath]!!
@@ -212,7 +211,7 @@ class NoteRepositoryImplTests {
             """.trimIndent(),
         )
         val storage = FakeStorage(files)
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
 
         repository.updateNoteProperties("a.org", mapOf("ROAM_REFS" to "https://example.com")).getOrThrow()
 
@@ -235,7 +234,7 @@ class NoteRepositoryImplTests {
             """.trimIndent(),
         )
         val storage = FakeStorage(files)
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
 
         repository.updateNoteTags("a.org", emptyList()).getOrThrow()
 
@@ -253,7 +252,7 @@ class NoteRepositoryImplTests {
             """.trimIndent(),
         )
         val storage = FakeStorage(files)
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
 
         repository.updateNoteTags("a.org", listOf("Project", "my tag")).getOrThrow()
 
@@ -268,7 +267,7 @@ class NoteRepositoryImplTests {
             "b.org" to "#+title: B\nContent",
         )
         val storage = FakeStorage(files)
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
 
         repository.reindex().getOrThrow()
         repository.renameNote("b.org", "c.org").getOrThrow()
@@ -288,7 +287,7 @@ class NoteRepositoryImplTests {
             "a.org" to "#+title: A\nContent",
         )
         val storage = FakeStorage(files)
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
 
         repository.reindex().getOrThrow()
         assertEquals(listOf("a.org"), storage.files.keys.filter { it.endsWith(".org") }.toList())
@@ -311,7 +310,7 @@ class NoteRepositoryImplTests {
             "a.org" to "#+title: A\nContent",
         )
         val storage = FakeStorage(files)
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
 
         repository.reindex().getOrThrow()
         repository.deleteNoteSoft("a.org").getOrThrow()
@@ -344,7 +343,7 @@ class NoteRepositoryImplTests {
             "_trash_bin/a.org" to "#+title: A\nBody",
         )
         val storage = FakeStorage(files)
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
 
         repository.reindex().getOrThrow()
 
@@ -369,6 +368,14 @@ class NoteRepositoryImplTests {
 
         override suspend fun readFileBytes(path: String): Result<ByteArray> =
             readNote(path).map { it.toByteArray(Charsets.UTF_8) }
+
+        override suspend fun statNote(path: String): Result<com.gladomat.linklet.data.storage.StorageFileStat> =
+            readFileBytes(path).map { bytes ->
+                com.gladomat.linklet.data.storage.StorageFileStat(
+                    lastModifiedEpochMillis = 1L,
+                    sizeBytes = bytes.size.toLong(),
+                )
+            }
 
         override suspend fun writeNote(path: String, content: String): Result<Unit> {
             files[path] = content

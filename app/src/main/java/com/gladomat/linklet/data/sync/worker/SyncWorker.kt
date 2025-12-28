@@ -10,6 +10,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.gladomat.linklet.data.index.IndexingScheduler
 import com.gladomat.linklet.data.settings.WebDavSettingsRepository
 import com.gladomat.linklet.data.sync.CatastrophicDeleteException
 import com.gladomat.linklet.data.sync.LocalStorageMisconfiguredException
@@ -19,7 +20,6 @@ import com.gladomat.linklet.data.sync.SyncPhase
 import com.gladomat.linklet.data.sync.SyncProgress
 import com.gladomat.linklet.data.sync.SyncEngine
 import com.gladomat.linklet.data.sync.WebDavRemoteSyncProvider
-import com.gladomat.linklet.domain.repository.INoteRepository
 import com.thegrizzlylabs.sardineandroid.impl.SardineException
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -37,7 +37,7 @@ class SyncWorker @AssistedInject constructor(
     private val syncEngine: SyncEngine,
     private val webDavRemoteSyncProvider: WebDavRemoteSyncProvider,
     private val webDavSettingsRepository: WebDavSettingsRepository,
-    private val noteRepository: INoteRepository,
+    private val indexingScheduler: IndexingScheduler,
 ) : CoroutineWorker(appContext, workerParams) {
 
     init {
@@ -122,15 +122,17 @@ class SyncWorker @AssistedInject constructor(
             syncEngine.run(webDavRemoteSyncProvider, onProgress).map { Unit }
         }
 
-        onProgress(SyncProgress(phase = SyncPhase.REINDEX, message = "Reindexing notes"))
-        val reindexResult = noteRepository.reindex()
-
-        val reindexError = reindexResult.exceptionOrNull()
-        if (reindexError != null) {
-            Log.e(TAG, "Reindex failed", reindexError)
-            SyncWorkerNotifications.notifyResult(applicationContext, "Sync failed", "Reindex failed: ${reindexError.localizedMessage}")
-            return WorkResult.failure()
-        }
+        onProgress(SyncProgress(phase = SyncPhase.REINDEX, message = "Indexing notes"))
+        runCatching { indexingScheduler.schedulePass1() }
+            .onFailure { error ->
+                Log.e(TAG, "Indexing schedule failed", error)
+                SyncWorkerNotifications.notifyResult(
+                    applicationContext,
+                    "Sync failed",
+                    "Indexing schedule failed: ${error.localizedMessage}",
+                )
+                return WorkResult.failure()
+            }
 
         val remoteError = remoteResult.exceptionOrNull()
         if (remoteError == null) {

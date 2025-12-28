@@ -1,14 +1,20 @@
 package com.gladomat.linklet.domain.repository
 
 import android.net.Uri
+import com.gladomat.linklet.data.model.IndexingProgress
 import com.gladomat.linklet.data.model.Note
+import com.gladomat.linklet.data.model.NoteIndexEntry
 import kotlinx.coroutines.flow.Flow
 
 /**
  * Contract for retrieving and managing notes.
  */
 interface INoteRepository {
-    fun observeNotes(): Flow<List<Note>>
+    fun observeNotes(): Flow<List<NoteIndexEntry>>
+
+    fun observeIndexingProgress(pass: Int): Flow<IndexingProgress>
+
+    fun observeIndexingFailures(pass: Int): Flow<Int>
     suspend fun listNotes(): Result<List<Note>>
     suspend fun getNote(path: String): Result<Note>
     suspend fun reindex(): Result<Unit>
