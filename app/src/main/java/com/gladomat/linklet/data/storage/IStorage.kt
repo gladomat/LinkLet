@@ -27,6 +27,11 @@ interface IStorage {
     suspend fun readFileBytes(path: String): Result<ByteArray>
 
     /**
+     * Reads lightweight file metadata for the given path.
+     */
+    suspend fun statNote(path: String): Result<StorageFileStat>
+
+    /**
      * Writes note content at the given path, creating intermediary directories if needed.
      */
     suspend fun writeNote(path: String, content: String): Result<Unit>
@@ -58,3 +63,8 @@ interface IStorage {
      */
     suspend fun invalidateCache()
 }
+
+data class StorageFileStat(
+    val lastModifiedEpochMillis: Long?,
+    val sizeBytes: Long?,
+)

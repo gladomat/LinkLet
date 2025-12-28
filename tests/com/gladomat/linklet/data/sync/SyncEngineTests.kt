@@ -450,6 +450,14 @@ class SyncEngineTests {
         override suspend fun readFileBytes(path: String): Result<ByteArray> =
             readNote(path).map { it.toByteArray(Charsets.UTF_8) }
 
+        override suspend fun statNote(path: String): Result<com.gladomat.linklet.data.storage.StorageFileStat> =
+            readFileBytes(path).map { bytes ->
+                com.gladomat.linklet.data.storage.StorageFileStat(
+                    lastModifiedEpochMillis = 1L,
+                    sizeBytes = bytes.size.toLong(),
+                )
+            }
+
         override suspend fun writeNote(path: String, content: String): Result<Unit> {
             files[path] = content
             return Result.success(Unit)

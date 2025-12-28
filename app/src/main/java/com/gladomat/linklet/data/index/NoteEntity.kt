@@ -7,6 +7,12 @@ import androidx.room.PrimaryKey
 data class NoteEntity(
     @PrimaryKey val path: String,
     val title: String,
+    val orgId: String? = null,
+    val fileTags: List<String> = emptyList(),
+    val deletedAt: Long? = null,
+    val fingerprintMtime: Long? = null,
+    val fingerprintSize: Long? = null,
+    val linksReady: Boolean = false,
 )
 
 @Entity(tableName = "links", primaryKeys = ["source", "target"])

@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface NoteDao {
@@ -14,6 +15,9 @@ interface NoteDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertLinks(links: List<LinkEntity>)
 
+    @Query("DELETE FROM links WHERE source = :source")
+    suspend fun deleteLinksBySource(source: String)
+
     @Query("DELETE FROM notes")
     suspend fun clearNotes()
 
@@ -22,6 +26,24 @@ interface NoteDao {
 
     @Query("SELECT * FROM notes ORDER BY title COLLATE NOCASE")
     suspend fun getAllNotes(): List<NoteEntity>
+
+    @Query("SELECT * FROM notes WHERE deletedAt IS NULL AND linksReady = 0 ORDER BY path")
+    suspend fun listNotesNeedingLinks(): List<NoteEntity>
+
+    @Query("SELECT * FROM notes WHERE deletedAt IS NULL ORDER BY title COLLATE NOCASE")
+    fun observeActiveNotes(): Flow<List<NoteEntity>>
+
+    @Query("UPDATE notes SET deletedAt = :deletedAt WHERE path = :path")
+    suspend fun markDeleted(path: String, deletedAt: Long)
+
+    @Query("UPDATE notes SET linksReady = :linksReady WHERE path = :path")
+    suspend fun updateLinksReady(path: String, linksReady: Boolean)
+
+    @Query("SELECT fileTags FROM notes WHERE deletedAt IS NULL")
+    suspend fun getAllFileTagsSerialized(): List<String>
+
+    @Query("SELECT path FROM notes WHERE deletedAt IS NULL AND orgId = :orgId LIMIT 1")
+    suspend fun findPathByOrgId(orgId: String): String?
 
     @Query("UPDATE notes SET path = :newPath WHERE path = :oldPath")
     suspend fun updateNotePath(oldPath: String, newPath: String)
@@ -47,7 +69,7 @@ interface NoteDao {
                notes.title AS sourceTitle
         FROM links
         INNER JOIN notes ON notes.path = links.source
-        WHERE links.target = :path
+        WHERE links.target = :path AND notes.deletedAt IS NULL
         """,
     )
     suspend fun getBacklinks(path: String): List<LinkWithSourceTitle>

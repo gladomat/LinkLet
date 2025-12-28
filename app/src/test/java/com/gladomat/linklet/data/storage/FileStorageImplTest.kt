@@ -34,4 +34,18 @@ class FileStorageImplTest {
             assertEquals(bytes.toList(), result.toList())
         }
     }
+
+    @Test
+    fun `statNote returns size and last modified`() {
+        val tempDir = Files.createTempDirectory("storage-test").toFile()
+        val storage = FileStorageImpl(tempDir)
+        val content = "hello"
+
+        runBlocking {
+            storage.writeNote("note.org", content).getOrThrow()
+            val stat = storage.statNote("note.org").getOrThrow()
+            assertEquals(content.toByteArray().size.toLong(), stat.sizeBytes)
+            assertTrue(stat.lastModifiedEpochMillis != null && stat.lastModifiedEpochMillis!! > 0)
+        }
+    }
 }

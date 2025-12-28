@@ -1,7 +1,9 @@
 package com.gladomat.linklet.viewmodel.note
 
 import androidx.lifecycle.SavedStateHandle
+import com.gladomat.linklet.data.model.IndexingProgress
 import com.gladomat.linklet.data.model.Note
+import com.gladomat.linklet.data.model.NoteIndexEntry
 import com.gladomat.linklet.data.model.NoteId
 import com.gladomat.linklet.domain.repository.INoteRepository
 import com.gladomat.linklet.domain.repository.LinkEntityDto
@@ -9,6 +11,7 @@ import com.gladomat.linklet.domain.service.SearchOptions
 import com.gladomat.linklet.testing.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -109,7 +112,10 @@ class NoteViewSearchTests {
     private class FakeRepository(
         private val note: Note,
     ) : INoteRepository {
-        override fun observeNotes() = MutableStateFlow(emptyList<Note>())
+        override fun observeNotes() = MutableStateFlow(emptyList<NoteIndexEntry>())
+        override fun observeIndexingProgress(pass: Int) =
+            flowOf(IndexingProgress(completed = 0, total = 0))
+        override fun observeIndexingFailures(pass: Int) = flowOf(0)
         override suspend fun listNotes(): Result<List<Note>> = Result.success(emptyList())
         override suspend fun listAllNotes(): List<Note> = emptyList()
         override suspend fun listTrashNotes(): List<Note> = emptyList()

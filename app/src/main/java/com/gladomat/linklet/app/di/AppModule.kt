@@ -2,7 +2,9 @@ package com.gladomat.linklet.app.di
 
 import android.content.Context
 import androidx.room.Room
+import com.gladomat.linklet.data.index.IndexQueueDao
 import com.gladomat.linklet.data.index.NoteDatabase
+import com.gladomat.linklet.data.index.NoteDao
 import com.gladomat.linklet.data.index.SyncStateDao
 import com.gladomat.linklet.data.parser.IParser
 import com.gladomat.linklet.data.parser.RegexParser
@@ -43,15 +45,29 @@ object AppModule {
         storage: IStorage,
         parser: IParser,
         database: NoteDatabase,
+        indexQueueDao: IndexQueueDao,
         syncScheduler: SyncScheduler,
-    ): INoteRepository = NoteRepositoryImpl(storage, parser, database.noteDao(), syncScheduler)
-
-
-
+    ): INoteRepository = NoteRepositoryImpl(
+        storage,
+        parser,
+        database.noteDao(),
+        indexQueueDao,
+        syncScheduler,
+    )
     @Provides
     fun provideSyncStateDao(
         database: NoteDatabase,
     ): SyncStateDao = database.syncStateDao()
+
+    @Provides
+    fun provideNoteDao(
+        database: NoteDatabase,
+    ): NoteDao = database.noteDao()
+
+    @Provides
+    fun provideIndexQueueDao(
+        database: NoteDatabase,
+    ): IndexQueueDao = database.indexQueueDao()
 
     @Provides
     @Singleton
@@ -71,6 +87,8 @@ object AppModule {
         "linklet-notes.db",
     )
         .addMigrations(NoteDatabase.MIGRATION_2_3)
+        .addMigrations(NoteDatabase.MIGRATION_3_4)
+        .addMigrations(NoteDatabase.MIGRATION_4_5)
         .fallbackToDestructiveMigration()
         .build()
 }

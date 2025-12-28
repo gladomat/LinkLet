@@ -3,10 +3,16 @@ package com.gladomat.linklet.domain.repository
 import android.util.Log
 import android.os.SystemClock
 import com.gladomat.linklet.BuildConfig
+import com.gladomat.linklet.data.index.IndexQueueDao
+import com.gladomat.linklet.data.index.IndexQueueStatus
+import com.gladomat.linklet.data.index.IndexTypeConverters
 import com.gladomat.linklet.data.index.LinkEntity
 import com.gladomat.linklet.data.index.NoteDao
 import com.gladomat.linklet.data.index.NoteEntity
+import com.gladomat.linklet.data.model.IndexingProgress
 import com.gladomat.linklet.data.model.Note
+import com.gladomat.linklet.data.model.NoteId
+import com.gladomat.linklet.data.model.NoteIndexEntry
 import com.gladomat.linklet.data.model.NoteLink
 import com.gladomat.linklet.data.parser.IParser
 import com.gladomat.linklet.data.storage.IStorage
@@ -20,9 +26,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -37,11 +42,12 @@ class NoteRepositoryImpl(
     private val storage: IStorage,
     private val parser: IParser,
     private val noteDao: NoteDao,
+    private val indexQueueDao: IndexQueueDao,
     private val syncScheduler: SyncScheduler,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : INoteRepository {
 
-    private val notesState = MutableStateFlow<List<Note>>(emptyList())
+    private val indexConverters = IndexTypeConverters()
     private val noteIdIndex = ConcurrentHashMap<String, String>()
     private val backgroundScope = CoroutineScope(SupervisorJob() + ioDispatcher)
 
@@ -54,7 +60,20 @@ class NoteRepositoryImpl(
     private val legacyTrashDirPrefix = "${LEGACY_TRASH_DIR}/"
     private val trashDirPrefixes = listOf(primaryTrashDirPrefix, legacyTrashDirPrefix)
 
-    override fun observeNotes(): Flow<List<Note>> = notesState.asStateFlow()
+    override fun observeNotes(): Flow<List<NoteIndexEntry>> =
+        noteDao.observeActiveNotes()
+            .map { entities -> entities.map { it.toIndexEntry() } }
+
+    override fun observeIndexingProgress(pass: Int): Flow<IndexingProgress> =
+        combine(
+            indexQueueDao.observeCountByPass(pass),
+            indexQueueDao.observeCountByStatus(pass, IndexQueueStatus.DONE),
+        ) { total, completed ->
+            IndexingProgress(completed = completed, total = total)
+        }
+
+    override fun observeIndexingFailures(pass: Int): Flow<Int> =
+        indexQueueDao.observeCountByStatus(pass, IndexQueueStatus.FAILED)
 
     override suspend fun listNotes(): Result<List<Note>> {
         return withContext(ioDispatcher) {
@@ -91,8 +110,9 @@ class NoteRepositoryImpl(
                 note.orgId?.let { idValue -> noteIdIndex[idValue] = note.id.path }
             }
 
-            val resolvedNotes = parsedNotes.map { note ->
-                note.copy(links = resolveLinks(note.links))
+            val resolvedNotes = mutableListOf<Note>()
+            parsedNotes.forEach { note ->
+                resolvedNotes += note.copy(links = resolveLinks(note.links))
             }
 
             noteDao.clearLinks()
@@ -111,7 +131,6 @@ class NoteRepositoryImpl(
                 },
             )
 
-            notesState.update { resolvedNotes }
             if (BuildConfig.DEBUG) {
                 Log.d(TAG, "reindex() - Completed in ${SystemClock.elapsedRealtime() - startedAt}ms")
             }
@@ -260,11 +279,6 @@ class NoteRepositoryImpl(
                 },
             )
 
-            notesState.update { existing ->
-                (existing.filterNot { it.id.path == resolved.id.path } + resolved)
-                    .sortedBy { it.title.lowercase() }
-            }
-
             syncScheduler.scheduleImmediate()
             newPath
         }
@@ -284,12 +298,6 @@ class NoteRepositoryImpl(
                 if (current == null || current == oldPath) {
                     noteIdIndex[id] = newPath
                 }
-            }
-
-            val resolved = parsed.copy(links = resolveLinks(parsed.links))
-            notesState.update { existing ->
-                (existing.filterNot { it.id.path == oldPath } + resolved)
-                    .sortedBy { it.title.lowercase() }
             }
 
             syncScheduler.scheduleImmediate()
@@ -349,19 +357,29 @@ class NoteRepositoryImpl(
         require(trimmed.length <= 255) { "Filename too long" }
     }
 
-    private fun resolveLinks(links: List<NoteLink>): List<NoteLink> =
+    private suspend fun resolveLinks(links: List<NoteLink>): List<NoteLink> =
         links.mapNotNull { link ->
             val resolvedPath = when (val target = link.target) {
                 is LinkTarget.Path -> target.value
                 is LinkTarget.Id -> noteIdIndex[target.value]
+                    ?: noteDao.findPathByOrgId(target.value)?.also { resolved -> noteIdIndex[target.value] = resolved }
             } ?: return@mapNotNull null
             link.copy(resolvedPath = resolvedPath)
         }
 
+    private fun NoteEntity.toIndexEntry(): NoteIndexEntry =
+        NoteIndexEntry(
+            id = NoteId(path),
+            title = title,
+            fileTags = fileTags,
+            deletedAt = deletedAt,
+            linksReady = linksReady,
+        )
+
     override suspend fun getAllTags(): Result<List<String>> = withContext(ioDispatcher) {
         runCatching {
-            notesState.value
-                .flatMap { it.fileTags }
+            noteDao.getAllFileTagsSerialized()
+                .flatMap { raw -> indexConverters.toFileTags(raw) }
                 .distinct()
                 .sorted()
         }
@@ -380,14 +398,6 @@ class NoteRepositoryImpl(
                 existingProperties = existingProperties,
             )
             storage.writeNote(path, newContent).getOrThrow()
-
-            // Refresh the note in memory
-            val parsed = parser.parse(content = newContent, path = path)
-            val resolved = parsed.copy(links = resolveLinks(parsed.links))
-            notesState.update { existing ->
-                (existing.filterNot { it.id.path == path } + resolved)
-                    .sortedBy { it.title.lowercase() }
-            }
 
             syncScheduler.scheduleImmediate()
             Log.d(TAG, "updateNoteProperties() - Properties updated for $path")
@@ -408,14 +418,6 @@ class NoteRepositoryImpl(
                 .toList()
             val newContent = updateFileTagsInContent(originalContent, normalizedTags)
             storage.writeNote(path, newContent).getOrThrow()
-
-            // Refresh the note in memory
-            val parsed = parser.parse(content = newContent, path = path)
-            val resolved = parsed.copy(links = resolveLinks(parsed.links))
-            notesState.update { existing ->
-                (existing.filterNot { it.id.path == path } + resolved)
-                    .sortedBy { it.title.lowercase() }
-            }
 
             syncScheduler.scheduleImmediate()
             Log.d(TAG, "updateNoteTags() - Tags updated for $path: $normalizedTags")
@@ -549,7 +551,8 @@ class NoteRepositoryImpl(
             IndexScope.ACTIVE_NOTES -> allPaths.filterNot { isTrashPath(it) }
             IndexScope.TRASH_ONLY -> allPaths.filter { isTrashPath(it) }
         }
-        return filteredPaths.mapIndexed { index, path ->
+        val notes = mutableListOf<Note>()
+        filteredPaths.forEachIndexed { index, path ->
             if (BuildConfig.DEBUG && index > 0 && index % 100 == 0) {
                 Log.d(
                     TAG,
@@ -558,8 +561,10 @@ class NoteRepositoryImpl(
             }
             val content = storage.readNote(path).getOrThrow()
             val parsed = parser.parse(content = content, path = path)
-            if (shouldResolveLinks) parsed.copy(links = resolveLinks(parsed.links)) else parsed
+            val note = if (shouldResolveLinks) parsed.copy(links = resolveLinks(parsed.links)) else parsed
+            notes += note
         }
+        return notes
     }
 
     private suspend fun resolveRestorePath(originalPath: String): String {

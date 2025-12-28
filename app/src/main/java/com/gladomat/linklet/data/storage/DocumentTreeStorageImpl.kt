@@ -101,6 +101,17 @@ class DocumentTreeStorageImpl @Inject constructor(
         }
     }
 
+    override suspend fun statNote(path: String): Result<StorageFileStat> = withContext(dispatcher) {
+        runCatching {
+            val target = resolveFile(path) ?: throw IOException("File not found: $path")
+            if (!target.isFile) throw IOException("Not a file: $path")
+            StorageFileStat(
+                lastModifiedEpochMillis = target.lastModified().takeIf { it > 0 },
+                sizeBytes = target.length().takeIf { it >= 0 },
+            )
+        }
+    }
+
     override suspend fun writeNote(path: String, content: String): Result<Unit> = withContext(dispatcher) {
         runCatching {
             val parent = ensureParentDirectories(path)
