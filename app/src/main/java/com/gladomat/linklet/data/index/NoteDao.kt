@@ -18,6 +18,12 @@ interface NoteDao {
     @Query("DELETE FROM links WHERE source = :source")
     suspend fun deleteLinksBySource(source: String)
 
+    @Query("DELETE FROM links WHERE target = :target")
+    suspend fun deleteLinksByTarget(target: String)
+
+    @Query("DELETE FROM links WHERE sourceOrgId = :orgId OR targetOrgId = :orgId")
+    suspend fun deleteLinksByOrgId(orgId: String)
+
     @Query("DELETE FROM notes")
     suspend fun clearNotes()
 
@@ -44,6 +50,9 @@ interface NoteDao {
 
     @Query("SELECT path FROM notes WHERE deletedAt IS NULL AND orgId = :orgId LIMIT 1")
     suspend fun findPathByOrgId(orgId: String): String?
+
+    @Query("SELECT orgId FROM notes WHERE path = :path LIMIT 1")
+    suspend fun findOrgIdByPath(path: String): String?
 
     @Query("UPDATE notes SET path = :newPath WHERE path = :oldPath")
     suspend fun updateNotePath(oldPath: String, newPath: String)

@@ -9,6 +9,7 @@ import com.gladomat.linklet.data.index.IndexTypeConverters
 import com.gladomat.linklet.data.index.LinkEntity
 import com.gladomat.linklet.data.index.NoteDao
 import com.gladomat.linklet.data.index.NoteEntity
+import com.gladomat.linklet.data.index.IndexingScheduler
 import com.gladomat.linklet.data.model.IndexingProgress
 import com.gladomat.linklet.data.model.Note
 import com.gladomat.linklet.data.model.NoteId
@@ -44,6 +45,7 @@ class NoteRepositoryImpl(
     private val noteDao: NoteDao,
     private val indexQueueDao: IndexQueueDao,
     private val syncScheduler: SyncScheduler,
+    private val indexingScheduler: IndexingScheduler,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : INoteRepository {
 
@@ -157,16 +159,15 @@ class NoteRepositoryImpl(
             Log.d(TAG, "saveNote() - Writing note to storage: path='$path'")
             storage.writeNote(path, content).getOrThrow()
             Log.d(TAG, "saveNote() - Note written successfully, scheduling reindex and sync")
-            // Reindex and sync asynchronously to avoid blocking the save operation
-            // The index will be updated in the background, and the note is already saved
+            // Schedule progressive indexing and sync asynchronously to avoid blocking the save operation
             backgroundScope.launch {
                 try {
-                    reindex().getOrThrow()
-                    Log.d(TAG, "saveNote() - Reindex complete, scheduling immediate sync")
+                    indexingScheduler.schedulePass1()
+                    Log.d(TAG, "saveNote() - Indexing scheduled, scheduling immediate sync")
                     syncScheduler.scheduleImmediate()
                     Log.d(TAG, "saveNote() - Immediate sync scheduled for path='$path'")
                 } catch (e: Exception) {
-                    Log.e(TAG, "saveNote() - Error during async reindex: ${e.message}", e)
+                    Log.e(TAG, "saveNote() - Error during async indexing: ${e.message}", e)
                 }
             }
             Unit  // Explicitly return Unit since Log.d returns Int
@@ -188,7 +189,7 @@ class NoteRepositoryImpl(
 
             writeTrashInfo(trashPath = trashPath, originalPath = path, deletedAt = deletedAt)
 
-            reindex().getOrThrow()
+            indexingScheduler.schedulePass1()
             syncScheduler.scheduleImmediate()
         }
     }
@@ -213,7 +214,7 @@ class NoteRepositoryImpl(
 
             storage.renameNote(trashPath, restoreTarget).getOrThrow()
             deleteTrashInfoIfPresent(trashPath)
-            reindex().getOrThrow()
+            indexingScheduler.schedulePass1()
             syncScheduler.scheduleImmediate()
             restoreTarget
         }
@@ -225,7 +226,7 @@ class NoteRepositoryImpl(
             if (isTrashPath(path)) {
                 deleteTrashInfoIfPresent(path)
             }
-            reindex().getOrThrow()
+            indexingScheduler.schedulePass1()
             syncScheduler.scheduleImmediate()
         }
     }

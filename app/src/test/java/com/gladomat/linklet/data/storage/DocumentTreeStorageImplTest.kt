@@ -12,10 +12,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
+import com.gladomat.linklet.testing.Aarch64RobolectricTestRunner
 import androidx.test.core.app.ApplicationProvider
 
-@RunWith(RobolectricTestRunner::class)
+@RunWith(Aarch64RobolectricTestRunner::class)
 class DocumentTreeStorageImplTest {
 
     @Test

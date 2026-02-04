@@ -9,8 +9,14 @@ import com.gladomat.linklet.data.sync.SyncStateEntity
 import com.gladomat.linklet.data.sync.SyncStateTypeConverters
 
 @Database(
-    entities = [NoteEntity::class, LinkEntity::class, SyncStateEntity::class, IndexQueueEntity::class],
-    version = 5,
+    entities = [
+        NoteEntity::class,
+        LinkEntity::class,
+        SyncStateEntity::class,
+        IndexQueueEntity::class,
+        IndexingStateEntity::class,
+    ],
+    version = 6,
     exportSchema = false,
 )
 @TypeConverters(SyncStateTypeConverters::class, IndexTypeConverters::class)
@@ -18,6 +24,7 @@ abstract class NoteDatabase : RoomDatabase() {
     abstract fun noteDao(): NoteDao
     abstract fun syncStateDao(): SyncStateDao
     abstract fun indexQueueDao(): IndexQueueDao
+    abstract fun indexingStateDao(): IndexingStateDao
 
     companion object {
         val MIGRATION_2_3 = object : Migration(2, 3) {
@@ -72,6 +79,28 @@ abstract class NoteDatabase : RoomDatabase() {
                         `expectedMtime` INTEGER,
                         `expectedSize` INTEGER,
                         PRIMARY KEY(`path`, `pass`)
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE `links` ADD COLUMN `sourceOrgId` TEXT")
+                database.execSQL("ALTER TABLE `links` ADD COLUMN `targetOrgId` TEXT")
+                database.execSQL("ALTER TABLE `index_queue` ADD COLUMN `operation` TEXT NOT NULL DEFAULT 'UPSERT'")
+                database.execSQL("ALTER TABLE `index_queue` ADD COLUMN `lockedAtEpochMillis` INTEGER")
+                database.execSQL("ALTER TABLE `index_queue` ADD COLUMN `nextAttemptAtEpochMillis` INTEGER")
+                database.execSQL("ALTER TABLE `index_queue` ADD COLUMN `expectedHash` TEXT")
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `indexing_state` (
+                        `id` INTEGER NOT NULL,
+                        `lastScanAtEpochMillis` INTEGER,
+                        `lastPass1EnqueueAtEpochMillis` INTEGER,
+                        `lastPass2RunAtEpochMillis` INTEGER,
+                        PRIMARY KEY(`id`)
                     )
                     """.trimIndent(),
                 )

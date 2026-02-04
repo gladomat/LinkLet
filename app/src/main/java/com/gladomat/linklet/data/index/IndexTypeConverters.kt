@@ -13,6 +13,14 @@ class IndexTypeConverters {
     fun fromIndexQueueStatus(status: IndexQueueStatus?): String? = status?.name
 
     @TypeConverter
+    fun toIndexQueueOperation(value: String?): IndexQueueOperation =
+        value?.let { runCatching { IndexQueueOperation.valueOf(it) }.getOrDefault(IndexQueueOperation.UPSERT) }
+            ?: IndexQueueOperation.UPSERT
+
+    @TypeConverter
+    fun fromIndexQueueOperation(operation: IndexQueueOperation?): String? = operation?.name
+
+    @TypeConverter
     fun toFileTags(value: String?): List<String> =
         value
             ?.split('|')

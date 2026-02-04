@@ -27,4 +27,11 @@ class IndexTypeConvertersTest {
         assertEquals(IndexQueueStatus.PENDING, converters.toIndexQueueStatus(null))
         assertEquals(IndexQueueStatus.PENDING, converters.toIndexQueueStatus("bogus"))
     }
+
+    @Test
+    fun `index queue status and operation round trip`() {
+        assertEquals(IndexQueueStatus.RUNNING, converters.toIndexQueueStatus("RUNNING"))
+        assertEquals(IndexQueueOperation.DELETE, converters.toIndexQueueOperation("DELETE"))
+        assertEquals("DELETE", converters.fromIndexQueueOperation(IndexQueueOperation.DELETE))
+    }
 }

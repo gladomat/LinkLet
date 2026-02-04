@@ -20,4 +20,6 @@ data class LinkEntity(
     val source: String,
     val target: String,
     val alias: String?,
+    val sourceOrgId: String? = null,
+    val targetOrgId: String? = null,
 )

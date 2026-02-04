@@ -15,11 +15,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
+import com.gladomat.linklet.testing.Aarch64RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @OptIn(ExperimentalCoroutinesApi::class)
-@RunWith(RobolectricTestRunner::class)
+@RunWith(Aarch64RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, application = android.app.Application::class)
 class IndexPass2ProcessorTests {
 
@@ -125,6 +125,26 @@ class IndexPass2ProcessorTests {
         assertEquals(1, indexQueueDao.countByStatus(pass = 2, status = IndexQueueStatus.FAILED))
         assertEquals(1, noteDao.getBacklinks("kept.org").size)
         assertTrue(noteDao.getAllNotes().first { it.path == "a.org" }.linksReady.not())
+    }
+
+    @Test
+    fun `run delete operation removes links by orgId`() = runTest {
+        noteDao.insertNotes(listOf(NoteEntity(path = "a.org", title = "A", orgId = "id-a", linksReady = false)))
+        noteDao.insertLinks(listOf(LinkEntity(source = "a.org", target = "b.org", alias = null, sourceOrgId = "id-a")))
+        indexQueueDao.upsert(
+            IndexQueueEntity(
+                path = "a.org",
+                pass = 2,
+                operation = IndexQueueOperation.DELETE,
+                status = IndexQueueStatus.PENDING,
+            ),
+        )
+        val processor = IndexPass2Processor(FakeStorage(mutableMapOf()), RegexParser(), noteDao, indexQueueDao, database)
+
+        processor.run().getOrThrow()
+
+        assertEquals(0, noteDao.getBacklinks("b.org").size)
+        assertEquals(1, indexQueueDao.countByStatus(pass = 2, status = IndexQueueStatus.DONE))
     }
 
     private open class FakeStorage(

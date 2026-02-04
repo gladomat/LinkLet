@@ -3,6 +3,7 @@ package com.gladomat.linklet.domain.repository
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.gladomat.linklet.data.index.IndexingScheduler
 import com.gladomat.linklet.data.index.NoteDatabase
 import com.gladomat.linklet.data.model.Note
 import com.gladomat.linklet.data.parser.RegexParser
@@ -10,9 +11,11 @@ import com.gladomat.linklet.data.storage.IStorage
 import com.gladomat.linklet.data.model.LinkTarget
 import com.gladomat.linklet.data.sync.SyncScheduler
 import io.mockk.mockk
+import io.mockk.verify
 import java.io.IOException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.runner.RunWith
 import org.junit.After
@@ -20,20 +23,21 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import org.robolectric.RobolectricTestRunner
+import com.gladomat.linklet.testing.Aarch64RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 
 @OptIn(ExperimentalCoroutinesApi::class)
-@RunWith(RobolectricTestRunner::class)
+@RunWith(Aarch64RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, application = android.app.Application::class)
 class NoteRepositoryImplTests {
 
     private val parser = RegexParser()
     private val dispatcher = StandardTestDispatcher()
     private val syncScheduler = mockk<SyncScheduler>(relaxed = true)
+    private val indexingScheduler = mockk<IndexingScheduler>(relaxed = true)
 
     private lateinit var database: NoteDatabase
 
@@ -53,7 +57,7 @@ class NoteRepositoryImplTests {
     @Test
     fun `getNote returns parsed note when storage succeeds`() = runTest(dispatcher) {
         val storage = FakeStorage(mutableMapOf("path.org" to "#+title: Sample\nBody"))
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, indexingScheduler, dispatcher)
 
         val result = repository.getNote("path.org")
 
@@ -66,11 +70,22 @@ class NoteRepositoryImplTests {
     @Test
     fun `getNote propagates storage failure`() = runTest(dispatcher) {
         val storage = FakeStorage(mutableMapOf())
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, indexingScheduler, dispatcher)
 
         val result = repository.getNote("missing.org")
 
         assertTrue(result.isFailure)
+    }
+
+    @Test
+    fun `saveNote schedules pass1 indexing`() = runTest(dispatcher) {
+        val storage = FakeStorage(mutableMapOf())
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, indexingScheduler, dispatcher)
+
+        repository.saveNote("a.org", "#+title: A").getOrThrow()
+        advanceUntilIdle()
+
+        verify { indexingScheduler.schedulePass1() }
     }
 
     @Test
@@ -81,7 +96,7 @@ class NoteRepositoryImplTests {
                 "b.org" to "#+title: B\nContent",
             ),
         )
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, indexingScheduler, dispatcher)
 
         repository.reindex().getOrThrow()
 
@@ -118,7 +133,7 @@ class NoteRepositoryImplTests {
                 """.trimIndent(),
             ),
         )
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, indexingScheduler, dispatcher)
 
         repository.reindex().getOrThrow()
 
@@ -148,7 +163,7 @@ class NoteRepositoryImplTests {
                 """.trimIndent(),
             ),
         )
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, indexingScheduler, dispatcher)
 
         repository.reindex().getOrThrow()
 
@@ -168,7 +183,7 @@ class NoteRepositoryImplTests {
             """.trimIndent(),
         )
         val storage = FakeStorage(files)
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, indexingScheduler, dispatcher)
 
         val first = repository.duplicateNote("a.org").getOrThrow()
         val second = repository.duplicateNote("a.org").getOrThrow()
@@ -189,7 +204,7 @@ class NoteRepositoryImplTests {
             "a.org" to "#+title: A\r\n:PROPERTIES:\r\n:ID: old-id\r\n:END:\r\nBody\r\n",
         )
         val storage = FakeStorage(files)
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, indexingScheduler, dispatcher)
 
         val newPath = repository.duplicateNote("a.org").getOrThrow()
         val duplicated = files[newPath]!!
@@ -211,7 +226,7 @@ class NoteRepositoryImplTests {
             """.trimIndent(),
         )
         val storage = FakeStorage(files)
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, indexingScheduler, dispatcher)
 
         repository.updateNoteProperties("a.org", mapOf("ROAM_REFS" to "https://example.com")).getOrThrow()
 
@@ -234,7 +249,7 @@ class NoteRepositoryImplTests {
             """.trimIndent(),
         )
         val storage = FakeStorage(files)
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, indexingScheduler, dispatcher)
 
         repository.updateNoteTags("a.org", emptyList()).getOrThrow()
 
@@ -252,7 +267,7 @@ class NoteRepositoryImplTests {
             """.trimIndent(),
         )
         val storage = FakeStorage(files)
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, indexingScheduler, dispatcher)
 
         repository.updateNoteTags("a.org", listOf("Project", "my tag")).getOrThrow()
 
@@ -267,7 +282,7 @@ class NoteRepositoryImplTests {
             "b.org" to "#+title: B\nContent",
         )
         val storage = FakeStorage(files)
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, indexingScheduler, dispatcher)
 
         repository.reindex().getOrThrow()
         repository.renameNote("b.org", "c.org").getOrThrow()
@@ -287,7 +302,7 @@ class NoteRepositoryImplTests {
             "a.org" to "#+title: A\nContent",
         )
         val storage = FakeStorage(files)
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, indexingScheduler, dispatcher)
 
         repository.reindex().getOrThrow()
         assertEquals(listOf("a.org"), storage.files.keys.filter { it.endsWith(".org") }.toList())
@@ -310,7 +325,7 @@ class NoteRepositoryImplTests {
             "a.org" to "#+title: A\nContent",
         )
         val storage = FakeStorage(files)
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, indexingScheduler, dispatcher)
 
         repository.reindex().getOrThrow()
         repository.deleteNoteSoft("a.org").getOrThrow()
@@ -343,7 +358,7 @@ class NoteRepositoryImplTests {
             "_trash_bin/a.org" to "#+title: A\nBody",
         )
         val storage = FakeStorage(files)
-        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, dispatcher)
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, indexingScheduler, dispatcher)
 
         repository.reindex().getOrThrow()
 

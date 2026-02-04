@@ -70,6 +70,11 @@ android {
             it.systemProperty("robolectric.manifest", "${project.projectDir}/src/test/AndroidManifest.xml")
             it.setJvmArgs(listOf("--add-opens=java.base/java.io=ALL-UNNAMED"))
             it.environment("JAVA_TOOL_OPTIONS", "--add-opens=java.base/java.io=ALL-UNNAMED")
+            val osArch = System.getProperty("os.arch")?.lowercase()
+            if (osArch == "aarch64" || osArch == "arm64") {
+                it.systemProperty("robolectric.conscryptMode", "OFF")
+                it.systemProperty("robolectric.sqliteMode", "LEGACY")
+            }
         }
     }
 

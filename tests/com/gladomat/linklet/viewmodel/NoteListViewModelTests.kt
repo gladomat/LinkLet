@@ -27,11 +27,11 @@ import io.mockk.mockk
 import io.mockk.verify
 import org.junit.Before
 import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
+import com.gladomat.linklet.testing.Aarch64RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @OptIn(ExperimentalCoroutinesApi::class)
-@RunWith(RobolectricTestRunner::class)
+@RunWith(Aarch64RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, application = android.app.Application::class)
 class NoteListViewModelTests {
 

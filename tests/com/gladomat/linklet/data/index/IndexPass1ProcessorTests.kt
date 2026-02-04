@@ -15,11 +15,11 @@ import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
+import com.gladomat.linklet.testing.Aarch64RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @OptIn(ExperimentalCoroutinesApi::class)
-@RunWith(RobolectricTestRunner::class)
+@RunWith(Aarch64RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, application = android.app.Application::class)
 class IndexPass1ProcessorTests {
 
@@ -120,6 +120,22 @@ class IndexPass1ProcessorTests {
         processor.run().getOrThrow()
 
         assertEquals(1, indexQueueDao.countByStatus(pass = 1, status = IndexQueueStatus.FAILED))
+    }
+
+    @Test
+    fun `run enqueues pass2 when metadata changes`() = runTest {
+        val content = """
+            #+title: Sample Note
+            :PROPERTIES:
+            :ID: abc-123
+            :END:
+        """.trimIndent()
+        val storage = FakeStorage(mutableMapOf("a.org" to content))
+        val processor = IndexPass1Processor(storage, noteDao, indexQueueDao, database)
+
+        processor.run().getOrThrow()
+
+        assertEquals(1, indexQueueDao.countByStatus(pass = 2, status = IndexQueueStatus.PENDING))
     }
 
     private open class FakeStorage(

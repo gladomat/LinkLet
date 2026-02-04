@@ -15,13 +15,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
+import com.gladomat.linklet.testing.Aarch64RobolectricTestRunner
 import org.robolectric.annotation.Config
 import com.gladomat.linklet.data.settings.WebDavSettingsRepository
 import io.mockk.mockk
 
 @OptIn(ExperimentalCoroutinesApi::class)
-@RunWith(RobolectricTestRunner::class)
+@RunWith(Aarch64RobolectricTestRunner::class)
 @Config(manifest = Config.NONE)
 class SyncEngineTests {
 

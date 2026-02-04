@@ -13,7 +13,7 @@ class IndexPass1Processor @Inject constructor(
     private val database: NoteDatabase,
 ) {
 
-    suspend fun run(): Result<Unit> {
+    suspend fun run(timeBudgetMillis: Long? = null): Result<Unit> {
         return runCatching {
             storage.invalidateCache()
             val allPaths = storage.listNotes().getOrThrow()
@@ -22,6 +22,7 @@ class IndexPass1Processor @Inject constructor(
             val existingNotes = noteDao.getAllNotes()
             val existingByPath = existingNotes.associateBy { it.path }
             val now = System.currentTimeMillis()
+            val startedAt = now
 
             existingNotes
                 .filter { it.deletedAt == null && it.path !in activeSet }
@@ -53,49 +54,86 @@ class IndexPass1Processor @Inject constructor(
                 indexQueueDao.upsertAll(enqueueEntries)
             }
 
-            val pending = indexQueueDao.listByStatus(pass = PASS_1, status = IndexQueueStatus.PENDING)
-            pending.chunked(BATCH_SIZE).forEach { batch ->
-                val noteUpdates = mutableListOf<NoteEntity>()
-                val queueUpdates = mutableListOf<IndexQueueEntity>()
-                batch.forEach { entry ->
-                    val updatedAt = System.currentTimeMillis()
-                    try {
-                        val content = storage.readNote(entry.path).getOrThrow()
-                        val metadata = NoteMetadataParser.parse(content, entry.path)
-                        noteUpdates += NoteEntity(
-                            path = entry.path,
-                            title = metadata.title,
-                            orgId = metadata.orgId,
-                            fileTags = metadata.fileTags,
-                            deletedAt = null,
-                            fingerprintMtime = entry.expectedMtime,
-                            fingerprintSize = entry.expectedSize,
-                            linksReady = false,
-                        )
-                        queueUpdates += entry.copy(
-                            status = IndexQueueStatus.DONE,
-                            attempts = entry.attempts + 1,
+            var entry = indexQueueDao.claimNext(pass = PASS_1, now = now, leaseTimeoutMillis = LEASE_TIMEOUT_MILLIS)
+            while (entry != null) {
+                val current = entry
+                val updatedAt = System.currentTimeMillis()
+                if (timeBudgetMillis != null && updatedAt - startedAt >= timeBudgetMillis) {
+                    break
+                }
+                val stat = storage.statNote(current.path).getOrNull()
+                val stale = stat != null &&
+                    ((current.expectedMtime != null && current.expectedMtime != stat.lastModifiedEpochMillis) ||
+                        (current.expectedSize != null && current.expectedSize != stat.sizeBytes))
+                if (stale) {
+                    indexQueueDao.upsert(
+                        current.copy(
+                            status = IndexQueueStatus.PENDING,
                             lastError = null,
                             updatedAtEpochMillis = updatedAt,
+                            expectedMtime = stat?.lastModifiedEpochMillis,
+                            expectedSize = stat?.sizeBytes,
+                            lockedAtEpochMillis = null,
+                        ),
+                    )
+                    entry = indexQueueDao.claimNext(pass = PASS_1, now = now, leaseTimeoutMillis = LEASE_TIMEOUT_MILLIS)
+                    continue
+                }
+
+                try {
+                    val content = storage.readNote(current.path).getOrThrow()
+                    val metadata = NoteMetadataParser.parse(content, current.path)
+                    database.withTransaction {
+                        noteDao.insertNotes(
+                            listOf(
+                                NoteEntity(
+                                    path = current.path,
+                                    title = metadata.title,
+                                    orgId = metadata.orgId,
+                                    fileTags = metadata.fileTags,
+                                    deletedAt = null,
+                                    fingerprintMtime = current.expectedMtime,
+                                    fingerprintSize = current.expectedSize,
+                                    linksReady = false,
+                                ),
+                            ),
                         )
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Pass 1 indexing failed for ${entry.path}", e)
-                        queueUpdates += entry.copy(
+                        indexQueueDao.upsert(
+                            current.copy(
+                                status = IndexQueueStatus.DONE,
+                                attempts = current.attempts + 1,
+                                lastError = null,
+                                updatedAtEpochMillis = updatedAt,
+                                lockedAtEpochMillis = null,
+                            ),
+                        )
+                        indexQueueDao.upsert(
+                            IndexQueueEntity(
+                                path = current.path,
+                                pass = PASS_2,
+                                operation = IndexQueueOperation.UPSERT,
+                                status = IndexQueueStatus.PENDING,
+                                attempts = 0,
+                                lastError = null,
+                                updatedAtEpochMillis = updatedAt,
+                                expectedMtime = current.expectedMtime,
+                                expectedSize = current.expectedSize,
+                            ),
+                        )
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Pass 1 indexing failed for ${current.path}", e)
+                    indexQueueDao.upsert(
+                        current.copy(
                             status = IndexQueueStatus.FAILED,
-                            attempts = entry.attempts + 1,
+                            attempts = current.attempts + 1,
                             lastError = e.message ?: "Unknown error",
                             updatedAtEpochMillis = updatedAt,
-                        )
-                    }
+                            lockedAtEpochMillis = null,
+                        ),
+                    )
                 }
-                database.withTransaction {
-                    if (noteUpdates.isNotEmpty()) {
-                        noteDao.insertNotes(noteUpdates)
-                    }
-                    if (queueUpdates.isNotEmpty()) {
-                        indexQueueDao.upsertAll(queueUpdates)
-                    }
-                }
+                entry = indexQueueDao.claimNext(pass = PASS_1, now = now, leaseTimeoutMillis = LEASE_TIMEOUT_MILLIS)
             }
         }
     }
@@ -106,8 +144,9 @@ class IndexPass1Processor @Inject constructor(
     companion object {
         private const val TAG = "IndexPass1Processor"
         private const val PASS_1 = 1
+        private const val PASS_2 = 2
         private const val PRIMARY_TRASH_PREFIX = "_trash_bin/"
         private const val LEGACY_TRASH_PREFIX = "_trash/"
-        private const val BATCH_SIZE = 50
+        private const val LEASE_TIMEOUT_MILLIS = 10 * 60 * 1000L
     }
 }

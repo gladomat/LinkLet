@@ -27,6 +27,7 @@ class IndexPass2Processor @Inject constructor(
                         IndexQueueEntity(
                             path = note.path,
                             pass = PASS_2,
+                            operation = IndexQueueOperation.UPSERT,
                             status = IndexQueueStatus.PENDING,
                             attempts = 0,
                             lastError = null,
@@ -38,65 +39,93 @@ class IndexPass2Processor @Inject constructor(
                 )
             }
 
-            val pending = indexQueueDao.listByStatus(pass = PASS_2, status = IndexQueueStatus.PENDING)
-            val failed = indexQueueDao.listByStatus(pass = PASS_2, status = IndexQueueStatus.FAILED)
-            val work = (pending + failed).distinctBy { it.path }
             // This processor is single-threaded; keep the cache simple.
             val orgIdCache = mutableMapOf<String, String?>()
 
-            work.chunked(BATCH_SIZE).forEach { batch ->
-                batch.forEach { entry ->
-                    val updatedAt = System.currentTimeMillis()
-                    try {
-                        val content = storage.readNote(entry.path).getOrThrow()
-                        val parsed = parser.parse(content = content, path = entry.path)
-                        var hasUnresolvedIdLinks = false
-                        val resolvedLinks = parsed.links.mapNotNull { link ->
-                            val targetPath = when (val target = link.target) {
-                                is LinkTarget.Path -> target.value
-                                is LinkTarget.Id -> orgIdCache.getOrPut(target.value) {
-                                    noteDao.findPathByOrgId(target.value)
-                                }
-                            } ?: run {
-                                hasUnresolvedIdLinks = true
-                                return@mapNotNull null
-                            }
-                            LinkEntity(
-                                source = entry.path,
-                                target = targetPath,
-                                alias = link.label,
-                            )
-                        }
-                            .distinctBy { it.target }
-
+            var entry = indexQueueDao.claimNext(pass = PASS_2, now = now, leaseTimeoutMillis = LEASE_TIMEOUT_MILLIS)
+            while (entry != null) {
+                val current = entry
+                val updatedAt = System.currentTimeMillis()
+                when (current.operation) {
+                    IndexQueueOperation.DELETE -> {
+                        val orgId = noteDao.findOrgIdByPath(current.path)
                         database.withTransaction {
-                            noteDao.deleteLinksBySource(entry.path)
-                            if (resolvedLinks.isNotEmpty()) {
-                                noteDao.insertLinks(resolvedLinks)
+                            if (orgId != null) {
+                                noteDao.deleteLinksByOrgId(orgId)
+                            } else {
+                                noteDao.deleteLinksBySource(current.path)
+                                noteDao.deleteLinksByTarget(current.path)
                             }
-                            val linksReady = !hasUnresolvedIdLinks
-                            noteDao.updateLinksReady(path = entry.path, linksReady = linksReady)
                             indexQueueDao.upsert(
-                                entry.copy(
-                                    status = if (linksReady) IndexQueueStatus.DONE else IndexQueueStatus.PENDING,
-                                    attempts = entry.attempts + 1,
+                                current.copy(
+                                    status = IndexQueueStatus.DONE,
+                                    attempts = current.attempts + 1,
                                     lastError = null,
                                     updatedAtEpochMillis = updatedAt,
+                                    lockedAtEpochMillis = null,
                                 ),
                             )
                         }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Pass 2 indexing failed for ${entry.path}", e)
-                        indexQueueDao.upsert(
-                            entry.copy(
-                                status = IndexQueueStatus.FAILED,
-                                attempts = entry.attempts + 1,
-                                lastError = e.message ?: "Unknown error",
-                                updatedAtEpochMillis = updatedAt,
-                            ),
-                        )
+                    }
+                    IndexQueueOperation.UPSERT -> {
+                        try {
+                            val content = storage.readNote(current.path).getOrThrow()
+                            val parsed = parser.parse(content = content, path = current.path)
+                            val sourceOrgId = noteDao.findOrgIdByPath(current.path)
+                            var hasUnresolvedIdLinks = false
+                            val resolvedLinks = parsed.links.mapNotNull { link ->
+                                val target = link.target
+                                val resolved = when (target) {
+                                    is LinkTarget.Path -> target.value to noteDao.findOrgIdByPath(target.value)
+                                    is LinkTarget.Id -> orgIdCache.getOrPut(target.value) {
+                                        noteDao.findPathByOrgId(target.value)
+                                    }?.let { it to target.value }
+                                } ?: run {
+                                    hasUnresolvedIdLinks = true
+                                    return@mapNotNull null
+                                }
+                                LinkEntity(
+                                    source = current.path,
+                                    target = resolved.first,
+                                    alias = link.label,
+                                    sourceOrgId = sourceOrgId,
+                                    targetOrgId = resolved.second,
+                                )
+                            }
+                                .distinctBy { it.target }
+
+                            database.withTransaction {
+                                noteDao.deleteLinksBySource(current.path)
+                                if (resolvedLinks.isNotEmpty()) {
+                                    noteDao.insertLinks(resolvedLinks)
+                                }
+                                val linksReady = !hasUnresolvedIdLinks
+                                noteDao.updateLinksReady(path = current.path, linksReady = linksReady)
+                                indexQueueDao.upsert(
+                                    current.copy(
+                                        status = if (linksReady) IndexQueueStatus.DONE else IndexQueueStatus.PENDING,
+                                        attempts = current.attempts + 1,
+                                        lastError = null,
+                                        updatedAtEpochMillis = updatedAt,
+                                        lockedAtEpochMillis = null,
+                                    ),
+                                )
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Pass 2 indexing failed for ${current.path}", e)
+                            indexQueueDao.upsert(
+                                current.copy(
+                                    status = IndexQueueStatus.FAILED,
+                                    attempts = current.attempts + 1,
+                                    lastError = e.message ?: "Unknown error",
+                                    updatedAtEpochMillis = updatedAt,
+                                    lockedAtEpochMillis = null,
+                                ),
+                            )
+                        }
                     }
                 }
+                entry = indexQueueDao.claimNext(pass = PASS_2, now = now, leaseTimeoutMillis = LEASE_TIMEOUT_MILLIS)
             }
         }
     }
@@ -104,6 +133,6 @@ class IndexPass2Processor @Inject constructor(
     companion object {
         private const val TAG = "IndexPass2Processor"
         private const val PASS_2 = 2
-        private const val BATCH_SIZE = 50
+        private const val LEASE_TIMEOUT_MILLIS = 10 * 60 * 1000L
     }
 }
