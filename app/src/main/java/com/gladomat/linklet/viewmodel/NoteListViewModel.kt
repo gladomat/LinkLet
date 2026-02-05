@@ -10,6 +10,7 @@ import com.gladomat.linklet.data.model.NoteIndexEntry
 import com.gladomat.linklet.data.index.IndexingScheduler
 import com.gladomat.linklet.data.sync.SyncScheduler
 import com.gladomat.linklet.data.sync.SyncWork
+import com.gladomat.linklet.data.sync.SyncStatusRepository
 import com.gladomat.linklet.data.sync.worker.SyncWorker
 import com.gladomat.linklet.domain.repository.INoteRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -18,7 +19,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -28,6 +31,7 @@ class NoteListViewModel @Inject constructor(
     private val repository: INoteRepository,
     private val indexingScheduler: IndexingScheduler,
     private val syncScheduler: SyncScheduler,
+    private val syncStatusRepository: SyncStatusRepository,
     private val application: Application,
 ) : ViewModel() {
 
@@ -35,6 +39,7 @@ class NoteListViewModel @Inject constructor(
     private val searchQuery = MutableStateFlow("")
     private val hasLoaded = MutableStateFlow(false)
     private val _snackbarMessage = MutableStateFlow<String?>(null)
+    private val _snackbarAction = MutableStateFlow<NoteListSnackbarAction?>(null)
 
     private val workManager = WorkManager.getInstance(application)
 
@@ -108,6 +113,7 @@ class NoteListViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
     val snackbarMessage: StateFlow<String?> = _snackbarMessage
+    val snackbarAction: StateFlow<NoteListSnackbarAction?> = _snackbarAction
 
     init {
         refresh()
@@ -119,8 +125,19 @@ class NoteListViewModel @Inject constructor(
                 .distinctUntilChanged()
                 .collect { (pass1, pass2) ->
                     if (pass1 > 0 || pass2 > 0) {
+                        _snackbarAction.value = null
                         _snackbarMessage.value = "Indexing failed (pass1=$pass1, pass2=$pass2)"
                     }
+                }
+        }
+
+        viewModelScope.launch {
+            syncStatusRepository.statusFlow
+                .filter { it?.requiresAction == true }
+                .distinctUntilChangedBy { it?.updatedAtEpochMillis }
+                .collect { status ->
+                    _snackbarMessage.value = status?.title ?: "Sync needs confirmation"
+                    _snackbarAction.value = NoteListSnackbarAction.OPEN_SYNC_STATUS
                 }
         }
     }
@@ -150,6 +167,7 @@ class NoteListViewModel @Inject constructor(
 
     fun clearSnackbar() {
         _snackbarMessage.value = null
+        _snackbarAction.value = null
     }
 
     private fun NoteIndexEntry.matchesQuery(rawQuery: String): Boolean {
@@ -194,4 +212,11 @@ class NoteListViewModel @Inject constructor(
         snippet = snippet,
         conflictInfo = extractConflictInfo(id.path),
     )
+}
+
+/**
+ * Available snackbar actions on the note list screen.
+ */
+enum class NoteListSnackbarAction {
+    OPEN_SYNC_STATUS,
 }

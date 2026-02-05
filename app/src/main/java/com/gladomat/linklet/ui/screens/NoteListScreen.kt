@@ -47,6 +47,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -77,6 +78,7 @@ import com.gladomat.linklet.data.model.NoteId
 import com.gladomat.linklet.ui.theme.LinkLetAppTheme
 import com.gladomat.linklet.viewmodel.ConflictInfo
 import com.gladomat.linklet.viewmodel.NoteListItemUiModel
+import com.gladomat.linklet.viewmodel.NoteListSnackbarAction
 import com.gladomat.linklet.viewmodel.NoteListUiState
 import com.gladomat.linklet.viewmodel.NoteListViewModel
 
@@ -86,6 +88,7 @@ fun NoteListRoute(
     onOpenSettings: () -> Unit,
     onOpenTrash: () -> Unit,
     onCreateNote: () -> Unit,
+    onOpenSyncStatus: () -> Unit,
     viewModel: NoteListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -96,6 +99,7 @@ fun NoteListRoute(
     val indexingProgressPass2 by viewModel.indexingProgressPass2.collectAsStateWithLifecycle()
     val indexingFailuresPass2 by viewModel.indexingFailuresPass2.collectAsStateWithLifecycle()
     val snackbarMessage by viewModel.snackbarMessage.collectAsStateWithLifecycle()
+    val snackbarAction by viewModel.snackbarAction.collectAsStateWithLifecycle()
     
     NoteListScreen(
         state = state,
@@ -106,6 +110,7 @@ fun NoteListRoute(
         indexingProgressPass2 = indexingProgressPass2,
         indexingFailuresPass2 = indexingFailuresPass2,
         snackbarMessage = snackbarMessage,
+        snackbarAction = snackbarAction,
         onQueryChange = viewModel::updateSearchQuery,
         onClearQuery = viewModel::clearSearchQuery,
         onOpenNote = onOpenNote,
@@ -115,6 +120,7 @@ fun NoteListRoute(
         onOpenTrash = onOpenTrash,
         onCreateNote = onCreateNote,
         onClearSnackbar = viewModel::clearSnackbar,
+        onOpenSyncStatus = onOpenSyncStatus,
     )
 }
 
@@ -130,6 +136,7 @@ fun NoteListScreen(
     indexingProgressPass2: IndexingProgress,
     indexingFailuresPass2: Int,
     snackbarMessage: String?,
+    snackbarAction: NoteListSnackbarAction?,
     onQueryChange: (String) -> Unit,
     onClearQuery: () -> Unit,
     onOpenNote: (String) -> Unit,
@@ -139,6 +146,7 @@ fun NoteListScreen(
     onOpenTrash: () -> Unit,
     onCreateNote: () -> Unit,
     onClearSnackbar: () -> Unit,
+    onOpenSyncStatus: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val moreMenuExpanded = androidx.compose.runtime.mutableStateOf(false)
@@ -151,9 +159,19 @@ fun NoteListScreen(
     val isIndexingPass2 = pass2Total > 0 && pass2Completed < pass2Total
     
     // Show snackbar when message changes
-    LaunchedEffect(snackbarMessage) {
-        snackbarMessage?.let {
-            snackbarHostState.showSnackbar(it)
+    LaunchedEffect(snackbarMessage, snackbarAction) {
+        snackbarMessage?.let { message ->
+            val result = if (snackbarAction == NoteListSnackbarAction.OPEN_SYNC_STATUS) {
+                snackbarHostState.showSnackbar(
+                    message = message,
+                    actionLabel = "Review",
+                )
+            } else {
+                snackbarHostState.showSnackbar(message)
+            }
+            if (result == SnackbarResult.ActionPerformed) {
+                onOpenSyncStatus()
+            }
             onClearSnackbar()
         }
     }
@@ -674,6 +692,7 @@ private fun NoteListLoadingPreview() {
                 indexingProgressPass2 = IndexingProgress(completed = 0, total = 0),
                 indexingFailuresPass2 = 0,
                 snackbarMessage = null,
+                snackbarAction = null,
                 onQueryChange = {},
                 onClearQuery = {},
                 onOpenNote = {},
@@ -683,6 +702,7 @@ private fun NoteListLoadingPreview() {
                 onOpenTrash = {},
                 onCreateNote = {},
                 onClearSnackbar = {},
+                onOpenSyncStatus = {},
             )
         }
     }
@@ -722,6 +742,7 @@ private fun NoteListSuccessPreview() {
                 indexingProgressPass2 = IndexingProgress(completed = 20, total = 240),
                 indexingFailuresPass2 = 2,
                 snackbarMessage = null,
+                snackbarAction = null,
                 onQueryChange = {},
                 onClearQuery = {},
                 onOpenNote = {},
@@ -731,6 +752,7 @@ private fun NoteListSuccessPreview() {
                 onOpenTrash = {},
                 onCreateNote = {},
                 onClearSnackbar = {},
+                onOpenSyncStatus = {},
             )
         }
     }
@@ -770,6 +792,7 @@ private fun NoteListSuccessWithConflictsPreview() {
                 indexingProgressPass2 = IndexingProgress(completed = 0, total = 0),
                 indexingFailuresPass2 = 0,
                 snackbarMessage = null,
+                snackbarAction = null,
                 onQueryChange = {},
                 onClearQuery = {},
                 onOpenNote = {},
@@ -779,6 +802,7 @@ private fun NoteListSuccessWithConflictsPreview() {
                 onOpenTrash = {},
                 onCreateNote = {},
                 onClearSnackbar = {},
+                onOpenSyncStatus = {},
             )
         }
     }
@@ -798,6 +822,7 @@ private fun NoteListErrorPreview() {
                 indexingProgressPass2 = IndexingProgress(completed = 0, total = 0),
                 indexingFailuresPass2 = 0,
                 snackbarMessage = null,
+                snackbarAction = null,
                 onQueryChange = {},
                 onClearQuery = {},
                 onOpenNote = {},
@@ -807,6 +832,7 @@ private fun NoteListErrorPreview() {
                 onOpenTrash = {},
                 onCreateNote = {},
                 onClearSnackbar = {},
+                onOpenSyncStatus = {},
             )
         }
     }
@@ -826,6 +852,7 @@ private fun NoteListEmptyPreview() {
                 indexingProgressPass2 = IndexingProgress(completed = 0, total = 0),
                 indexingFailuresPass2 = 0,
                 snackbarMessage = null,
+                snackbarAction = null,
                 onQueryChange = {},
                 onClearQuery = {},
                 onOpenNote = {},
@@ -835,6 +862,7 @@ private fun NoteListEmptyPreview() {
                 onOpenTrash = {},
                 onCreateNote = {},
                 onClearSnackbar = {},
+                onOpenSyncStatus = {},
             )
         }
     }

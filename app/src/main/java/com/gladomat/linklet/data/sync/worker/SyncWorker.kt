@@ -16,6 +16,9 @@ import com.gladomat.linklet.data.settings.WebDavSettingsRepository
 import com.gladomat.linklet.data.sync.CatastrophicDeleteException
 import com.gladomat.linklet.data.sync.LocalStorageMisconfiguredException
 import com.gladomat.linklet.data.sync.RequiresConfirmationException
+import com.gladomat.linklet.data.sync.SyncStatusMapper
+import com.gladomat.linklet.data.sync.SyncStatusNavigation
+import com.gladomat.linklet.data.sync.SyncStatusRepository
 import com.gladomat.linklet.data.sync.SyncDirectoryChangedException
 import com.gladomat.linklet.data.sync.SyncPhase
 import com.gladomat.linklet.data.sync.SyncProgress
@@ -39,6 +42,7 @@ class SyncWorker @AssistedInject constructor(
     private val webDavRemoteSyncProvider: WebDavRemoteSyncProvider,
     private val webDavSettingsRepository: WebDavSettingsRepository,
     private val indexingScheduler: IndexingScheduler,
+    private val syncStatusRepository: SyncStatusRepository,
 ) : CoroutineWorker(appContext, workerParams) {
 
     init {
@@ -156,7 +160,22 @@ class SyncWorker @AssistedInject constructor(
         Log.e(TAG, "Remote sync failed", remoteError)
         return when (remoteError) {
             is SyncDirectoryChangedException -> {
-                SyncWorkerNotifications.notifyResult(applicationContext, "Sync blocked", remoteError.message ?: "Sync directory changed")
+                runCatching {
+                    syncStatusRepository.setStatus(
+                        SyncStatusMapper.fromDirectoryChanged(
+                            exception = remoteError,
+                            nowEpochMillis = System.currentTimeMillis(),
+                        ),
+                    )
+                }.onFailure { error ->
+                    Log.e(TAG, "Failed to persist sync status", error)
+                }
+                SyncWorkerNotifications.notifyStatus(
+                    applicationContext,
+                    "Sync blocked",
+                    remoteError.message ?: "Sync directory changed",
+                    navTarget = SyncStatusNavigation.NAV_TARGET_SYNC_STATUS,
+                )
                 WorkResult.failure(
                     workDataOf(
                         KEY_ERROR_TYPE to ERROR_TYPE_DIRECTORY_CHANGED,

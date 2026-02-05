@@ -2,6 +2,7 @@ package com.gladomat.linklet.ui
 
 import android.os.Bundle
 import android.net.Uri
+import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -18,19 +19,37 @@ import com.gladomat.linklet.ui.screens.trash.TrashRoute
 import com.gladomat.linklet.ui.screens.noteedit.NoteEditRoute
 import com.gladomat.linklet.ui.screens.settings.SettingsRoute
 import com.gladomat.linklet.ui.screens.settings.WebDavSettingsRoute
+import com.gladomat.linklet.ui.screens.sync.SyncStatusRoute
 import com.gladomat.linklet.ui.theme.LinkLetAppTheme
 import com.gladomat.linklet.viewmodel.note.NoteViewViewModel
 import com.gladomat.linklet.viewmodel.noteedit.NoteEditViewModel
+import com.gladomat.linklet.data.sync.SyncStatusNavigation
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.flow.MutableStateFlow
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    private val navTargetFlow = MutableStateFlow<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        handleIntent(intent)
         setContent {
             LinkLetAppTheme {
                 val navController = rememberNavController()
+                val navTarget by navTargetFlow.collectAsStateWithLifecycle()
+                LaunchedEffect(navTarget) {
+                    if (navTarget == SyncStatusNavigation.NAV_TARGET_SYNC_STATUS) {
+                        navController.navigate(Routes.SYNC_STATUS) {
+                            launchSingleTop = true
+                        }
+                        navTargetFlow.value = null
+                    }
+                }
                 Surface(color = MaterialTheme.colorScheme.background) {
                     NavHost(
                         navController = navController,
@@ -51,6 +70,11 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onCreateNote = {
                                     navController.navigate("${Routes.NOTE_EDIT}/${Uri.encode(Routes.NEW_NOTE_PATH)}") {
+                                        launchSingleTop = true
+                                    }
+                                },
+                                onOpenSyncStatus = {
+                                    navController.navigate(Routes.SYNC_STATUS) {
                                         launchSingleTop = true
                                     }
                                 },
@@ -129,10 +153,25 @@ class MainActivity : ComponentActivity() {
                                 onNavigateBack = { navController.popBackStack() },
                             )
                         }
+
+                        composable(route = Routes.SYNC_STATUS) {
+                            SyncStatusRoute(
+                                onNavigateBack = { navController.popBackStack() },
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        navTargetFlow.value = intent?.getStringExtra(SyncStatusNavigation.EXTRA_NAV_TARGET)
     }
 }
 
@@ -145,6 +184,7 @@ private object Routes {
     const val SETTINGS = "settings"
     const val WEB_DAV_SETTINGS = "webdav_settings"
     const val TRASH = "trash"
+    const val SYNC_STATUS = "sync_status"
 }
 
 const val REFRESH_NOTE_KEY = "refresh_note"

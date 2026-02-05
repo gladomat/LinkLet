@@ -8,6 +8,8 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
 import com.gladomat.linklet.R
+import com.gladomat.linklet.data.sync.SyncStatusNavigation
+import com.gladomat.linklet.ui.MainActivity
 
 internal object SyncWorkerNotifications {
 
@@ -74,5 +76,51 @@ internal object SyncWorkerNotifications {
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .build()
         notificationManager.notify(RESULT_NOTIFICATION_ID, notification)
+    }
+
+    fun notifyStatus(
+        context: Context,
+        title: String,
+        text: String,
+        navTarget: String,
+    ) {
+        ensureChannel(context)
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notification = buildStatus(
+            context = context,
+            title = title,
+            text = text,
+            navTarget = navTarget,
+        )
+        notificationManager.notify(RESULT_NOTIFICATION_ID, notification)
+    }
+
+    fun buildStatus(
+        context: Context,
+        title: String,
+        text: String,
+        navTarget: String,
+    ): Notification {
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(SyncStatusNavigation.EXTRA_NAV_TARGET, navTarget)
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+        return NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setContentIntent(pendingIntent)
+            .addAction(0, "Review", pendingIntent)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .build()
     }
 }

@@ -18,6 +18,9 @@ import org.junit.Test
 import com.gladomat.linklet.testing.MainDispatcherRule
 import com.gladomat.linklet.data.sync.SyncScheduler
 import com.gladomat.linklet.data.index.IndexingScheduler
+import com.gladomat.linklet.data.sync.SyncStatus
+import com.gladomat.linklet.data.sync.SyncStatusRepository
+import com.gladomat.linklet.data.sync.SyncStatusType
 import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
@@ -28,6 +31,7 @@ import io.mockk.verify
 import org.junit.Before
 import org.junit.runner.RunWith
 import com.gladomat.linklet.testing.Aarch64RobolectricTestRunner
+import kotlinx.coroutines.runBlocking
 import org.robolectric.annotation.Config
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -37,6 +41,9 @@ class NoteListViewModelTests {
 
     @get:Rule
     val dispatcherRule = MainDispatcherRule()
+
+    private val application: Application = ApplicationProvider.getApplicationContext()
+    private lateinit var syncStatusRepository: SyncStatusRepository
     
     @Before
     fun setup() {
@@ -46,6 +53,8 @@ class NoteListViewModelTests {
             .setMinimumLoggingLevel(android.util.Log.DEBUG)
             .build()
         WorkManagerTestInitHelper.initializeTestWorkManager(context, config)
+        syncStatusRepository = SyncStatusRepository(application)
+        runBlocking { syncStatusRepository.clearStatus() }
     }
 
     private fun noteEntry(
@@ -94,8 +103,13 @@ class NoteListViewModelTests {
 
         val indexingScheduler = mockk<IndexingScheduler>(relaxed = true)
         val syncScheduler = mockk<SyncScheduler>(relaxed = true)
-        val application = ApplicationProvider.getApplicationContext<Application>()
-        val viewModel = NoteListViewModel(repository, indexingScheduler, syncScheduler, application)
+        val viewModel = NoteListViewModel(
+            repository,
+            indexingScheduler,
+            syncScheduler,
+            syncStatusRepository,
+            application,
+        )
 
         advanceUntilIdle()
 
@@ -136,8 +150,13 @@ class NoteListViewModelTests {
 
         val indexingScheduler = mockk<IndexingScheduler>(relaxed = true)
         val syncScheduler = mockk<SyncScheduler>(relaxed = true)
-        val application = ApplicationProvider.getApplicationContext<Application>()
-        val viewModel = NoteListViewModel(repository, indexingScheduler, syncScheduler, application)
+        val viewModel = NoteListViewModel(
+            repository,
+            indexingScheduler,
+            syncScheduler,
+            syncStatusRepository,
+            application,
+        )
 
         advanceUntilIdle()
 
@@ -179,8 +198,13 @@ class NoteListViewModelTests {
 
         val indexingScheduler = mockk<IndexingScheduler>(relaxed = true)
         val syncScheduler = mockk<SyncScheduler>(relaxed = true)
-        val application = ApplicationProvider.getApplicationContext<Application>()
-        val viewModel = NoteListViewModel(repository, indexingScheduler, syncScheduler, application)
+        val viewModel = NoteListViewModel(
+            repository,
+            indexingScheduler,
+            syncScheduler,
+            syncStatusRepository,
+            application,
+        )
 
         advanceUntilIdle()
 
@@ -226,8 +250,13 @@ class NoteListViewModelTests {
 
         val indexingScheduler = mockk<IndexingScheduler>(relaxed = true)
         val syncScheduler = mockk<SyncScheduler>(relaxed = true)
-        val application = ApplicationProvider.getApplicationContext<Application>()
-        val viewModel = NoteListViewModel(repository, indexingScheduler, syncScheduler, application)
+        val viewModel = NoteListViewModel(
+            repository,
+            indexingScheduler,
+            syncScheduler,
+            syncStatusRepository,
+            application,
+        )
 
         advanceUntilIdle()
 
@@ -242,5 +271,61 @@ class NoteListViewModelTests {
         val item = items.first()
         assertEquals("a.org", item.id.path)
         assertEquals("Tag: async", item.snippet)
+    }
+
+    @Test
+    fun `sync status requiring action emits snackbar with action`() = runTest {
+        syncStatusRepository.setStatus(
+            SyncStatus(
+                type = SyncStatusType.DIRECTORY_CHANGED,
+                title = "Sync blocked",
+                message = "Directory changed",
+                oldPath = "/old",
+                newPath = "/new",
+                requiresAction = true,
+                updatedAtEpochMillis = 1234L,
+            ),
+        )
+
+        val repository = object : INoteRepository {
+            private val notes = MutableStateFlow<List<NoteIndexEntry>>(emptyList())
+            override fun observeNotes() = notes
+            override fun observeIndexingProgress(pass: Int) =
+                flowOf(IndexingProgress(completed = 0, total = 0))
+            override fun observeIndexingFailures(pass: Int) = flowOf(0)
+            override suspend fun listNotes(): Result<List<Note>> = Result.success(emptyList())
+            override suspend fun listAllNotes(): List<Note> = emptyList()
+            override suspend fun listTrashNotes(): List<Note> = emptyList()
+            override suspend fun getNote(path: String): Result<Note> = Result.failure(RuntimeException("unused"))
+            override suspend fun reindex(): Result<Unit> = Result.failure(RuntimeException("index failure"))
+            override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(emptyList())
+            override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
+            override suspend fun deleteNoteSoft(path: String): Result<Unit> = Result.success(Unit)
+            override suspend fun restoreNoteFromTrash(trashPath: String): Result<String> = Result.success(trashPath)
+            override suspend fun deleteNotePermanent(path: String): Result<Unit> = Result.success(Unit)
+            override suspend fun deleteNote(path: String): Result<Unit> = Result.success(Unit)
+            override suspend fun duplicateNote(path: String): Result<String> = Result.success("copy-$path")
+            override suspend fun renameNote(oldPath: String, newPath: String): Result<Unit> = Result.success(Unit)
+            override suspend fun getAllTags(): Result<List<String>> = Result.success(emptyList())
+            override suspend fun updateNoteProperties(path: String, properties: Map<String, String>): Result<Unit> = Result.success(Unit)
+            override suspend fun updateNoteTags(path: String, tags: List<String>): Result<Unit> = Result.success(Unit)
+            override suspend fun resolveStorageUri(path: String): Result<android.net.Uri> =
+                Result.failure(UnsupportedOperationException("Not used in these tests"))
+        }
+
+        val indexingScheduler = mockk<IndexingScheduler>(relaxed = true)
+        val syncScheduler = mockk<SyncScheduler>(relaxed = true)
+        val viewModel = NoteListViewModel(
+            repository,
+            indexingScheduler,
+            syncScheduler,
+            syncStatusRepository,
+            application,
+        )
+
+        advanceUntilIdle()
+
+        assertEquals("Sync blocked", viewModel.snackbarMessage.value)
+        assertEquals(NoteListSnackbarAction.OPEN_SYNC_STATUS, viewModel.snackbarAction.value)
     }
 }
