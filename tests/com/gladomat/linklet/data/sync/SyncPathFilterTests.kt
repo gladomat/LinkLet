@@ -38,6 +38,12 @@ class SyncPathFilterTests {
     }
 
     @Test
+    fun `should exclude emacs latex preview directory`() {
+        assertFalse(SyncPathFilter.shouldInclude("ltximg/eq1.png"))
+        assertFalse(SyncPathFilter.shouldInclude("notes/ltximg/eq2.png"))
+    }
+
+    @Test
     fun `should exclude purewriter backup file extension`() {
         assertFalse(
             SyncPathFilter.shouldInclude(
