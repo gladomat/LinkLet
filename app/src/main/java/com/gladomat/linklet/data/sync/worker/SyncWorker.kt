@@ -1,6 +1,7 @@
 package com.gladomat.linklet.data.sync.worker
 
 import android.app.NotificationManager
+import android.content.pm.ServiceInfo
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -73,7 +74,13 @@ class SyncWorker @AssistedInject constructor(
                 title = "Initializing sync",
                 text = "Starting…",
             )
-            setForeground(ForegroundInfo(SyncWorkerNotifications.NOTIFICATION_ID, notification))
+            setForeground(
+                ForegroundInfo(
+                    SyncWorkerNotifications.NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+                ),
+            )
             applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         } else {
             null
