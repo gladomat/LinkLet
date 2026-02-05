@@ -136,6 +136,7 @@ class WebDavRemoteSyncProvider @Inject constructor(
         runCatching {
             val settings = ensureSettings()
             val sardine = createSardine(settings)
+            ensureRemoteDirectoriesExist(sardine, settings, path)
             val url = buildUrl(settings, path)
             
             Log.d(TAG, "Uploading file to: $url")
@@ -164,7 +165,19 @@ class WebDavRemoteSyncProvider @Inject constructor(
                 }
 
                 // 2. EXECUTE: Perform the upload
-                sardine.put(url, tempFile, "application/octet-stream")
+                try {
+                    sardine.put(url, tempFile, "application/octet-stream")
+                } catch (e: com.thegrizzlylabs.sardineandroid.impl.SardineException) {
+                    // Nextcloud/WebDAV often returns 404 on PUT when intermediate collections don't exist.
+                    // We already try to create them, but retry once to cover servers that require
+                    // collection URLs with trailing slashes / redirects, or have eventual consistency.
+                    if (e.statusCode == 404) {
+                        ensureRemoteDirectoriesExist(sardine, settings, path)
+                        sardine.put(url, tempFile, "application/octet-stream")
+                    } else {
+                        throw e
+                    }
+                }
 
                 // 3. OPTIMIZATION: Try to get the ETag from the interceptor
                 var finalEtag = normalizeEtag(capturedPutEtag.get())
@@ -190,6 +203,28 @@ class WebDavRemoteSyncProvider @Inject constructor(
             } finally {
                 tempFile.delete()
                 nextRequestIfMatch.remove()
+            }
+        }
+    }
+
+    private fun ensureRemoteDirectoriesExist(
+        sardine: Sardine,
+        settings: WebDavSettings,
+        relativeFilePath: String,
+    ) {
+        parentDirectoriesFor(relativeFilePath).forEach { relativeDir ->
+            // Many WebDAV servers expect collection URLs with a trailing slash.
+            val dirUrl = buildUrl(settings, relativeDir).trimEnd('/') + "/"
+            runCatching {
+                Log.d(TAG, "Ensuring remote directory exists: $dirUrl")
+                sardine.createDirectory(dirUrl)
+            }.onFailure { error ->
+                // Many WebDAV servers respond with 405 when directory already exists.
+                val sardineError = error as? com.thegrizzlylabs.sardineandroid.impl.SardineException
+                if (sardineError?.statusCode == 405) {
+                    return@onFailure
+                }
+                throw error
             }
         }
     }
@@ -390,5 +425,15 @@ class WebDavRemoteSyncProvider @Inject constructor(
         if (raw == null) return null
         // Removes "W/" prefix if present, then removes surrounding quotes
         return raw.replace("W/", "", ignoreCase = true).trim('"')
+    }
+}
+
+internal fun parentDirectoriesFor(relativeFilePath: String): List<String> {
+    val normalized = relativeFilePath.trim('/')
+    if (normalized.isEmpty()) return emptyList()
+    val segments = normalized.split('/').filter { it.isNotEmpty() }
+    if (segments.size <= 1) return emptyList()
+    return (1 until segments.size).map { endExclusive ->
+        segments.take(endExclusive).joinToString("/")
     }
 }

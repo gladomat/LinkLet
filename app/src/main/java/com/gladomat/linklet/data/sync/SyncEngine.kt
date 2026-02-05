@@ -47,16 +47,17 @@ class SyncEngine @Inject constructor(
         runCatching {
             val currentSettings = webDavSettingsRepository.currentSettings()
             checkDirectoryChange(provider, currentSettings)
-            
-            // Phase A: Discovery
-            onProgress(SyncProgress(phase = SyncPhase.DISCOVERY, message = "Discovering changes"))
-            val discovery = discoverState(provider)
 
-            // Check for Fresh Install
+            // Fresh install detection is intentionally early: it allows us to skip expensive
+            // whole-vault hashing and resolve overlaps deterministically.
             val isFreshInstall = syncStateDao.count() == 0
             if (isFreshInstall) {
                 Log.i(TAG, "Fresh Install detected. Activating Pull Strategy.")
             }
+            
+            // Phase A: Discovery
+            onProgress(SyncProgress(phase = SyncPhase.DISCOVERY, message = "Discovering changes"))
+            val discovery = discoverState(provider, isFreshInstall)
 
             // Phase B: Reconciliation
             onProgress(SyncProgress(phase = SyncPhase.RECONCILE, message = "Planning sync operations"))
@@ -128,7 +129,7 @@ class SyncEngine @Inject constructor(
 
     data class LocalFile(val path: String, val hash: String)
 
-    private suspend fun discoverState(provider: RemoteSyncProvider): DiscoveryResult {
+    private suspend fun discoverState(provider: RemoteSyncProvider, isFreshInstall: Boolean): DiscoveryResult {
         // 1. Local Files (excluding trash bin - that's local-only)
         val localPaths = storage.listFiles().getOrThrow()
             .filter { !it.startsWith(TRASH_DIR) }
@@ -137,12 +138,18 @@ class SyncEngine @Inject constructor(
         localPaths.forEach { path -> Log.d(TAG, "DEBUG Discovery: Local path: '$path'") }
         
         val localFiles = localPaths.mapNotNull { path ->
-            val bytes = storage.readFileBytes(path).getOrNull()
-            if (bytes != null) {
-                path to LocalFile(path, NoteHashCalculator.computeBytes(bytes))
+            if (isFreshInstall) {
+                // No sync state exists yet, so we don't need hashes to plan work.
+                // Hashing whole vaults can be extremely slow on large note sets.
+                path to LocalFile(path, "")
             } else {
-                Log.w(TAG, "DEBUG Discovery: Could not read local file: '$path'")
-                null
+                val bytes = storage.readFileBytes(path).getOrNull()
+                if (bytes != null) {
+                    path to LocalFile(path, NoteHashCalculator.computeBytes(bytes))
+                } else {
+                    Log.w(TAG, "DEBUG Discovery: Could not read local file: '$path'")
+                    null
+                }
             }
         }.toMap()
         Log.d(TAG, "DEBUG Discovery: Successfully read ${localFiles.size} local files")
@@ -224,7 +231,13 @@ class SyncEngine @Inject constructor(
     sealed class SyncOperation {
         abstract val path: String
         data class Upload(override val path: String, val reason: String) : SyncOperation()
-        data class Download(override val path: String, val remoteId: String, val fingerprint: String?, val reason: String) : SyncOperation()
+        data class Download(
+            override val path: String,
+            val remoteId: String,
+            val fingerprint: String?,
+            val reason: String,
+            val backupLocalIfDifferent: Boolean = false,
+        ) : SyncOperation()
         data class DeleteRemote(override val path: String, val remoteId: String, val etag: String?) : SyncOperation()
         data class SoftDeleteLocal(override val path: String) : SyncOperation() // Move to trash
         data class Conflict(override val path: String, val remoteId: String, val fingerprint: String?) : SyncOperation()
@@ -247,15 +260,29 @@ class SyncEngine @Inject constructor(
             if (isFreshInstall) {
                 // Fresh Install Logic
                 if (local != null && remote != null) {
-                    Log.w(TAG, "DEBUG Reconcile: CONFLICT REASON: Fresh install + both local and remote exist for '$path'")
-                    Log.d(TAG, "DEBUG Reconcile: Fresh install conflict - local hash=${local.hash}, remote fingerprint=${remote.fingerprint}")
-                    operations.add(SyncOperation.Conflict(path, remote.remoteId ?: path, remote.fingerprint))
+                    Log.d(TAG, "DEBUG Reconcile: Fresh install overlap -> Download (server wins)")
+                    operations.add(
+                        SyncOperation.Download(
+                            path = path,
+                            remoteId = remote.remoteId,
+                            fingerprint = remote.fingerprint,
+                            reason = "Fresh Install: Server wins",
+                            backupLocalIfDifferent = true,
+                        ),
+                    )
                 } else if (local != null && remote == null) {
                     Log.d(TAG, "DEBUG Reconcile: Fresh install, local only -> Upload")
                     operations.add(SyncOperation.Upload(path, "Fresh Install: Local Discovery"))
                 } else if (local == null && remote != null) {
                     Log.d(TAG, "DEBUG Reconcile: Fresh install, remote only -> Download")
-                    operations.add(SyncOperation.Download(path, remote.remoteId ?: path, remote.fingerprint, "Fresh Install: Pull"))
+                    operations.add(
+                        SyncOperation.Download(
+                            path = path,
+                            remoteId = remote.remoteId,
+                            fingerprint = remote.fingerprint,
+                            reason = "Fresh Install: Pull",
+                        ),
+                    )
                 }
                 continue
             }
@@ -288,13 +315,20 @@ class SyncEngine @Inject constructor(
                     if (localChanged && remoteChanged) {
                         Log.w(TAG, "DEBUG Reconcile: CONFLICT REASON: Both local AND remote changed since last sync for '$path'")
                         Log.d(TAG, "DEBUG Reconcile: Both-changed conflict - localHash=${local.hash} vs stateHash=${state.localContentHash}, remoteFingerprint=${remote.fingerprint} vs stateFingerprint=${state.remoteFingerprint}")
-                        operations.add(SyncOperation.Conflict(path, remote.remoteId ?: path, remote.fingerprint))
+                        operations.add(SyncOperation.Conflict(path, remote.remoteId, remote.fingerprint))
                     } else if (localChanged) {
                         Log.d(TAG, "DEBUG Reconcile: Local changed -> Upload")
                         operations.add(SyncOperation.Upload(path, "Local Modified"))
                     } else if (remoteChanged) {
                         Log.d(TAG, "DEBUG Reconcile: Remote changed -> Download")
-                        operations.add(SyncOperation.Download(path, remote.remoteId ?: path, remote.fingerprint, "Remote Modified"))
+                        operations.add(
+                            SyncOperation.Download(
+                                path = path,
+                                remoteId = remote.remoteId,
+                                fingerprint = remote.fingerprint,
+                                reason = "Remote Modified",
+                            ),
+                        )
                     } else {
                         if (state.lifecycle != NoteLifecycle.ACTIVE) {
                             Log.d(TAG, "DEBUG Reconcile: No changes but lifecycle=${state.lifecycle} -> UpdateState")
@@ -321,14 +355,21 @@ class SyncEngine @Inject constructor(
                     Log.d(TAG, "DEBUG Reconcile: Local missing, remote exists")
                     if (state.lifecycle == NoteLifecycle.DELETED_LOCALLY) {
                         Log.d(TAG, "DEBUG Reconcile: Marked deleted locally -> DeleteRemote")
-                        operations.add(SyncOperation.DeleteRemote(path, remote.remoteId ?: path, state.remoteFingerprint))
+                        operations.add(SyncOperation.DeleteRemote(path, remote.remoteId, state.remoteFingerprint))
                     } else {
                         if (state.lastSyncedAtEpochMillis != null) {
                             Log.d(TAG, "DEBUG Reconcile: Was synced before (lastSynced=${state.lastSyncedAtEpochMillis}) -> DeleteRemote")
-                            operations.add(SyncOperation.DeleteRemote(path, remote.remoteId ?: path, state.remoteFingerprint))
+                            operations.add(SyncOperation.DeleteRemote(path, remote.remoteId, state.remoteFingerprint))
                         } else {
                             Log.d(TAG, "DEBUG Reconcile: Never synced -> Resurrect/Download")
-                            operations.add(SyncOperation.Download(path, remote.remoteId ?: path, remote.fingerprint, "Resurrect Local"))
+                            operations.add(
+                                SyncOperation.Download(
+                                    path = path,
+                                    remoteId = remote.remoteId,
+                                    fingerprint = remote.fingerprint,
+                                    reason = "Resurrect Local",
+                                ),
+                            )
                         }
                     }
                 } else {
@@ -478,9 +519,35 @@ class SyncEngine @Inject constructor(
 
     private suspend fun performDownload(op: SyncOperation.Download, provider: RemoteSyncProvider) {
         Log.d(TAG, "Executing Download: ${op.path} (fingerprint=${op.fingerprint})")
+        val localBytesForBackup = if (op.backupLocalIfDifferent) {
+            storage.readFileBytes(op.path).getOrNull()
+        } else {
+            null
+        }
+
         provider.download(op.path, op.remoteId)
             .onSuccess { stream ->
                 val bytes = stream.use { it.readBytes() }
+
+                if (localBytesForBackup != null) {
+                    val localHash = NoteHashCalculator.computeBytes(localBytesForBackup)
+                    val remoteHash = NoteHashCalculator.computeBytes(bytes)
+                    if (localHash != remoteHash) {
+                        val conflictPath = createConflictPath(op.path)
+                        Log.d(TAG, "DEBUG Download: Backing up differing local content to '$conflictPath'")
+                        writeLocalBytes(conflictPath, localBytesForBackup)
+
+                        val conflictState = SyncStateEntity(
+                            path = conflictPath,
+                            lifecycle = NoteLifecycle.ACTIVE,
+                            localContentHash = localHash,
+                            lastKnownHash = localHash,
+                            pendingAction = SyncPendingAction.UPLOAD,
+                        )
+                        syncStateDao.upsert(conflictState)
+                    }
+                }
+
                 writeLocalBytes(op.path, bytes)
                 val hash = NoteHashCalculator.computeBytes(bytes)
                 
@@ -562,7 +629,15 @@ class SyncEngine @Inject constructor(
         
         // 2. Download remote version to original path
         Log.d(TAG, "DEBUG Conflict: Downloading remote version to original path ${op.path}")
-        performDownload(SyncOperation.Download(op.path, op.remoteId, op.fingerprint, "Conflict Resolution"), provider)
+        performDownload(
+            SyncOperation.Download(
+                path = op.path,
+                remoteId = op.remoteId,
+                fingerprint = op.fingerprint,
+                reason = "Conflict Resolution",
+            ),
+            provider,
+        )
     }
 
     private fun createConflictPath(originalPath: String): String {
