@@ -5,6 +5,7 @@ import com.gladomat.linklet.data.index.SyncStateDao
 import com.gladomat.linklet.data.settings.WebDavSettings
 import com.gladomat.linklet.data.settings.WebDavSettingsRepository
 import com.gladomat.linklet.data.storage.IStorage
+import com.gladomat.linklet.data.sync.metrics.SyncMetricsRegistry
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
@@ -44,6 +45,7 @@ class SyncEngine @Inject constructor(
         onProgress: suspend (SyncProgress) -> Unit = {},
     ): Result<SyncSummary> = withContext(dispatcher) {
         Log.i(TAG, "Starting sync run with provider: ${provider.name}")
+        val metrics = SyncMetricsRegistry.instance
         runCatching {
             val currentSettings = webDavSettingsRepository.currentSettings()
             checkDirectoryChange(provider, currentSettings)
@@ -57,11 +59,15 @@ class SyncEngine @Inject constructor(
             
             // Phase A: Discovery
             onProgress(SyncProgress(phase = SyncPhase.DISCOVERY, message = "Discovering changes"))
+            val discoveryStartNanos = System.nanoTime()
             val discovery = discoverState(provider, isFreshInstall)
+            metrics.timing("stage_discovery_ms", nanosToMillis(System.nanoTime() - discoveryStartNanos))
 
             // Phase B: Reconciliation
             onProgress(SyncProgress(phase = SyncPhase.RECONCILE, message = "Planning sync operations"))
+            val reconcileStartNanos = System.nanoTime()
             val operations = reconcile(discovery, isFreshInstall)
+            metrics.timing("stage_reconcile_ms", nanosToMillis(System.nanoTime() - reconcileStartNanos))
 
             // Phase C: Execution with Guard Rails
             onProgress(
@@ -72,7 +78,9 @@ class SyncEngine @Inject constructor(
                     message = "Applying changes",
                 ),
             )
+            val executeStartNanos = System.nanoTime()
             execute(operations, provider, discovery.remoteFiles.size, onProgress)
+            metrics.timing("stage_execute_ms", nanosToMillis(System.nanoTime() - executeStartNanos))
             
             // Update last synced path after successful sync
             if (currentSettings != null && provider is WebDavRemoteSyncProvider) {
@@ -90,10 +98,17 @@ class SyncEngine @Inject constructor(
                 conflicts = pendingStates.count { it.pendingAction == SyncPendingAction.CONFLICT },
                 resolvedConflicts = operations.count { it is SyncOperation.Conflict },
             )
+        }.onSuccess {
+            val snapshot = metrics.snapshot()
+            if (snapshot.counts.isNotEmpty() || snapshot.timingsMs.isNotEmpty()) {
+                Log.d(TAG, "Sync metrics counts=${snapshot.counts}, timingsMs=${snapshot.timingsMs}")
+            }
         }.onFailure {
             Log.e(TAG, "Sync run failed", it)
         }
     }
+
+    private fun nanosToMillis(durationNanos: Long): Long = durationNanos / 1_000_000L
 
     private suspend fun checkDirectoryChange(
         provider: RemoteSyncProvider,

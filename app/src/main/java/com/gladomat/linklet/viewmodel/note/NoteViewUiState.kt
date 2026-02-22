@@ -11,6 +11,9 @@ sealed interface NoteViewUiState {
         val lastModified: String? = null,
         val isFavorite: Boolean = false,
     ) : NoteViewUiState
+    data class Stub(
+        val path: String,
+        val message: String,
+    ) : NoteViewUiState
     data class Error(val message: String) : NoteViewUiState
 }
-

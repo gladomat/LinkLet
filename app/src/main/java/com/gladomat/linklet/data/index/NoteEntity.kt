@@ -3,6 +3,18 @@ package com.gladomat.linklet.data.index
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
+enum class NoteAvailability {
+    STUB,
+    AVAILABLE,
+    PINNED_OFFLINE,
+    ERROR,
+}
+
+enum class NoteSource {
+    LOCAL,
+    REMOTE_STUB,
+}
+
 @Entity(tableName = "notes")
 data class NoteEntity(
     @PrimaryKey val path: String,
@@ -13,6 +25,8 @@ data class NoteEntity(
     val fingerprintMtime: Long? = null,
     val fingerprintSize: Long? = null,
     val linksReady: Boolean = false,
+    val availability: NoteAvailability = NoteAvailability.AVAILABLE,
+    val source: NoteSource = NoteSource.LOCAL,
 )
 
 @Entity(tableName = "links", primaryKeys = ["source", "target"])

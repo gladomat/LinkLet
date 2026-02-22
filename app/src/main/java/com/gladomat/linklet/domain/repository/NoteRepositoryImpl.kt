@@ -7,8 +7,10 @@ import com.gladomat.linklet.data.index.IndexQueueDao
 import com.gladomat.linklet.data.index.IndexQueueStatus
 import com.gladomat.linklet.data.index.IndexTypeConverters
 import com.gladomat.linklet.data.index.LinkEntity
+import com.gladomat.linklet.data.index.NoteAvailability
 import com.gladomat.linklet.data.index.NoteDao
 import com.gladomat.linklet.data.index.NoteEntity
+import com.gladomat.linklet.data.index.NoteSource
 import com.gladomat.linklet.data.index.IndexingScheduler
 import com.gladomat.linklet.data.model.IndexingProgress
 import com.gladomat.linklet.data.model.Note
@@ -97,6 +99,12 @@ class NoteRepositoryImpl(
         }
     }
 
+    override suspend fun getNoteAvailability(path: String): Result<NoteAvailability> = withContext(ioDispatcher) {
+        runCatching {
+            noteDao.getNoteAvailability(path) ?: NoteAvailability.AVAILABLE
+        }
+    }
+
     override suspend fun reindex(): Result<Unit> = withContext(ioDispatcher) {
         runCatching {
             val startedAt = SystemClock.elapsedRealtime()
@@ -118,8 +126,17 @@ class NoteRepositoryImpl(
             }
 
             noteDao.clearLinks()
-            noteDao.clearNotes()
-            noteDao.insertNotes(resolvedNotes.map { NoteEntity(path = it.id.path, title = it.title) })
+            noteDao.clearLocalNotes()
+            noteDao.insertNotes(
+                resolvedNotes.map {
+                    NoteEntity(
+                        path = it.id.path,
+                        title = it.title,
+                        availability = NoteAvailability.AVAILABLE,
+                        source = NoteSource.LOCAL,
+                    )
+                },
+            )
             noteDao.insertLinks(
                 resolvedNotes.flatMap { note ->
                     note.links.mapNotNull { link ->
@@ -268,7 +285,16 @@ class NoteRepositoryImpl(
             parsed.orgId?.let { noteIdIndex[it] = newPath }
             val resolved = parsed.copy(links = resolveLinks(parsed.links))
 
-            noteDao.insertNotes(listOf(NoteEntity(path = resolved.id.path, title = resolved.title)))
+            noteDao.insertNotes(
+                listOf(
+                    NoteEntity(
+                        path = resolved.id.path,
+                        title = resolved.title,
+                        availability = NoteAvailability.AVAILABLE,
+                        source = NoteSource.LOCAL,
+                    ),
+                ),
+            )
             noteDao.insertLinks(
                 resolved.links.mapNotNull { link ->
                     val target = link.resolvedPath ?: return@mapNotNull null

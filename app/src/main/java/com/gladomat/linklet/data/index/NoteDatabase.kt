@@ -16,7 +16,7 @@ import com.gladomat.linklet.data.sync.SyncStateTypeConverters
         IndexQueueEntity::class,
         IndexingStateEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 @TypeConverters(SyncStateTypeConverters::class, IndexTypeConverters::class)
@@ -104,6 +104,13 @@ abstract class NoteDatabase : RoomDatabase() {
                     )
                     """.trimIndent(),
                 )
+            }
+        }
+
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE `notes` ADD COLUMN `availability` TEXT NOT NULL DEFAULT 'AVAILABLE'")
+                database.execSQL("ALTER TABLE `notes` ADD COLUMN `source` TEXT NOT NULL DEFAULT 'LOCAL'")
             }
         }
     }

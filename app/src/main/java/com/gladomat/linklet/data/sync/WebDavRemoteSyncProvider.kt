@@ -11,6 +11,7 @@ import com.burgstaller.okhttp.digest.Credentials
 import com.burgstaller.okhttp.digest.DigestAuthenticator
 import com.gladomat.linklet.data.settings.WebDavSettings
 import com.gladomat.linklet.data.settings.WebDavSettingsRepository
+import com.gladomat.linklet.data.sync.metrics.SyncMetricsRegistry
 import com.thegrizzlylabs.sardineandroid.Sardine
 import com.thegrizzlylabs.sardineandroid.impl.OkHttpSardine
 import java.io.IOException
@@ -123,6 +124,7 @@ class WebDavRemoteSyncProvider @Inject constructor(
             val sardine = createSardine(settings)
             val url = buildUrl(settings, remoteId)
             Log.d(TAG, "Downloading file from: $url")
+            SyncMetricsRegistry.instance.increment("http_GET")
             sardine.get(url)
         }
     }
@@ -166,6 +168,7 @@ class WebDavRemoteSyncProvider @Inject constructor(
 
                 // 2. EXECUTE: Perform the upload
                 try {
+                    SyncMetricsRegistry.instance.increment("http_PUT")
                     sardine.put(url, tempFile, "application/octet-stream")
                 } catch (e: com.thegrizzlylabs.sardineandroid.impl.SardineException) {
                     // Nextcloud/WebDAV often returns 404 on PUT when intermediate collections don't exist.
@@ -173,6 +176,7 @@ class WebDavRemoteSyncProvider @Inject constructor(
                     // collection URLs with trailing slashes / redirects, or have eventual consistency.
                     if (e.statusCode == 404) {
                         ensureRemoteDirectoriesExist(sardine, settings, path)
+                        SyncMetricsRegistry.instance.increment("http_PUT")
                         sardine.put(url, tempFile, "application/octet-stream")
                     } else {
                         throw e
@@ -185,6 +189,7 @@ class WebDavRemoteSyncProvider @Inject constructor(
                 // 4. FALLBACK: If server didn't send ETag on PUT, use PROPFIND
                 if (finalEtag.isNullOrBlank()) {
                     Log.w(TAG, "No ETag on PUT for $path, falling back to PROPFIND")
+                    SyncMetricsRegistry.instance.increment("http_PROPFIND")
                     val resources = sardine.list(url, 0)
                     val resource = resources.firstOrNull()
                         ?: throw IOException("Upload verification failed: File not found on server after PUT")
@@ -249,6 +254,7 @@ class WebDavRemoteSyncProvider @Inject constructor(
             
             try {
                 Log.d(TAG, "Deleting $path with If-Match: ${nextRequestIfMatch.get()}")
+                SyncMetricsRegistry.instance.increment("http_DELETE")
                 sardine.delete(url)
             } catch (e: Exception) {
                 // Check for 412 Precondition Failed
@@ -272,6 +278,7 @@ class WebDavRemoteSyncProvider @Inject constructor(
             }
             val sardine = createSardine(settings)
             val url = buildUrl(settings, "")
+            SyncMetricsRegistry.instance.increment("http_PROPFIND")
             sardine.list(url, 0)
             Unit
         }
@@ -403,6 +410,7 @@ class WebDavRemoteSyncProvider @Inject constructor(
         while (queue.isNotEmpty()) {
             val relativeDir = queue.removeFirst()
             val url = buildUrl(settings, relativeDir)
+            SyncMetricsRegistry.instance.increment("http_PROPFIND")
             val entries = sardine.list(url, 1)
             entries.forEach { resource ->
                 if (resource.isDirectory) {

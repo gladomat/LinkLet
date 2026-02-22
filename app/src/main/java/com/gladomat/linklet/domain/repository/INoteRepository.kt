@@ -1,6 +1,7 @@
 package com.gladomat.linklet.domain.repository
 
 import android.net.Uri
+import com.gladomat.linklet.data.index.NoteAvailability
 import com.gladomat.linklet.data.model.IndexingProgress
 import com.gladomat.linklet.data.model.Note
 import com.gladomat.linklet.data.model.NoteIndexEntry
@@ -17,6 +18,7 @@ interface INoteRepository {
     fun observeIndexingFailures(pass: Int): Flow<Int>
     suspend fun listNotes(): Result<List<Note>>
     suspend fun getNote(path: String): Result<Note>
+    suspend fun getNoteAvailability(path: String): Result<NoteAvailability> = Result.success(NoteAvailability.AVAILABLE)
     suspend fun reindex(): Result<Unit>
     suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>>
     suspend fun saveNote(path: String, content: String): Result<Unit>

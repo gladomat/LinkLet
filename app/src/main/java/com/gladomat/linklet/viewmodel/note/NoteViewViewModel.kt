@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import android.util.Log
+import com.gladomat.linklet.data.index.NoteAvailability
 import com.gladomat.linklet.data.parser.org.OrgBlock
 import com.gladomat.linklet.data.parser.org.buildOrgDisplayText
 import com.gladomat.linklet.data.parser.org.parseOrgDocument
@@ -16,6 +17,7 @@ import com.gladomat.linklet.domain.service.SearchOptions
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import java.util.ArrayDeque
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,7 +28,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 @HiltViewModel
-@kotlinx.coroutines.FlowPreview
 class NoteViewViewModel @Inject constructor(
     private val repository: INoteRepository,
     private val savedStateHandle: SavedStateHandle,
@@ -56,8 +57,15 @@ class NoteViewViewModel @Inject constructor(
     private val searchCorpus = MutableStateFlow<List<SearchBlock>>(emptyList())
 
     init {
-        // Observe SavedStateHandle for path changes and reload when it changes
-        // This ensures we reload when navigating to the same route with a different path
+        observeNotePath()
+        loadNote()
+        observeSearchQuery()
+        observeSearchOptions()
+    }
+
+    private fun observeNotePath() {
+        // Observe SavedStateHandle for path changes and reload when it changes.
+        // This ensures we reload when navigating to the same route with a different path.
         viewModelScope.launch {
             savedStateHandle.getStateFlow<String>(NoteArgs.NOTE_PATH, notePath)
                 .collect { path ->
@@ -67,9 +75,10 @@ class NoteViewViewModel @Inject constructor(
                     }
                 }
         }
-        // Initial load
-        loadNote()
+    }
 
+    @OptIn(FlowPreview::class)
+    private fun observeSearchQuery() {
         viewModelScope.launch {
             _searchState
                 .map { it.query }
@@ -77,7 +86,9 @@ class NoteViewViewModel @Inject constructor(
                 .debounce { query -> if (query.isBlank()) 0L else 150L }
                 .collect { recomputeSearch() }
         }
+    }
 
+    private fun observeSearchOptions() {
         viewModelScope.launch {
             _searchState
                 .map { it.options }
@@ -89,6 +100,20 @@ class NoteViewViewModel @Inject constructor(
     fun loadNote() {
         viewModelScope.launch {
             _state.value = NoteViewUiState.Loading
+            when (repository.getNoteAvailability(notePath).getOrNull()) {
+                NoteAvailability.STUB -> {
+                    _state.value = NoteViewUiState.Stub(
+                        path = notePath,
+                        message = "Not downloaded yet.",
+                    )
+                    return@launch
+                }
+                NoteAvailability.ERROR -> {
+                    _state.value = NoteViewUiState.Error("Note download failed. Try again.")
+                    return@launch
+                }
+                else -> Unit
+            }
             val noteResult = repository.getNote(notePath)
             _state.value = noteResult.fold(
                 onSuccess = { note ->

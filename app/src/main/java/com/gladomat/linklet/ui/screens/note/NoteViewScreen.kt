@@ -194,6 +194,7 @@ fun NoteViewRoute(
         onFavorite = viewModel::toggleFavorite,
         onCreateNote = onCreateNote,
         onRetry = viewModel::loadNote,
+        onDownload = viewModel::loadNote,
         onDelete = { viewModel.deleteNote { handleExit() } },
         onDuplicate = viewModel::duplicateNote,
         onRename = viewModel::renameNote,
@@ -261,6 +262,7 @@ fun NoteViewScreen(
     onFavorite: () -> Unit,
     onCreateNote: () -> Unit,
     onRetry: () -> Unit,
+    onDownload: () -> Unit,
     onDelete: () -> Unit,
     onDuplicate: () -> Unit,
     onRename: (String) -> Unit,
@@ -312,6 +314,12 @@ fun NoteViewScreen(
             onUpdateProperties = onUpdateProperties,
             onUpdateTags = onUpdateTags,
             allTags = allTags,
+            modifier = modifier,
+        )
+        is NoteViewUiState.Stub -> StubState(
+            message = state.message,
+            onDownload = onDownload,
+            onRetry = onRetry,
             modifier = modifier,
         )
         is NoteViewUiState.Error -> ErrorState(
@@ -888,6 +896,35 @@ private fun SectionHeaderRow(
 }
 
 @Composable
+private fun StubState(
+    message: String,
+    onDownload: () -> Unit,
+    onRetry: () -> Unit,
+    modifier: Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(text = message, style = MaterialTheme.typography.bodyLarge)
+        Row(
+            modifier = Modifier.padding(top = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Button(onClick = onDownload) {
+                Text(text = "Download")
+            }
+            Button(onClick = onRetry) {
+                Text(text = "Retry")
+            }
+        }
+    }
+}
+
+@Composable
 private fun ErrorState(
     message: String,
     onRetry: () -> Unit,
@@ -1083,6 +1120,7 @@ private fun NoteViewSuccessPreview() {
                 onFavorite = {},
                 onCreateNote = {},
                 onRetry = {},
+                onDownload = {},
                 onDelete = {},
                 onDuplicate = {},
                 onRename = {},
