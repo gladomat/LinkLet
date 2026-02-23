@@ -105,6 +105,13 @@ class NoteRepositoryImpl(
         }
     }
 
+    override suspend fun requestNoteDownload(path: String): Result<Unit> = withContext(ioDispatcher) {
+        runCatching {
+            Log.d(TAG, "requestNoteDownload() - Scheduling sync for stub note: $path")
+            syncScheduler.scheduleImmediate()
+        }
+    }
+
     override suspend fun reindex(): Result<Unit> = withContext(ioDispatcher) {
         runCatching {
             val startedAt = SystemClock.elapsedRealtime()

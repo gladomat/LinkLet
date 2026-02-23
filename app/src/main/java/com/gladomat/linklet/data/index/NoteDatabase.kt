@@ -5,6 +5,12 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.gladomat.linklet.data.sync.db.CapabilitiesCacheDao
+import com.gladomat.linklet.data.sync.db.CapabilitiesCacheEntity
+import com.gladomat.linklet.data.sync.db.ServerSnapshotDao
+import com.gladomat.linklet.data.sync.db.ServerSnapshotEntity
+import com.gladomat.linklet.data.sync.db.SyncWatermarkDao
+import com.gladomat.linklet.data.sync.db.SyncWatermarkEntity
 import com.gladomat.linklet.data.sync.SyncStateEntity
 import com.gladomat.linklet.data.sync.SyncStateTypeConverters
 
@@ -15,8 +21,11 @@ import com.gladomat.linklet.data.sync.SyncStateTypeConverters
         SyncStateEntity::class,
         IndexQueueEntity::class,
         IndexingStateEntity::class,
+        ServerSnapshotEntity::class,
+        SyncWatermarkEntity::class,
+        CapabilitiesCacheEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = false,
 )
 @TypeConverters(SyncStateTypeConverters::class, IndexTypeConverters::class)
@@ -25,6 +34,9 @@ abstract class NoteDatabase : RoomDatabase() {
     abstract fun syncStateDao(): SyncStateDao
     abstract fun indexQueueDao(): IndexQueueDao
     abstract fun indexingStateDao(): IndexingStateDao
+    abstract fun serverSnapshotDao(): ServerSnapshotDao
+    abstract fun syncWatermarkDao(): SyncWatermarkDao
+    abstract fun capabilitiesCacheDao(): CapabilitiesCacheDao
 
     companion object {
         val MIGRATION_2_3 = object : Migration(2, 3) {
@@ -111,6 +123,60 @@ abstract class NoteDatabase : RoomDatabase() {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("ALTER TABLE `notes` ADD COLUMN `availability` TEXT NOT NULL DEFAULT 'AVAILABLE'")
                 database.execSQL("ALTER TABLE `notes` ADD COLUMN `source` TEXT NOT NULL DEFAULT 'LOCAL'")
+            }
+        }
+
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `server_snapshot` (
+                        `rootId` TEXT NOT NULL,
+                        `path` TEXT NOT NULL,
+                        `href` TEXT NOT NULL,
+                        `etag` TEXT,
+                        `isDir` INTEGER NOT NULL,
+                        `fileId` TEXT,
+                        `lastModifiedEpochMillis` INTEGER,
+                        `sizeBytes` INTEGER,
+                        `deletedAtEpochMillis` INTEGER,
+                        `lastSeenAtEpochMillis` INTEGER NOT NULL,
+                        PRIMARY KEY(`rootId`, `path`)
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_server_snapshot_rootId_isDir_etag` ON `server_snapshot` (`rootId`, `isDir`, `etag`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_server_snapshot_rootId_fileId` ON `server_snapshot` (`rootId`, `fileId`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_server_snapshot_rootId_deletedAtEpochMillis` ON `server_snapshot` (`rootId`, `deletedAtEpochMillis`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_server_snapshot_rootId_lastSeenAtEpochMillis` ON `server_snapshot` (`rootId`, `lastSeenAtEpochMillis`)")
+
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `sync_watermark` (
+                        `rootId` TEXT NOT NULL,
+                        `lastFullSweepServerTimeEpochMillis` INTEGER,
+                        `lastDeltaServerTimeEpochMillis` INTEGER,
+                        `deltaValidityState` TEXT,
+                        `deltaValidityReason` TEXT,
+                        `updatedAtEpochMillis` INTEGER NOT NULL,
+                        PRIMARY KEY(`rootId`)
+                    )
+                    """.trimIndent(),
+                )
+
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `capabilities_cache` (
+                        `rootId` TEXT NOT NULL,
+                        `supportsSearch` INTEGER NOT NULL,
+                        `supportsTrashbin` INTEGER NOT NULL,
+                        `supportsFileId` INTEGER NOT NULL,
+                        `checkedAtEpochMillis` INTEGER NOT NULL,
+                        `expiresAtEpochMillis` INTEGER NOT NULL,
+                        PRIMARY KEY(`rootId`)
+                    )
+                    """.trimIndent(),
+                )
             }
         }
     }

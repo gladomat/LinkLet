@@ -194,7 +194,7 @@ fun NoteViewRoute(
         onFavorite = viewModel::toggleFavorite,
         onCreateNote = onCreateNote,
         onRetry = viewModel::loadNote,
-        onDownload = viewModel::loadNote,
+        onDownload = viewModel::downloadNote,
         onDelete = { viewModel.deleteNote { handleExit() } },
         onDuplicate = viewModel::duplicateNote,
         onRename = viewModel::renameNote,

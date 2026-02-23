@@ -66,6 +66,32 @@ class NoteDatabaseMigrationTests {
         }
     }
 
+    @Test
+    fun `migration 7 to 8 creates sync snapshot and cache tables`() {
+        val helper = MigrationTestHelper(
+            InstrumentationRegistry.getInstrumentation(),
+            NoteDatabase::class.java,
+            emptyList(),
+            FrameworkSQLiteOpenHelperFactory(),
+        )
+        val db = helper.createDatabase("migration-test-7-8", 7)
+        db.close()
+
+        val migrated = helper.runMigrationsAndValidate("migration-test-7-8", 8, true, NoteDatabase.MIGRATION_7_8)
+        val serverSnapshotColumns = tableColumns(migrated, "server_snapshot")
+        assertTrue(serverSnapshotColumns.contains("rootId"))
+        assertTrue(serverSnapshotColumns.contains("path"))
+        assertTrue(serverSnapshotColumns.contains("isDir"))
+
+        val syncWatermarkColumns = tableColumns(migrated, "sync_watermark")
+        assertTrue(syncWatermarkColumns.contains("rootId"))
+        assertTrue(syncWatermarkColumns.contains("lastDeltaServerTimeEpochMillis"))
+
+        val capabilitiesColumns = tableColumns(migrated, "capabilities_cache")
+        assertTrue(capabilitiesColumns.contains("rootId"))
+        assertTrue(capabilitiesColumns.contains("supportsSearch"))
+    }
+
     private fun tableColumns(database: SupportSQLiteDatabase, tableName: String): Set<String> {
         return database.query("PRAGMA table_info('$tableName')").use { cursor ->
             val nameColumnIndex = cursor.getColumnIndexOrThrow("name")

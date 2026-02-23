@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
+  <d:response>
+    <d:href>/remote.php/dav/files/user/Org/one.org</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>"12345"</d:getetag>
+        <d:getlastmodified>Wed, 18 Sep 2024 10:00:00 GMT</d:getlastmodified>
+        <d:getcontentlength>42</d:getcontentlength>
+        <d:resourcetype/>
+        <oc:fileid>a.org</oc:fileid>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/remote.php/dav/files/user/Org/two.org</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>W/"67890"</d:getetag>
+        <d:getlastmodified>Thu, 19 Sep 2024 11:00:00 GMT</d:getlastmodified>
+        <d:getcontentlength>84</d:getcontentlength>
+        <d:resourcetype/>
+        <oc:fileid>b.org</oc:fileid>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+</d:multistatus>

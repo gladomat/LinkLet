@@ -19,6 +19,8 @@ interface INoteRepository {
     suspend fun listNotes(): Result<List<Note>>
     suspend fun getNote(path: String): Result<Note>
     suspend fun getNoteAvailability(path: String): Result<NoteAvailability> = Result.success(NoteAvailability.AVAILABLE)
+    suspend fun requestNoteDownload(path: String): Result<Unit> =
+        Result.failure(UnsupportedOperationException("Download request is not supported"))
     suspend fun reindex(): Result<Unit>
     suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>>
     suspend fun saveNote(path: String, content: String): Result<Unit>

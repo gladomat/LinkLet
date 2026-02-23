@@ -143,6 +143,22 @@ class NoteViewViewModel @Inject constructor(
         setSearchActive(false)
     }
 
+    fun downloadNote() {
+        viewModelScope.launch {
+            repository.requestNoteDownload(notePath).fold(
+                onSuccess = {
+                    _state.value = NoteViewUiState.Stub(
+                        path = notePath,
+                        message = "Download requested. Syncing in background.",
+                    )
+                },
+                onFailure = { error ->
+                    _state.value = NoteViewUiState.Error("Failed to request download: ${error.message}")
+                },
+            )
+        }
+    }
+
     fun updateSearchQuery(query: String) {
         Log.d(logTag, "updateQuery len=${query.length} path=$notePath")
         savedStateHandle[SearchKeys.QUERY] = query
