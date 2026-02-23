@@ -27,7 +27,7 @@ class WebDavPropfindClient(
 
     private fun buildPropfindBody() =
         """
-        <d:propfind xmlns:d=\"DAV:\" xmlns:oc=\"http://owncloud.org/ns\">
+        <d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
           <d:prop>
             <d:getetag/>
             <d:getlastmodified/>
