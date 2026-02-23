@@ -16,6 +16,10 @@ data class PropfindItem(
 )
 
 object PropfindResponseParser {
+    private const val DAV_NAMESPACE = "DAV:"
+    private const val OWNCLOUD_NAMESPACE = "http://owncloud.org/ns"
+    private const val NEXTCLOUD_NAMESPACE = "http://nextcloud.org/ns"
+
     fun parse(input: InputStream): Sequence<PropfindItem> = sequence {
         input.bufferedReader().use { reader ->
             val parser = XmlPullParserFactory.newInstance().apply {
@@ -46,13 +50,15 @@ object PropfindResponseParser {
             parser.next()
             if (parser.eventType != XmlPullParser.START_TAG) continue
 
-            when (parser.name.lowercase()) {
-                "href" -> href = parser.nextText().trim()
-                "getetag" -> etag = normalizeEtag(parser.nextText())
-                "getlastmodified" -> lastModifiedEpochMillis = parseHttpDate(parser.nextText())
-                "getcontentlength" -> sizeBytes = parser.nextText().trim().toLongOrNull()
-                "collection" -> isDir = true
-                "fileid" -> fileId = parser.nextText().trim().ifBlank { null }
+            // We only parse known DAV and ownCloud/Nextcloud properties. Namespace filtering
+            // avoids accidental matches from custom extension tags with the same local names.
+            when {
+                isTag(parser, "href", DAV_NAMESPACE) -> href = parser.nextText().trim()
+                isTag(parser, "getetag", DAV_NAMESPACE) -> etag = normalizeEtag(parser.nextText())
+                isTag(parser, "getlastmodified", DAV_NAMESPACE) -> lastModifiedEpochMillis = parseHttpDate(parser.nextText())
+                isTag(parser, "getcontentlength", DAV_NAMESPACE) -> sizeBytes = parser.nextText().trim().toLongOrNull()
+                isTag(parser, "collection", DAV_NAMESPACE) -> isDir = true
+                isTag(parser, "fileid", OWNCLOUD_NAMESPACE, NEXTCLOUD_NAMESPACE) -> fileId = parser.nextText().trim().ifBlank { null }
             }
         }
 
@@ -71,8 +77,21 @@ object PropfindResponseParser {
         ZonedDateTime.parse(value.trim(), DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli()
     }.getOrNull()
 
+    private fun isTag(
+        parser: XmlPullParser,
+        localName: String,
+        vararg namespaces: String,
+    ): Boolean {
+        if (!parser.name.equals(localName, ignoreCase = true)) return false
+        val namespace = parser.namespace ?: return true
+        if (namespace.isBlank()) return true
+        return namespaces.any { namespace.equals(it, ignoreCase = true) }
+    }
+
     private fun normalizeEtag(raw: String?): String? {
         if (raw == null) return null
+        // See WebDavRemoteSyncProvider.normalizeEtag: we intentionally collapse weak and
+        // strong validators into a single fingerprint representation.
         return raw.replace("W/", "", ignoreCase = true).trim().trim('"').ifBlank { null }
     }
 }

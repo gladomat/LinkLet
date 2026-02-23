@@ -12,6 +12,17 @@ interface SyncMetrics {
     fun snapshot(): SyncMetricsSnapshot
 }
 
+object SyncMetricKeys {
+    const val HTTP_GET = "http_GET"
+    const val HTTP_PUT = "http_PUT"
+    const val HTTP_DELETE = "http_DELETE"
+    const val HTTP_PROPFIND = "http_PROPFIND"
+
+    const val STAGE_DISCOVERY_MS = "stage_discovery_ms"
+    const val STAGE_RECONCILE_MS = "stage_reconcile_ms"
+    const val STAGE_EXECUTE_MS = "stage_execute_ms"
+}
+
 data class SyncMetricsSnapshot(
     val counts: Map<String, Int>,
     val timingsMs: Map<String, Long>,
@@ -27,7 +38,7 @@ class InMemorySyncMetrics : SyncMetrics {
 
     override fun timing(metric: String, durationMs: Long) {
         timingsMs.compute(metric) { _, existing ->
-            (existing ?: AtomicLong(0)).apply { set(durationMs) }
+            (existing ?: AtomicLong(0)).apply { addAndGet(durationMs) }
         }
     }
 
@@ -50,9 +61,4 @@ object NoOpSyncMetrics : SyncMetrics {
         counts = emptyMap(),
         timingsMs = emptyMap(),
     )
-}
-
-object SyncMetricsRegistry {
-    @Volatile
-    var instance: SyncMetrics = InMemorySyncMetrics()
 }

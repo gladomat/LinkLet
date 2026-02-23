@@ -5,7 +5,9 @@ import com.gladomat.linklet.data.index.SyncStateDao
 import com.gladomat.linklet.data.settings.WebDavSettings
 import com.gladomat.linklet.data.settings.WebDavSettingsRepository
 import com.gladomat.linklet.data.storage.IStorage
-import com.gladomat.linklet.data.sync.metrics.SyncMetricsRegistry
+import com.gladomat.linklet.data.sync.metrics.NoOpSyncMetrics
+import com.gladomat.linklet.data.sync.metrics.SyncMetricKeys
+import com.gladomat.linklet.data.sync.metrics.SyncMetrics
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
@@ -31,6 +33,7 @@ class SyncEngine @Inject constructor(
     private val syncStateDao: SyncStateDao,
     private val webDavSettingsRepository: WebDavSettingsRepository,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val metrics: SyncMetrics = NoOpSyncMetrics,
 ) {
 
     suspend fun preflight(provider: RemoteSyncProvider): Result<Unit> = withContext(dispatcher) {
@@ -45,7 +48,6 @@ class SyncEngine @Inject constructor(
         onProgress: suspend (SyncProgress) -> Unit = {},
     ): Result<SyncSummary> = withContext(dispatcher) {
         Log.i(TAG, "Starting sync run with provider: ${provider.name}")
-        val metrics = SyncMetricsRegistry.instance
         runCatching {
             val currentSettings = webDavSettingsRepository.currentSettings()
             checkDirectoryChange(provider, currentSettings)
@@ -61,13 +63,13 @@ class SyncEngine @Inject constructor(
             onProgress(SyncProgress(phase = SyncPhase.DISCOVERY, message = "Discovering changes"))
             val discoveryStartNanos = System.nanoTime()
             val discovery = discoverState(provider, isFreshInstall)
-            metrics.timing("stage_discovery_ms", nanosToMillis(System.nanoTime() - discoveryStartNanos))
+            metrics.timing(SyncMetricKeys.STAGE_DISCOVERY_MS, nanosToMillis(System.nanoTime() - discoveryStartNanos))
 
             // Phase B: Reconciliation
             onProgress(SyncProgress(phase = SyncPhase.RECONCILE, message = "Planning sync operations"))
             val reconcileStartNanos = System.nanoTime()
             val operations = reconcile(discovery, isFreshInstall)
-            metrics.timing("stage_reconcile_ms", nanosToMillis(System.nanoTime() - reconcileStartNanos))
+            metrics.timing(SyncMetricKeys.STAGE_RECONCILE_MS, nanosToMillis(System.nanoTime() - reconcileStartNanos))
 
             // Phase C: Execution with Guard Rails
             onProgress(
@@ -80,7 +82,7 @@ class SyncEngine @Inject constructor(
             )
             val executeStartNanos = System.nanoTime()
             execute(operations, provider, discovery.remoteFiles.size, onProgress)
-            metrics.timing("stage_execute_ms", nanosToMillis(System.nanoTime() - executeStartNanos))
+            metrics.timing(SyncMetricKeys.STAGE_EXECUTE_MS, nanosToMillis(System.nanoTime() - executeStartNanos))
             
             // Update last synced path after successful sync
             if (currentSettings != null && provider is WebDavRemoteSyncProvider) {

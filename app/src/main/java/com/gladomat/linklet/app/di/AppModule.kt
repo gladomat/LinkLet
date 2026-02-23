@@ -14,6 +14,8 @@ import com.gladomat.linklet.data.settings.FolderSettingsRepository
 import com.gladomat.linklet.data.storage.DocumentTreeStorageImpl
 import com.gladomat.linklet.data.storage.IStorage
 import com.gladomat.linklet.data.sync.SyncScheduler
+import com.gladomat.linklet.data.sync.metrics.InMemorySyncMetrics
+import com.gladomat.linklet.data.sync.metrics.SyncMetrics
 import com.gladomat.linklet.domain.repository.INoteRepository
 import com.gladomat.linklet.domain.repository.NoteRepositoryImpl
 import dagger.Module
@@ -85,6 +87,10 @@ object AppModule {
     @Provides
     @Singleton
     fun provideOkHttpClient(): OkHttpClient = OkHttpClient.Builder().build()
+
+    @Provides
+    @Singleton
+    fun provideSyncMetrics(): SyncMetrics = InMemorySyncMetrics()
 
     @Provides
     @Singleton
