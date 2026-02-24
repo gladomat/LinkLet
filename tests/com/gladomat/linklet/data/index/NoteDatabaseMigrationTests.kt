@@ -92,6 +92,26 @@ class NoteDatabaseMigrationTests {
         assertTrue(capabilitiesColumns.contains("supportsSearch"))
     }
 
+    @Test
+    fun `migration 8 to 9 creates operation journal table`() {
+        val helper = MigrationTestHelper(
+            InstrumentationRegistry.getInstrumentation(),
+            NoteDatabase::class.java,
+            emptyList(),
+            FrameworkSQLiteOpenHelperFactory(),
+        )
+        val db = helper.createDatabase("migration-test-8-9", 8)
+        db.close()
+
+        val migrated = helper.runMigrationsAndValidate("migration-test-8-9", 9, true, NoteDatabase.MIGRATION_8_9)
+        val operationColumns = tableColumns(migrated, "operation_journal")
+        assertTrue(operationColumns.contains("operationId"))
+        assertTrue(operationColumns.contains("rootId"))
+        assertTrue(operationColumns.contains("operationType"))
+        assertTrue(operationColumns.contains("status"))
+        assertTrue(operationColumns.contains("nextAttemptAtEpochMillis"))
+    }
+
     private fun tableColumns(database: SupportSQLiteDatabase, tableName: String): Set<String> {
         return database.query("PRAGMA table_info('$tableName')").use { cursor ->
             val nameColumnIndex = cursor.getColumnIndexOrThrow("name")

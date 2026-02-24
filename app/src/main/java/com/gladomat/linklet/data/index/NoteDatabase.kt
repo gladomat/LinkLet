@@ -7,6 +7,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.gladomat.linklet.data.sync.db.CapabilitiesCacheDao
 import com.gladomat.linklet.data.sync.db.CapabilitiesCacheEntity
+import com.gladomat.linklet.data.sync.db.OperationJournalDao
+import com.gladomat.linklet.data.sync.db.OperationJournalEntity
 import com.gladomat.linklet.data.sync.db.ServerSnapshotDao
 import com.gladomat.linklet.data.sync.db.ServerSnapshotEntity
 import com.gladomat.linklet.data.sync.db.SyncWatermarkDao
@@ -24,8 +26,9 @@ import com.gladomat.linklet.data.sync.SyncStateTypeConverters
         ServerSnapshotEntity::class,
         SyncWatermarkEntity::class,
         CapabilitiesCacheEntity::class,
+        OperationJournalEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = false,
 )
 @TypeConverters(SyncStateTypeConverters::class, IndexTypeConverters::class)
@@ -37,6 +40,7 @@ abstract class NoteDatabase : RoomDatabase() {
     abstract fun serverSnapshotDao(): ServerSnapshotDao
     abstract fun syncWatermarkDao(): SyncWatermarkDao
     abstract fun capabilitiesCacheDao(): CapabilitiesCacheDao
+    abstract fun operationJournalDao(): OperationJournalDao
 
     companion object {
         val MIGRATION_2_3 = object : Migration(2, 3) {
@@ -176,6 +180,43 @@ abstract class NoteDatabase : RoomDatabase() {
                         PRIMARY KEY(`rootId`)
                     )
                     """.trimIndent(),
+                )
+            }
+        }
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `operation_journal` (
+                        `operationId` TEXT NOT NULL,
+                        `rootId` TEXT NOT NULL,
+                        `path` TEXT NOT NULL,
+                        `operationType` TEXT NOT NULL,
+                        `status` TEXT NOT NULL,
+                        `priority` INTEGER NOT NULL,
+                        `attempts` INTEGER NOT NULL,
+                        `nextAttemptAtEpochMillis` INTEGER,
+                        `expectedRemoteEtag` TEXT,
+                        `expectedLocalHash` TEXT,
+                        `remoteId` TEXT,
+                        `remoteFingerprint` TEXT,
+                        `lastError` TEXT,
+                        `claimedByWorker` TEXT,
+                        `claimedAtEpochMillis` INTEGER,
+                        `createdAtEpochMillis` INTEGER NOT NULL,
+                        `updatedAtEpochMillis` INTEGER NOT NULL,
+                        PRIMARY KEY(`operationId`)
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_operation_journal_rootId_status_nextAttemptAtEpochMillis` " +
+                        "ON `operation_journal` (`rootId`, `status`, `nextAttemptAtEpochMillis`)",
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_operation_journal_rootId_path_status` " +
+                        "ON `operation_journal` (`rootId`, `path`, `status`)",
                 )
             }
         }
