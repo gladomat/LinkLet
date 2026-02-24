@@ -49,6 +49,24 @@ interface OperationJournalDao {
         updatedAtEpochMillis: Long,
     )
 
+    @Query(
+        """
+        UPDATE operation_journal
+        SET status = :newStatus,
+            claimedByWorker = :claimedByWorker,
+            claimedAtEpochMillis = :claimedAtEpochMillis,
+            updatedAtEpochMillis = :updatedAtEpochMillis
+        WHERE operationId = :operationId
+        """,
+    )
+    suspend fun claim(
+        operationId: String,
+        newStatus: String,
+        claimedByWorker: String,
+        claimedAtEpochMillis: Long,
+        updatedAtEpochMillis: Long,
+    )
+
     @Query("DELETE FROM operation_journal WHERE rootId = :rootId")
     suspend fun clearRoot(rootId: String)
 }
