@@ -579,7 +579,7 @@ git commit -m "feat(sync): implement delta discovery with validity gates"
 
 ## Phase 4: Operation Journal + Deterministic Concurrency (PRD Phase 4)
 
-### Task 11: Add `operation_journal` table + DAO (Room v8)
+### Task 11: Add `operation_journal` table + DAO (Room v9)
 
 **Files:**
 - Create: `app/src/main/java/com/gladomat/linklet/data/sync/db/OperationJournalEntity.kt`
@@ -588,15 +588,15 @@ git commit -m "feat(sync): implement delta discovery with validity gates"
 - Test: `tests/com/gladomat/linklet/data/index/NoteDatabaseMigrationTests.kt`
 - Test: `tests/com/gladomat/linklet/data/sync/db/OperationJournalDaoTests.kt`
 
-**Step 1: Write failing migration test (7 -> 8)**
+**Step 1: Write failing migration test (8 -> 9)**
 
 Add:
-- `migration 7 to 8 creates operation_journal`
+- `migration 8 to 9 creates operation_journal`
 
 **Step 2: Implement entity + migration**
 
-- Bump DB version to `8`.
-- Add `MIGRATION_7_8` creating table + indices needed for claiming work by status/nextAttemptAt.
+- Bump DB version to `9`.
+- Add `MIGRATION_8_9` creating table + indices needed for claiming work by status/nextAttemptAt.
 
 **Step 3: Run tests**
 
