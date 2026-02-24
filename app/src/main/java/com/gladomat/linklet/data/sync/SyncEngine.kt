@@ -5,6 +5,8 @@ import com.gladomat.linklet.data.index.SyncStateDao
 import com.gladomat.linklet.data.settings.WebDavSettings
 import com.gladomat.linklet.data.settings.WebDavSettingsRepository
 import com.gladomat.linklet.data.storage.IStorage
+import com.gladomat.linklet.data.sync.db.OperationJournalDao
+import com.gladomat.linklet.data.sync.db.OperationJournalEntity
 import com.gladomat.linklet.data.sync.metrics.SyncMetricKeys
 import com.gladomat.linklet.data.sync.metrics.SyncMetrics
 import com.gladomat.linklet.data.sync.planner.ReconcilePlanner
@@ -16,6 +18,7 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 import kotlin.text.Charsets
 
 private const val TAG = "SyncEngine"
@@ -34,6 +37,7 @@ class SyncEngine @Inject constructor(
     private val webDavSettingsRepository: WebDavSettingsRepository,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val metrics: SyncMetrics,
+    private val operationJournalDao: OperationJournalDao? = null,
 ) {
     private val reconcilePlanner = ReconcilePlanner()
 
@@ -71,6 +75,7 @@ class SyncEngine @Inject constructor(
             val reconcileStartNanos = System.nanoTime()
             val operations = reconcile(discovery, isFreshInstall)
             metrics.timing(SyncMetricKeys.STAGE_RECONCILE_MS, nanosToMillis(System.nanoTime() - reconcileStartNanos))
+            persistPlannedOperations(resolveRootId(currentSettings, provider), operations)
 
             // Phase C: Execution with Guard Rails
             onProgress(
@@ -112,6 +117,77 @@ class SyncEngine @Inject constructor(
     }
 
     private fun nanosToMillis(durationNanos: Long): Long = durationNanos / 1_000_000L
+
+    private fun resolveRootId(currentSettings: WebDavSettings?, provider: RemoteSyncProvider): String {
+        if (currentSettings != null && provider is WebDavRemoteSyncProvider) {
+            return buildRootId(
+                baseUrl = currentSettings.baseUrl,
+                normalizedRootPath = currentSettings.normalizedRootPath,
+                username = currentSettings.username,
+            )
+        }
+        return "provider:${provider.name}"
+    }
+
+    private suspend fun persistPlannedOperations(
+        rootId: String,
+        operations: List<SyncOperation>,
+    ) {
+        val dao = operationJournalDao ?: return
+        val now = System.currentTimeMillis()
+        dao.clearRoot(rootId)
+        dao.upsertAll(
+            operations.mapIndexed { index, operation ->
+                OperationJournalEntity(
+                    operationId = UUID.randomUUID().toString(),
+                    rootId = rootId,
+                    path = operation.path,
+                    operationType = operationToType(operation),
+                    status = "PLANNED",
+                    priority = operationPriority(operation),
+                    nextAttemptAtEpochMillis = now,
+                    remoteId = operationRemoteId(operation),
+                    remoteFingerprint = operationRemoteFingerprint(operation),
+                    createdAtEpochMillis = now + index,
+                    updatedAtEpochMillis = now + index,
+                )
+            },
+        )
+    }
+
+    private fun operationToType(operation: SyncOperation): String = when (operation) {
+        is SyncOperation.Upload -> "UPLOAD"
+        is SyncOperation.Download -> "DOWNLOAD"
+        is SyncOperation.DeleteRemote -> "DELETE_REMOTE"
+        is SyncOperation.SoftDeleteLocal -> "SOFT_DELETE_LOCAL"
+        is SyncOperation.Conflict -> "CONFLICT"
+        is SyncOperation.UpdateState -> "UPDATE_STATE"
+        is SyncOperation.CleanupOrphanState -> "CLEANUP_ORPHAN_STATE"
+    }
+
+    private fun operationPriority(operation: SyncOperation): Int = when (operation) {
+        is SyncOperation.Conflict -> 100
+        is SyncOperation.DeleteRemote -> 90
+        is SyncOperation.Download -> 80
+        is SyncOperation.Upload -> 70
+        is SyncOperation.SoftDeleteLocal -> 60
+        is SyncOperation.UpdateState -> 10
+        is SyncOperation.CleanupOrphanState -> 10
+    }
+
+    private fun operationRemoteId(operation: SyncOperation): String? = when (operation) {
+        is SyncOperation.Download -> operation.remoteId
+        is SyncOperation.DeleteRemote -> operation.remoteId
+        is SyncOperation.Conflict -> operation.remoteId
+        else -> null
+    }
+
+    private fun operationRemoteFingerprint(operation: SyncOperation): String? = when (operation) {
+        is SyncOperation.Download -> operation.fingerprint
+        is SyncOperation.DeleteRemote -> operation.etag
+        is SyncOperation.Conflict -> operation.fingerprint
+        else -> null
+    }
 
     private suspend fun checkDirectoryChange(
         provider: RemoteSyncProvider,

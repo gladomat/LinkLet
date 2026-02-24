@@ -14,6 +14,7 @@ import com.gladomat.linklet.data.settings.FolderSettingsRepository
 import com.gladomat.linklet.data.storage.DocumentTreeStorageImpl
 import com.gladomat.linklet.data.storage.IStorage
 import com.gladomat.linklet.data.sync.SyncScheduler
+import com.gladomat.linklet.data.sync.db.OperationJournalDao
 import com.gladomat.linklet.data.sync.metrics.InMemorySyncMetrics
 import com.gladomat.linklet.data.sync.metrics.SyncMetrics
 import com.gladomat.linklet.domain.repository.INoteRepository
@@ -79,6 +80,11 @@ object AppModule {
     fun provideIndexingStateDao(
         database: NoteDatabase,
     ): IndexingStateDao = database.indexingStateDao()
+
+    @Provides
+    fun provideOperationJournalDao(
+        database: NoteDatabase,
+    ): OperationJournalDao = database.operationJournalDao()
 
     @Provides
     @Singleton

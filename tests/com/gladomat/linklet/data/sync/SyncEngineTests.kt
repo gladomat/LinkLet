@@ -109,6 +109,41 @@ class SyncEngineTests {
     }
 
     @Test
+    fun `run persists planned operations to operation journal`() = runTest(dispatcher) {
+        val storage = FakeStorage(mutableMapOf())
+        val provider = FakeRemoteSyncProvider(
+            metadata = listOf(
+                RemoteNoteMetadata(
+                    remoteId = "remote-1",
+                    path = "notes/journal.org",
+                    fingerprint = "etag-journal-1",
+                    lastModifiedEpochMillis = null,
+                ),
+            ),
+            remoteFiles = mapOf("remote-1" to "Remote note"),
+        )
+        val settingsRepo = mockk<WebDavSettingsRepository>(relaxed = true)
+        engine = SyncEngine(
+            storage = storage,
+            syncStateDao = database.syncStateDao(),
+            webDavSettingsRepository = settingsRepo,
+            dispatcher = dispatcher,
+            metrics = InMemorySyncMetrics(),
+            operationJournalDao = database.operationJournalDao(),
+        )
+
+        engine.run(provider).getOrThrow()
+
+        val planned = database.operationJournalDao().findReady(
+            rootId = "provider:fake",
+            status = "PLANNED",
+            nowEpochMillis = Long.MAX_VALUE,
+            limit = 10,
+        )
+        assertTrue(planned.any { it.path == "notes/journal.org" && it.operationType == "DOWNLOAD" })
+    }
+
+    @Test
     fun `local change triggers upload while remote change triggers download or conflict`() = runTest(dispatcher) {
         val storage = FakeStorage(
             mutableMapOf("notes/a.org" to "local"),
