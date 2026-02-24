@@ -7,6 +7,7 @@ import com.gladomat.linklet.data.settings.WebDavSettingsRepository
 import com.gladomat.linklet.data.storage.IStorage
 import com.gladomat.linklet.data.sync.metrics.SyncMetricKeys
 import com.gladomat.linklet.data.sync.metrics.SyncMetrics
+import com.gladomat.linklet.data.sync.planner.ReconcilePlanner
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
@@ -34,6 +35,7 @@ class SyncEngine @Inject constructor(
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val metrics: SyncMetrics,
 ) {
+    private val reconcilePlanner = ReconcilePlanner()
 
     suspend fun preflight(provider: RemoteSyncProvider): Result<Unit> = withContext(dispatcher) {
         runCatching {
@@ -263,138 +265,7 @@ class SyncEngine @Inject constructor(
 
     private fun reconcile(discovery: DiscoveryResult, isFreshInstall: Boolean): List<SyncOperation> {
         Log.d(TAG, "DEBUG Reconcile: Starting reconciliation, isFreshInstall=$isFreshInstall")
-        val operations = mutableListOf<SyncOperation>()
-        val allPaths = discovery.localFiles.keys + discovery.remoteFiles.keys + discovery.syncStates.keys
-
-        for (path in allPaths) {
-            val local = discovery.localFiles[path]
-            val remote = discovery.remoteFiles[path]
-            val state = discovery.syncStates[path]
-            
-            Log.d(TAG, "DEBUG Reconcile: Processing path='$path': local=${local != null}, remote=${remote != null}, state=${state != null}")
-
-            if (isFreshInstall) {
-                // Fresh Install Logic
-                if (local != null && remote != null) {
-                    Log.d(TAG, "DEBUG Reconcile: Fresh install overlap -> Download (server wins)")
-                    operations.add(
-                        SyncOperation.Download(
-                            path = path,
-                            remoteId = remote.remoteId,
-                            fingerprint = remote.fingerprint,
-                            reason = "Fresh Install: Server wins",
-                            backupLocalIfDifferent = true,
-                        ),
-                    )
-                } else if (local != null && remote == null) {
-                    Log.d(TAG, "DEBUG Reconcile: Fresh install, local only -> Upload")
-                    operations.add(SyncOperation.Upload(path, "Fresh Install: Local Discovery"))
-                } else if (local == null && remote != null) {
-                    Log.d(TAG, "DEBUG Reconcile: Fresh install, remote only -> Download")
-                    operations.add(
-                        SyncOperation.Download(
-                            path = path,
-                            remoteId = remote.remoteId,
-                            fingerprint = remote.fingerprint,
-                            reason = "Fresh Install: Pull",
-                        ),
-                    )
-                }
-                continue
-            }
-
-            // Standard Logic
-            if (state == null) {
-                // New file (either local or remote)
-                if (local != null && remote != null) {
-                    Log.w(TAG, "DEBUG Reconcile: CONFLICT REASON: No sync state + both local and remote exist for '$path'")
-                    Log.d(TAG, "DEBUG Reconcile: No-state conflict - local hash=${local.hash}, remote fingerprint=${remote.fingerprint}")
-                    operations.add(SyncOperation.Conflict(path, remote.remoteId ?: path, remote.fingerprint))
-                } else if (local != null) {
-                    Log.d(TAG, "DEBUG Reconcile: No state, local only -> Upload")
-                    operations.add(SyncOperation.Upload(path, "New Local File"))
-                } else if (remote != null) {
-                    Log.d(TAG, "DEBUG Reconcile: No state, remote only -> Download")
-                    operations.add(SyncOperation.Download(path, remote.remoteId ?: path, remote.fingerprint, "New Remote File"))
-                }
-            } else {
-                // Existing State
-                val localChanged = local != null && local.hash != state.localContentHash
-                val remoteChanged = remote != null && remote.fingerprint != state.remoteFingerprint
-                
-                Log.d(TAG, "DEBUG Reconcile: Has state: lifecycle=${state.lifecycle}, remoteId=${state.remoteId}, lastSynced=${state.lastSyncedAtEpochMillis}")
-                Log.d(TAG, "DEBUG Reconcile: localChanged=$localChanged, remoteChanged=$remoteChanged")
-                if (local != null) Log.d(TAG, "DEBUG Reconcile: local.hash=${local.hash}, state.localContentHash=${state.localContentHash}")
-                if (remote != null) Log.d(TAG, "DEBUG Reconcile: remote.fingerprint=${remote.fingerprint}, state.remoteFingerprint=${state.remoteFingerprint}")
-                
-                if (local != null && remote != null) {
-                    if (localChanged && remoteChanged) {
-                        Log.w(TAG, "DEBUG Reconcile: CONFLICT REASON: Both local AND remote changed since last sync for '$path'")
-                        Log.d(TAG, "DEBUG Reconcile: Both-changed conflict - localHash=${local.hash} vs stateHash=${state.localContentHash}, remoteFingerprint=${remote.fingerprint} vs stateFingerprint=${state.remoteFingerprint}")
-                        operations.add(SyncOperation.Conflict(path, remote.remoteId, remote.fingerprint))
-                    } else if (localChanged) {
-                        Log.d(TAG, "DEBUG Reconcile: Local changed -> Upload")
-                        operations.add(SyncOperation.Upload(path, "Local Modified"))
-                    } else if (remoteChanged) {
-                        Log.d(TAG, "DEBUG Reconcile: Remote changed -> Download")
-                        operations.add(
-                            SyncOperation.Download(
-                                path = path,
-                                remoteId = remote.remoteId,
-                                fingerprint = remote.fingerprint,
-                                reason = "Remote Modified",
-                            ),
-                        )
-                    } else {
-                        if (state.lifecycle != NoteLifecycle.ACTIVE) {
-                            Log.d(TAG, "DEBUG Reconcile: No changes but lifecycle=${state.lifecycle} -> UpdateState")
-                            operations.add(SyncOperation.UpdateState(path)) 
-                        } else {
-                            Log.d(TAG, "DEBUG Reconcile: No changes, in sync")
-                        }
-                    }
-                } else if (local != null && remote == null) {
-                    // Remote Missing.
-                    if (state.lifecycle == NoteLifecycle.DELETED_REMOTELY) {
-                        Log.d(TAG, "DEBUG Reconcile: Remote missing, already deleted remotely -> skip")
-                    } else {
-                        if (state.remoteId != null) {
-                            Log.d(TAG, "DEBUG Reconcile: Remote missing, had remoteId -> SoftDeleteLocal")
-                            operations.add(SyncOperation.SoftDeleteLocal(path))
-                        } else {
-                            Log.d(TAG, "DEBUG Reconcile: Remote missing, no remoteId -> Retry Upload")
-                            operations.add(SyncOperation.Upload(path, "Retry Upload"))
-                        }
-                    }
-                } else if (local == null && remote != null) {
-                    // Local Missing.
-                    Log.d(TAG, "DEBUG Reconcile: Local missing, remote exists")
-                    if (state.lifecycle == NoteLifecycle.DELETED_LOCALLY) {
-                        Log.d(TAG, "DEBUG Reconcile: Marked deleted locally -> DeleteRemote")
-                        operations.add(SyncOperation.DeleteRemote(path, remote.remoteId, state.remoteFingerprint))
-                    } else {
-                        if (state.lastSyncedAtEpochMillis != null) {
-                            Log.d(TAG, "DEBUG Reconcile: Was synced before (lastSynced=${state.lastSyncedAtEpochMillis}) -> DeleteRemote")
-                            operations.add(SyncOperation.DeleteRemote(path, remote.remoteId, state.remoteFingerprint))
-                        } else {
-                            Log.d(TAG, "DEBUG Reconcile: Never synced -> Resurrect/Download")
-                            operations.add(
-                                SyncOperation.Download(
-                                    path = path,
-                                    remoteId = remote.remoteId,
-                                    fingerprint = remote.fingerprint,
-                                    reason = "Resurrect Local",
-                                ),
-                            )
-                        }
-                    }
-                } else {
-                    // Both local and remote are missing - this is an orphan state
-                    Log.d(TAG, "DEBUG Reconcile: Both missing, state only -> scheduling cleanup for '$path'")
-                    operations.add(SyncOperation.CleanupOrphanState(path))
-                }
-            }
-        }
+        val operations = reconcilePlanner.plan(discovery, isFreshInstall)
         
         // Log operation summary
         val uploads = operations.filterIsInstance<SyncOperation.Upload>().size
@@ -485,7 +356,6 @@ class SyncEngine @Inject constructor(
                     Log.d(TAG, "Cleaning up orphan sync state: ${op.path}")
                     syncStateDao.deleteState(op.path)
                 }
-                else -> Unit
             }
 
             completedOperations += 1
