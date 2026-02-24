@@ -1,3 +1,9 @@
+---
+status: draft
+owner: engineering
+last_reviewed: 2026-02-24
+---
+
 # WebDAV Sync: Current Implementation
 
 This document describes how WebDAV sync is implemented right now in LinkLet, based on the current code.

@@ -1,3 +1,9 @@
+---
+status: draft
+owner: engineering
+last_reviewed: 2026-02-24
+---
+
 ## PRD: Fast + Robust WebDAV Sync for LinkLet (Nextcloud-Optimized, Generic WebDAV-Safe) — Revised with Blocker Fixes
 
 ### Owner

@@ -1,3 +1,9 @@
+---
+status: draft
+owner: engineering
+last_reviewed: 2026-02-24
+---
+
 # WebDAV Sync Improvements (PRD) Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
@@ -789,4 +795,3 @@ Manually (device/emulator if available):
 - Confirm opening a stub note shows a stub UI, not a blank/error-only screen.
 - Confirm initial Stage A snapshot completes and is resumable after force-stop.
 - Confirm no-change sync is fast (few requests) and does not traverse full tree.
-
