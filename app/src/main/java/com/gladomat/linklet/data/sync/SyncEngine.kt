@@ -5,7 +5,6 @@ import com.gladomat.linklet.data.index.SyncStateDao
 import com.gladomat.linklet.data.settings.WebDavSettings
 import com.gladomat.linklet.data.settings.WebDavSettingsRepository
 import com.gladomat.linklet.data.storage.IStorage
-import com.gladomat.linklet.data.sync.metrics.NoOpSyncMetrics
 import com.gladomat.linklet.data.sync.metrics.SyncMetricKeys
 import com.gladomat.linklet.data.sync.metrics.SyncMetrics
 import javax.inject.Inject
@@ -33,7 +32,7 @@ class SyncEngine @Inject constructor(
     private val syncStateDao: SyncStateDao,
     private val webDavSettingsRepository: WebDavSettingsRepository,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val metrics: SyncMetrics = NoOpSyncMetrics,
+    private val metrics: SyncMetrics,
 ) {
 
     suspend fun preflight(provider: RemoteSyncProvider): Result<Unit> = withContext(dispatcher) {
@@ -101,7 +100,7 @@ class SyncEngine @Inject constructor(
                 resolvedConflicts = operations.count { it is SyncOperation.Conflict },
             )
         }.onSuccess {
-            val snapshot = metrics.snapshot()
+            val snapshot = metrics.snapshotAndReset()
             if (snapshot.counts.isNotEmpty() || snapshot.timingsMs.isNotEmpty()) {
                 Log.d(TAG, "Sync metrics counts=${snapshot.counts}, timingsMs=${snapshot.timingsMs}")
             }

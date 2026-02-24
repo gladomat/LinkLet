@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.gladomat.linklet.data.settings.WebDavSettings
 import com.gladomat.linklet.data.settings.WebDavSettingsRepository
+import com.gladomat.linklet.data.sync.metrics.InMemorySyncMetrics
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
@@ -47,6 +48,7 @@ class WebDavRemoteSyncProviderTests {
         )
         provider = WebDavRemoteSyncProvider(
             settingsRepository = repository,
+            metrics = InMemorySyncMetrics(),
         )
     }
 

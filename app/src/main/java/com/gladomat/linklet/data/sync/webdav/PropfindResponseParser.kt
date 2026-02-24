@@ -83,9 +83,17 @@ object PropfindResponseParser {
         vararg namespaces: String,
     ): Boolean {
         if (!parser.name.equals(localName, ignoreCase = true)) return false
-        val namespace = parser.namespace ?: return true
-        if (namespace.isBlank()) return true
-        return namespaces.any { namespace.equals(it, ignoreCase = true) }
+        val namespace = parser.namespace
+        // When the caller explicitly lists allowed namespaces, require the tag
+        // to carry one of them. Unqualified tags (null / blank namespace) are
+        // rejected so that custom or default-namespace elements cannot
+        // accidentally shadow well-known DAV property names.
+        if (namespaces.isNotEmpty()) {
+            if (namespace.isNullOrBlank()) return false
+            return namespaces.any { namespace.equals(it, ignoreCase = true) }
+        }
+        // No namespace filter requested — accept any tag with a matching local name.
+        return true
     }
 
     private fun normalizeEtag(raw: String?): String? {

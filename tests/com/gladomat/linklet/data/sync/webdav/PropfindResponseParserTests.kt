@@ -43,4 +43,29 @@ class PropfindResponseParserTests {
         assertEquals("/remote.php/dav/files/user/Org/real.org", item.href)
         assertEquals("real-etag", item.etag)
     }
+
+    @Test
+    fun `parser ignores unqualified tags that lack a namespace`() {
+        val xml = """
+            <d:multistatus xmlns:d="DAV:">
+              <d:response>
+                <href>unqualified-href</href>
+                <d:href>/remote.php/dav/files/user/Org/real.org</d:href>
+                <d:propstat>
+                  <d:prop>
+                    <getetag>"unqualified-etag"</getetag>
+                    <d:getetag>"real-etag"</d:getetag>
+                    <d:resourcetype/>
+                  </d:prop>
+                  <d:status>HTTP/1.1 200 OK</d:status>
+                </d:propstat>
+              </d:response>
+            </d:multistatus>
+        """.trimIndent()
+
+        val item = PropfindResponseParser.parse(xml.byteInputStream()).single()
+
+        assertEquals("/remote.php/dav/files/user/Org/real.org", item.href)
+        assertEquals("real-etag", item.etag)
+    }
 }

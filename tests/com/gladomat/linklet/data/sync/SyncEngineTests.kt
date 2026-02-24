@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.gladomat.linklet.data.index.NoteDatabase
+import com.gladomat.linklet.data.sync.metrics.InMemorySyncMetrics
 import com.gladomat.linklet.data.storage.IStorage
 import java.io.IOException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -49,7 +50,7 @@ class SyncEngineTests {
         )
         val provider = FakeRemoteSyncProvider()
         val settingsRepo = mockk<WebDavSettingsRepository>(relaxed = true)
-        engine = SyncEngine(storage, database.syncStateDao(), settingsRepo, dispatcher)
+        engine = SyncEngine(storage, database.syncStateDao(), settingsRepo, dispatcher, InMemorySyncMetrics())
 
         val summary = engine.run(provider).getOrThrow()
 
@@ -70,7 +71,7 @@ class SyncEngineTests {
         )
         val provider = FakeRemoteSyncProvider()
         val settingsRepo = mockk<WebDavSettingsRepository>(relaxed = true)
-        engine = SyncEngine(storage, database.syncStateDao(), settingsRepo, dispatcher)
+        engine = SyncEngine(storage, database.syncStateDao(), settingsRepo, dispatcher, InMemorySyncMetrics())
 
         val summary = engine.run(provider).getOrThrow()
 
@@ -95,7 +96,7 @@ class SyncEngineTests {
             remoteFiles = mapOf("remote-1" to "Remote note"),
         )
         val settingsRepo = mockk<WebDavSettingsRepository>(relaxed = true)
-        engine = SyncEngine(storage, database.syncStateDao(), settingsRepo, dispatcher)
+        engine = SyncEngine(storage, database.syncStateDao(), settingsRepo, dispatcher, InMemorySyncMetrics())
 
         val summary = engine.run(provider).getOrThrow()
 
@@ -127,7 +128,7 @@ class SyncEngineTests {
         )
 
         val settingsRepo = mockk<WebDavSettingsRepository>(relaxed = true)
-        engine = SyncEngine(storage, dao, settingsRepo, dispatcher)
+        engine = SyncEngine(storage, dao, settingsRepo, dispatcher, InMemorySyncMetrics())
 
         // Remote unchanged -> expect upload due to local delta
         val providerUpload = FakeRemoteSyncProvider(
@@ -270,7 +271,7 @@ class SyncEngineTests {
         )
 
         val settingsRepo = mockk<WebDavSettingsRepository>(relaxed = true)
-        engine = SyncEngine(storage, dao, settingsRepo, dispatcher)
+        engine = SyncEngine(storage, dao, settingsRepo, dispatcher, InMemorySyncMetrics())
         val summary = engine.run(provider).getOrThrow()
 
         assertEquals(0, summary.pendingDeletes)
@@ -296,7 +297,7 @@ class SyncEngineTests {
         )
 
         val settingsRepo = mockk<WebDavSettingsRepository>(relaxed = true)
-        engine = SyncEngine(storage, dao, settingsRepo, dispatcher)
+        engine = SyncEngine(storage, dao, settingsRepo, dispatcher, InMemorySyncMetrics())
 
         // Remote has changed to etag-2
         val provider = FakeRemoteSyncProvider(
@@ -374,7 +375,7 @@ class SyncEngineTests {
         val provider = FakeRemoteSyncProvider(metadata = remoteNotes)
 
         val settingsRepo = mockk<WebDavSettingsRepository>(relaxed = true)
-        engine = SyncEngine(storage, dao, settingsRepo, dispatcher)
+        engine = SyncEngine(storage, dao, settingsRepo, dispatcher, InMemorySyncMetrics())
         val result = engine.run(provider)
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull() is CatastrophicDeleteException)
@@ -430,7 +431,7 @@ class SyncEngineTests {
         val provider = FakeRemoteSyncProvider(metadata = remoteNotes)
 
         val settingsRepo = mockk<WebDavSettingsRepository>(relaxed = true)
-        engine = SyncEngine(storage, dao, settingsRepo, dispatcher)
+        engine = SyncEngine(storage, dao, settingsRepo, dispatcher, InMemorySyncMetrics())
         val result = engine.run(provider)
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull() is RequiresConfirmationException)

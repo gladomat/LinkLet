@@ -332,9 +332,6 @@ class NoteEditViewModel @Inject constructor(
         history.addLast(value)
     }
 
-    private fun <T> ArrayDeque<T>.removeLastOrNull(): T? =
-        if (isEmpty()) null else removeLast()
-
     object NoteArgs {
         const val NOTE_PATH = "note_path"
     }

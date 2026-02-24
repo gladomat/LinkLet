@@ -4,6 +4,7 @@ import com.gladomat.linklet.data.index.SyncStateDao
 import com.gladomat.linklet.data.settings.WebDavSettingsRepository
 import com.gladomat.linklet.data.storage.IStorage
 import com.gladomat.linklet.data.storage.StorageFileStat
+import com.gladomat.linklet.data.sync.metrics.InMemorySyncMetrics
 import com.gladomat.linklet.testing.MainDispatcherRule
 import io.mockk.coEvery
 import io.mockk.mockk
@@ -47,6 +48,7 @@ class SyncEngineFreshInstallTests {
             syncStateDao = syncStateDao,
             webDavSettingsRepository = settingsRepo,
             dispatcher = dispatcherRule.dispatcher,
+            metrics = InMemorySyncMetrics(),
         )
 
         val result = engine.run(remoteProvider).getOrThrow()
@@ -95,6 +97,7 @@ class SyncEngineFreshInstallTests {
             syncStateDao = syncStateDao,
             webDavSettingsRepository = settingsRepo,
             dispatcher = dispatcherRule.dispatcher,
+            metrics = InMemorySyncMetrics(),
         )
 
         engine.run(remoteProvider).getOrThrow()

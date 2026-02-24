@@ -11,7 +11,6 @@ import com.burgstaller.okhttp.digest.Credentials
 import com.burgstaller.okhttp.digest.DigestAuthenticator
 import com.gladomat.linklet.data.settings.WebDavSettings
 import com.gladomat.linklet.data.settings.WebDavSettingsRepository
-import com.gladomat.linklet.data.sync.metrics.NoOpSyncMetrics
 import com.gladomat.linklet.data.sync.metrics.SyncMetricKeys
 import com.gladomat.linklet.data.sync.metrics.SyncMetrics
 import com.thegrizzlylabs.sardineandroid.Sardine
@@ -36,7 +35,7 @@ private const val ENCODED_SLASH_PLACEHOLDER = "__ENC_SLASH__"
 class WebDavRemoteSyncProvider @Inject constructor(
     private val settingsRepository: WebDavSettingsRepository,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val metrics: SyncMetrics = NoOpSyncMetrics,
+    private val metrics: SyncMetrics,
 ) : RemoteSyncProvider {
 
     override val name: String = "webdav"

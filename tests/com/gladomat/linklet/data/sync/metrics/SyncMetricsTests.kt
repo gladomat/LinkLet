@@ -1,6 +1,7 @@
 package com.gladomat.linklet.data.sync.metrics
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SyncMetricsTests {
@@ -26,5 +27,21 @@ class SyncMetricsTests {
 
         val snapshot = metrics.snapshot()
         assertEquals(125L, snapshot.timingsMs[SyncMetricKeys.STAGE_DISCOVERY_MS])
+    }
+
+    @Test
+    fun `snapshotAndReset returns current state and clears metrics`() {
+        val metrics = InMemorySyncMetrics()
+
+        metrics.increment(SyncMetricKeys.HTTP_PROPFIND)
+        metrics.timing(SyncMetricKeys.STAGE_DISCOVERY_MS, 200)
+
+        val first = metrics.snapshotAndReset()
+        assertEquals(1, first.counts[SyncMetricKeys.HTTP_PROPFIND])
+        assertEquals(200L, first.timingsMs[SyncMetricKeys.STAGE_DISCOVERY_MS])
+
+        val second = metrics.snapshot()
+        assertTrue(second.counts.isEmpty())
+        assertTrue(second.timingsMs.isEmpty())
     }
 }

@@ -10,6 +10,9 @@ interface SyncMetrics {
     fun timing(metric: String, durationMs: Long)
 
     fun snapshot(): SyncMetricsSnapshot
+
+    /** Returns the current snapshot and resets all counters and timings to zero. */
+    fun snapshotAndReset(): SyncMetricsSnapshot
 }
 
 object SyncMetricKeys {
@@ -50,6 +53,13 @@ class InMemorySyncMetrics : SyncMetrics {
             timingsMs = timingSnapshot,
         )
     }
+
+    override fun snapshotAndReset(): SyncMetricsSnapshot {
+        val result = snapshot()
+        counts.clear()
+        timingsMs.clear()
+        return result
+    }
 }
 
 object NoOpSyncMetrics : SyncMetrics {
@@ -61,4 +71,6 @@ object NoOpSyncMetrics : SyncMetrics {
         counts = emptyMap(),
         timingsMs = emptyMap(),
     )
+
+    override fun snapshotAndReset(): SyncMetricsSnapshot = snapshot()
 }

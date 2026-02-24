@@ -285,6 +285,35 @@ PR formatting:
 
 4.  Provide PR description block.
 
+
+** Core Development Principles
+   - *Environment*: This project is in =pre-launch= development.
+   - *Backwards Compatibility*: Strictly forbidden. There are no existing users or legacy systems to support.
+   - *Technical Debt*: Prioritize clean, minimal code over safety shims. If a feature is refactored, the old version must be /completely deleted/, not moved to a fallback.
+
+** Error Handling and Fallbacks
+   - *Fail Loud*: Never use silent =try-catch= blocks or null-coalescing to hide errors. If a dependency is missing, the application must crash immediately.
+   - *No "Smart" Recovery*: Do not write logic to guess user intent or fix malformed data. Throw an exception so the developer can fix the source.
+   - *Environment Variables*: If a required key like ~API_KEY~ is missing, do not provide mock data or a fallback. Halt execution.
+
+** Refactoring Rules
+   1. Identify all code paths related to the old implementation.
+   2. Delete all unused files, functions, and imports.
+   3. Write the new implementation as if the old one /never existed/.
+   4. Avoid creating "compatibility layers" or ~_legacy~ suffixes.
+
+** Specific Prohibitions
+   - +Backwards compatibility shims+
+   - +Automatic database migrations for unreleased schemas+
+   - +Edge-case guarding for impossible conditions+
+   - =deprecated= tags: If it is deprecated, remove it now.
+
+*** Example: Refactoring a Scraper
+    - /Bad/: Adding a check for "Access Denied" that returns an empty list.
+    - /Good/: Raising a ~PermissionError~ and stopping the script.
+    - /Bad/: Keeping the old ~v1_parser.py~ "just in case."
+    - /Good/: Deleting ~v1_parser.py~ and all associated tests before writing ~v2~.
+
 ## 8. Summary
 
 This **AGENTS.md** is your contract. Follow the structure, ask for
