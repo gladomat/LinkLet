@@ -3,6 +3,9 @@ package com.gladomat.linklet.data.sync.metrics
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class SyncMetricsTests {
 
@@ -43,5 +46,29 @@ class SyncMetricsTests {
         val second = metrics.snapshot()
         assertTrue(second.counts.isEmpty())
         assertTrue(second.timingsMs.isEmpty())
+    }
+
+    @Test
+    fun `snapshotAndReset does not drop increments under concurrency`() {
+        val metrics = InMemorySyncMetrics()
+        val executor = Executors.newFixedThreadPool(6)
+        val snapshots = ConcurrentLinkedQueue<SyncMetricsSnapshot>()
+        val counter = SyncMetricKeys.HTTP_GET
+        val increments = 10_000
+        val resets = 300
+
+        repeat(increments) {
+            executor.submit { metrics.increment(counter) }
+        }
+        repeat(resets) {
+            executor.submit { snapshots.add(metrics.snapshotAndReset()) }
+        }
+
+        executor.shutdown()
+        assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS))
+        snapshots.add(metrics.snapshotAndReset())
+
+        val total = snapshots.sumOf { it.counts[counter] ?: 0 }
+        assertEquals(increments, total)
     }
 }

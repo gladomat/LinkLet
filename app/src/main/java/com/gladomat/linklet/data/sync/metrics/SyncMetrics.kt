@@ -32,33 +32,46 @@ data class SyncMetricsSnapshot(
 )
 
 class InMemorySyncMetrics : SyncMetrics {
+    private val lock = Any()
     private val counts = ConcurrentHashMap<String, AtomicInteger>()
     private val timingsMs = ConcurrentHashMap<String, AtomicLong>()
 
     override fun increment(counter: String) {
-        counts.computeIfAbsent(counter) { AtomicInteger(0) }.incrementAndGet()
+        synchronized(lock) {
+            counts.computeIfAbsent(counter) { AtomicInteger(0) }.incrementAndGet()
+        }
     }
 
     override fun timing(metric: String, durationMs: Long) {
-        timingsMs.compute(metric) { _, existing ->
-            (existing ?: AtomicLong(0)).apply { addAndGet(durationMs) }
+        synchronized(lock) {
+            timingsMs.compute(metric) { _, existing ->
+                (existing ?: AtomicLong(0)).apply { addAndGet(durationMs) }
+            }
         }
     }
 
     override fun snapshot(): SyncMetricsSnapshot {
+        synchronized(lock) {
+            return snapshotLocked()
+        }
+    }
+
+    override fun snapshotAndReset(): SyncMetricsSnapshot {
+        synchronized(lock) {
+            val result = snapshotLocked()
+            counts.clear()
+            timingsMs.clear()
+            return result
+        }
+    }
+
+    private fun snapshotLocked(): SyncMetricsSnapshot {
         val countSnapshot = counts.entries.associate { (name, value) -> name to value.get() }
         val timingSnapshot = timingsMs.entries.associate { (name, value) -> name to value.get() }
         return SyncMetricsSnapshot(
             counts = countSnapshot,
             timingsMs = timingSnapshot,
         )
-    }
-
-    override fun snapshotAndReset(): SyncMetricsSnapshot {
-        val result = snapshot()
-        counts.clear()
-        timingsMs.clear()
-        return result
     }
 }
 
