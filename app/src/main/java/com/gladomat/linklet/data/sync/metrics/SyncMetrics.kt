@@ -20,6 +20,7 @@ object SyncMetricKeys {
     const val HTTP_PUT = "http_PUT"
     const val HTTP_DELETE = "http_DELETE"
     const val HTTP_PROPFIND = "http_PROPFIND"
+    const val HTTP_SEARCH = "http_SEARCH"
 
     const val STAGE_DISCOVERY_MS = "stage_discovery_ms"
     const val STAGE_RECONCILE_MS = "stage_reconcile_ms"

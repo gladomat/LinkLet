@@ -60,6 +60,9 @@ interface NoteDao {
     @Query("SELECT availability FROM notes WHERE path = :path LIMIT 1")
     suspend fun getNoteAvailability(path: String): NoteAvailability?
 
+    @Query("SELECT * FROM notes WHERE availability IN (:availabilities) AND deletedAt IS NULL")
+    suspend fun getNotesByAvailability(availabilities: List<NoteAvailability>): List<NoteEntity>
+
     @Query("UPDATE notes SET path = :newPath WHERE path = :oldPath")
     suspend fun updateNotePath(oldPath: String, newPath: String)
 
