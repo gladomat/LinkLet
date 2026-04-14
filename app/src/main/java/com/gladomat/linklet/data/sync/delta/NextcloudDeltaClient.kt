@@ -91,14 +91,14 @@ class NextcloudDeltaClient(
                 // Check for error responses
                 val code = response.code
                 if (code >= 500 || code == 429) {
-                    return@withContext DeltaResult(
+                    return@use DeltaResult(
                         changes = emptyList(),
                         validity = DeltaValidity.hardInvalid("server error: $code"),
                         serverTimeEpochMillis = serverTimeEpochMillis,
                     )
                 }
                 if (code !in 200..299) {
-                    return@withContext DeltaResult(
+                    return@use DeltaResult(
                         changes = emptyList(),
                         validity = DeltaValidity.hardInvalid("http error: $code"),
                         serverTimeEpochMillis = serverTimeEpochMillis,
@@ -191,8 +191,8 @@ class NextcloudDeltaClient(
         }
 
         return response.use { resp ->
-            if (!resp.isSuccessful) return emptyList()
-            val body = resp.body ?: return emptyList()
+            if (!resp.isSuccessful) return@use emptyList()
+            val body = resp.body ?: return@use emptyList()
             PropfindResponseParser.parse(body.byteStream())
                 .filter { item ->
                     val modified = item.lastModifiedEpochMillis ?: return@filter false

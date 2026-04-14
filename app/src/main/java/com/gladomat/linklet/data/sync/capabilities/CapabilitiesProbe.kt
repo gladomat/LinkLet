@@ -150,8 +150,8 @@ class CapabilitiesProbe(
 
         return try {
             httpClient.newCall(request).execute().use { response ->
-                if (response.code !in 200..299) return false
-                val body = response.body ?: return false
+                if (response.code !in 200..299) return@use false
+                val body = response.body ?: return@use false
                 val items = PropfindResponseParser.parse(body.byteStream()).toList()
                 items.any { it.fileId != null }
             }
