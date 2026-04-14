@@ -93,7 +93,7 @@ class SnapshotBuilder(
             }
 
             metrics.increment(SyncMetricKeys.HTTP_PROPFIND)
-            val items = propfindClient.propfind(dirUrl, depth = 1).getOrElse { continue }
+            val items = propfindClient.propfind(dirUrl, depth = 1).getOrNull() ?: continue
 
             directoriesTraversed++
             val now = nowEpochMillis
