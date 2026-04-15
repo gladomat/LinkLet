@@ -20,7 +20,6 @@ class IndexPass1Processor @Inject constructor(
         return runCatching {
             val runStartedAt = System.currentTimeMillis()
             Log.d(TAG, "Pass 1 run starting timeBudgetMillis=$timeBudgetMillis")
-            storage.invalidateCache()
             val now = System.currentTimeMillis()
             val pendingAtStart = indexQueueDao.countByStatus(PASS_1, IndexQueueStatus.PENDING)
             if (pendingAtStart > 0) {
@@ -33,6 +32,7 @@ class IndexPass1Processor @Inject constructor(
                 return@runCatching
             }
 
+            storage.invalidateCache()
             val allPaths = storage.listNotes().getOrThrow()
             val activePaths = allPaths.filterNot(::isTrashPath)
             val activeSet = activePaths.toSet()
@@ -114,7 +114,8 @@ class IndexPass1Processor @Inject constructor(
                 break
             }
             Log.d(TAG, "Pass 1 processing path=${current.path} attempt=${current.attempts + 1}")
-            val stat = storage.statNote(current.path).getOrNull()
+            val shouldStat = current.expectedMtime != null || current.expectedSize != null
+            val stat = if (shouldStat) storage.statNote(current.path).getOrNull() else null
             val stale = stat != null &&
                 ((current.expectedMtime != null && current.expectedMtime != stat.lastModifiedEpochMillis) ||
                     (current.expectedSize != null && current.expectedSize != stat.sizeBytes))
@@ -139,7 +140,9 @@ class IndexPass1Processor @Inject constructor(
                 val content = storage.readNote(current.path).getOrThrow()
                 val metadata = NoteMetadataParser.parse(content, current.path)
                 val fingerprintMtime = stat?.lastModifiedEpochMillis ?: current.expectedMtime
-                val fingerprintSize = stat?.sizeBytes ?: current.expectedSize
+                val fingerprintSize = stat?.sizeBytes
+                    ?: current.expectedSize
+                    ?: content.toByteArray(Charsets.UTF_8).size.toLong()
                 database.withTransaction {
                     noteDao.insertNotes(
                         listOf(

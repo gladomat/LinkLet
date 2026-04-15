@@ -140,7 +140,7 @@ class IndexPass1ProcessorTests {
 
     @Test
     fun `run processes notes when initial scan exceeds processing budget`() = runTest {
-        val storage = SlowStatStorage(
+        val storage = SlowReadStorage(
             mutableMapOf(
                 "a.org" to "#+title: A",
                 "b.org" to "#+title: B",
@@ -169,8 +169,8 @@ class IndexPass1ProcessorTests {
 
         processor.run(timeBudgetMillis = 5L).getOrThrow()
 
-        assertEquals(1, noteDao.getAllNotes().size)
-        assertEquals(1, storage.statCalls)
+        assertEquals(3, noteDao.getAllNotes().size)
+        assertEquals(0, storage.statCalls)
     }
 
     @Test
@@ -191,8 +191,28 @@ class IndexPass1ProcessorTests {
 
         processor.run(timeBudgetMillis = 5L).getOrThrow()
 
-        assertEquals(1, noteDao.getAllNotes().size)
+        val notes = noteDao.getAllNotes()
+        assertEquals(1, notes.size)
+        assertEquals("#+title: A".toByteArray(Charsets.UTF_8).size.toLong(), notes.first().fingerprintSize)
         assertEquals(1, indexQueueDao.countByStatus(pass = 1, status = IndexQueueStatus.DONE))
+    }
+
+    @Test
+    fun `run keeps storage cache while draining existing pass1 queue`() = runTest {
+        indexQueueDao.upsert(
+            IndexQueueEntity(
+                path = "a.org",
+                pass = 1,
+                status = IndexQueueStatus.PENDING,
+                updatedAtEpochMillis = 1L,
+            ),
+        )
+        val storage = CountingStorage(mutableMapOf("a.org" to "#+title: A"))
+        val processor = IndexPass1Processor(storage, noteDao, indexQueueDao, database)
+
+        processor.run(timeBudgetMillis = 5L).getOrThrow()
+
+        assertEquals(0, storage.invalidateCacheCalls)
     }
 
     private open class FakeStorage(
@@ -240,7 +260,7 @@ class IndexPass1ProcessorTests {
         override suspend fun resolveUri(path: String): Result<android.net.Uri> =
             Result.failure(UnsupportedOperationException("Not used in these tests"))
 
-        override suspend fun invalidateCache() = Unit
+        open override suspend fun invalidateCache() = Unit
     }
 
     private class SlowStatStorage(
@@ -253,6 +273,26 @@ class IndexPass1ProcessorTests {
             statCalls += 1
             Thread.sleep(10L)
             return super.statNote(path)
+        }
+    }
+
+    private class SlowReadStorage(
+        files: MutableMap<String, String>,
+    ) : FakeStorage(files) {
+        override suspend fun readNote(path: String): Result<String> {
+            Thread.sleep(10L)
+            return super.readNote(path)
+        }
+    }
+
+    private class CountingStorage(
+        files: MutableMap<String, String>,
+    ) : FakeStorage(files) {
+        var invalidateCacheCalls = 0
+            private set
+
+        override suspend fun invalidateCache() {
+            invalidateCacheCalls += 1
         }
     }
 }
