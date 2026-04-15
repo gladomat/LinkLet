@@ -23,6 +23,11 @@ class IndexPass1Worker @AssistedInject constructor(
     private val indexQueueDao: IndexQueueDao,
 ) : CoroutineWorker(appContext, workerParams) {
 
+    enum class Pass1Completion {
+        CONTINUE_PASS_1,
+        START_PASS_2,
+    }
+
     override suspend fun doWork(): Result {
         Log.d(TAG, "Pass 1 worker starting id=$id attempt=$runAttemptCount")
         val result = processor.run(timeBudgetMillis = TIME_BUDGET_MILLIS)
@@ -32,20 +37,17 @@ class IndexPass1Worker @AssistedInject constructor(
                 val done = indexQueueDao.countByStatus(pass = PASS_1, status = IndexQueueStatus.DONE)
                 val failed = indexQueueDao.countByStatus(pass = PASS_1, status = IndexQueueStatus.FAILED)
                 Log.d(TAG, "Pass 1 worker finished pending=$pending done=$done failed=$failed")
-                if (pending > 0) {
-                    Log.d(TAG, "Pass 1 worker retrying because pending work remains")
-                    Result.retry()
-                } else {
-                    val pass2 = OneTimeWorkRequest.Builder(IndexPass2Worker::class.java)
-                        .addTag(IndexingWork.TAG)
-                        .build()
-                    WorkManager.getInstance(applicationContext).enqueueUniqueWork(
-                        IndexingWork.UNIQUE_PASS2_NAME,
-                        PASS2_EXISTING_WORK_POLICY,
-                        pass2,
-                    )
-                    Log.d(TAG, "Pass 1 worker scheduled pass 2")
-                    Result.success()
+                when (completionForPendingCount(pending)) {
+                    Pass1Completion.CONTINUE_PASS_1 -> {
+                        schedulePass1Continuation()
+                        Log.d(TAG, "Pass 1 worker scheduled continuation because pending work remains")
+                        Result.success()
+                    }
+                    Pass1Completion.START_PASS_2 -> {
+                        schedulePass2()
+                        Log.d(TAG, "Pass 1 worker scheduled pass 2")
+                        Result.success()
+                    }
                 }
             },
             onFailure = { error ->
@@ -55,7 +57,33 @@ class IndexPass1Worker @AssistedInject constructor(
         )
     }
 
+    private fun schedulePass1Continuation() {
+        val pass1 = OneTimeWorkRequest.Builder(IndexPass1Worker::class.java)
+            .addTag(IndexingWork.TAG)
+            .build()
+        WorkManager.getInstance(applicationContext).enqueueUniqueWork(
+            IndexingWork.UNIQUE_PASS1_NAME,
+            PASS1_CONTINUATION_EXISTING_WORK_POLICY,
+            pass1,
+        )
+    }
+
+    private fun schedulePass2() {
+        val pass2 = OneTimeWorkRequest.Builder(IndexPass2Worker::class.java)
+            .addTag(IndexingWork.TAG)
+            .build()
+        WorkManager.getInstance(applicationContext).enqueueUniqueWork(
+            IndexingWork.UNIQUE_PASS2_NAME,
+            PASS2_EXISTING_WORK_POLICY,
+            pass2,
+        )
+    }
+
     companion object {
+        internal fun completionForPendingCount(pending: Int): Pass1Completion =
+            if (pending > 0) Pass1Completion.CONTINUE_PASS_1 else Pass1Completion.START_PASS_2
+
+        internal val PASS1_CONTINUATION_EXISTING_WORK_POLICY = ExistingWorkPolicy.APPEND_OR_REPLACE
         internal val PASS2_EXISTING_WORK_POLICY = ExistingWorkPolicy.APPEND_OR_REPLACE
         private const val TAG = "IndexPass1Worker"
         private const val PASS_1 = 1

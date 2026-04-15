@@ -1,11 +1,29 @@
 package com.gladomat.linklet.data.index
 
 import com.gladomat.linklet.data.index.worker.IndexPass2Worker
+import com.gladomat.linklet.data.index.worker.IndexPass1Worker
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class IndexWorkerGatingTests {
+
+    @Test
+    fun `pass1 schedules continuation instead of retrying when pending remains`() {
+        assertEquals(
+            IndexPass1Worker.Pass1Completion.CONTINUE_PASS_1,
+            IndexPass1Worker.completionForPendingCount(pending = 1),
+        )
+    }
+
+    @Test
+    fun `pass1 schedules pass2 when no pending remains`() {
+        assertEquals(
+            IndexPass1Worker.Pass1Completion.START_PASS_2,
+            IndexPass1Worker.completionForPendingCount(pending = 0),
+        )
+    }
 
     @Test
     fun `pass2 gate blocks when pass1 pending`() {
