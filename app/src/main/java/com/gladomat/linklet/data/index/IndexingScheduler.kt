@@ -24,7 +24,7 @@ class IndexingScheduler @Inject constructor(
 
         workManager.enqueueUniqueWork(
             IndexingWork.UNIQUE_PASS1_NAME,
-            ExistingWorkPolicy.KEEP,
+            PASS1_EXISTING_WORK_POLICY,
             request,
         )
         Log.d(TAG, "Scheduled pass 1 indexing")
@@ -37,13 +37,15 @@ class IndexingScheduler @Inject constructor(
 
         workManager.enqueueUniqueWork(
             IndexingWork.UNIQUE_PASS2_NAME,
-            ExistingWorkPolicy.KEEP,
+            PASS2_EXISTING_WORK_POLICY,
             request,
         )
         Log.d(TAG, "Scheduled pass 2 indexing")
     }
 
     companion object {
+        internal val PASS1_EXISTING_WORK_POLICY = ExistingWorkPolicy.APPEND_OR_REPLACE
+        internal val PASS2_EXISTING_WORK_POLICY = ExistingWorkPolicy.APPEND_OR_REPLACE
         private const val TAG = "IndexingScheduler"
     }
 }

@@ -25,7 +25,6 @@ class IndexPass1Processor @Inject constructor(
             val existingNotes = noteDao.getAllNotes()
             val existingByPath = existingNotes.associateBy { it.path }
             val now = System.currentTimeMillis()
-            val startedAt = now
 
             existingNotes
                 .filter { it.deletedAt == null && it.path !in activeSet }
@@ -57,12 +56,13 @@ class IndexPass1Processor @Inject constructor(
                 indexQueueDao.upsertAll(enqueueEntries)
             }
 
+            val processingStartedAt = System.currentTimeMillis()
             var entry = indexQueueDao.claimNext(pass = PASS_1, now = now, leaseTimeoutMillis = LEASE_TIMEOUT_MILLIS)
             while (entry != null) {
                 currentCoroutineContext().ensureActive()
                 val current = entry
                 val updatedAt = System.currentTimeMillis()
-                if (timeBudgetMillis != null && updatedAt - startedAt >= timeBudgetMillis) {
+                if (timeBudgetMillis != null && updatedAt - processingStartedAt >= timeBudgetMillis) {
                     break
                 }
                 val stat = storage.statNote(current.path).getOrNull()

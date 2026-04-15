@@ -138,6 +138,24 @@ class IndexPass1ProcessorTests {
         assertEquals(1, indexQueueDao.countByStatus(pass = 2, status = IndexQueueStatus.PENDING))
     }
 
+    @Test
+    fun `run processes notes when initial scan exceeds processing budget`() = runTest {
+        val storage = SlowStatStorage(
+            mutableMapOf(
+                "a.org" to "#+title: A",
+                "b.org" to "#+title: B",
+                "c.org" to "#+title: C",
+            ),
+        )
+        val processor = IndexPass1Processor(storage, noteDao, indexQueueDao, database)
+
+        processor.run(timeBudgetMillis = 5L).getOrThrow()
+
+        assertEquals(3, indexQueueDao.countByPass(pass = 1))
+        assertEquals(1, noteDao.getAllNotes().size)
+        assertEquals(1, indexQueueDao.countByStatus(pass = 1, status = IndexQueueStatus.DONE))
+    }
+
     private open class FakeStorage(
         private val files: MutableMap<String, String>,
     ) : IStorage {
@@ -184,5 +202,14 @@ class IndexPass1ProcessorTests {
             Result.failure(UnsupportedOperationException("Not used in these tests"))
 
         override suspend fun invalidateCache() = Unit
+    }
+
+    private class SlowStatStorage(
+        files: MutableMap<String, String>,
+    ) : FakeStorage(files) {
+        override suspend fun statNote(path: String): Result<StorageFileStat> {
+            Thread.sleep(10L)
+            return super.statNote(path)
+        }
     }
 }

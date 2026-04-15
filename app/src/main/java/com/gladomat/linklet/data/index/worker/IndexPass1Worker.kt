@@ -1,9 +1,9 @@
 package com.gladomat.linklet.data.index.worker
 
 import android.content.Context
-import androidx.work.ExistingWorkPolicy
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
+import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequest
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -11,7 +11,6 @@ import com.gladomat.linklet.data.index.IndexingWork
 import com.gladomat.linklet.data.index.IndexPass1Processor
 import com.gladomat.linklet.data.index.IndexQueueDao
 import com.gladomat.linklet.data.index.IndexQueueStatus
-import com.gladomat.linklet.data.index.worker.IndexPass2Worker
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 
@@ -36,7 +35,7 @@ class IndexPass1Worker @AssistedInject constructor(
                         .build()
                     WorkManager.getInstance(applicationContext).enqueueUniqueWork(
                         IndexingWork.UNIQUE_PASS2_NAME,
-                        ExistingWorkPolicy.KEEP,
+                        PASS2_EXISTING_WORK_POLICY,
                         pass2,
                     )
                     Result.success()
@@ -47,6 +46,7 @@ class IndexPass1Worker @AssistedInject constructor(
     }
 
     companion object {
+        internal val PASS2_EXISTING_WORK_POLICY = ExistingWorkPolicy.APPEND_OR_REPLACE
         private const val PASS_1 = 1
         private const val TIME_BUDGET_MILLIS = 20_000L
     }
