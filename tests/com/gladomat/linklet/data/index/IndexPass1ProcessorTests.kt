@@ -173,6 +173,28 @@ class IndexPass1ProcessorTests {
         assertEquals(1, storage.statCalls)
     }
 
+    @Test
+    fun `run skips storage scan when pending pass1 work already exists`() = runTest {
+        indexQueueDao.upsert(
+            IndexQueueEntity(
+                path = "a.org",
+                pass = 1,
+                status = IndexQueueStatus.PENDING,
+                updatedAtEpochMillis = 1L,
+            ),
+        )
+        val storage = object : FakeStorage(mutableMapOf("a.org" to "#+title: A")) {
+            override suspend fun listNotes(): Result<List<String>> =
+                Result.failure(IOException("scan should be skipped"))
+        }
+        val processor = IndexPass1Processor(storage, noteDao, indexQueueDao, database)
+
+        processor.run(timeBudgetMillis = 5L).getOrThrow()
+
+        assertEquals(1, noteDao.getAllNotes().size)
+        assertEquals(1, indexQueueDao.countByStatus(pass = 1, status = IndexQueueStatus.DONE))
+    }
+
     private open class FakeStorage(
         private val files: MutableMap<String, String>,
     ) : IStorage {
