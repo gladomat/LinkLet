@@ -5,7 +5,10 @@ import androidx.room.withTransaction
 import com.gladomat.linklet.data.model.LinkTarget
 import com.gladomat.linklet.data.parser.IParser
 import com.gladomat.linklet.data.storage.IStorage
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import javax.inject.Inject
+import kotlin.coroutines.cancellation.CancellationException
 
 class IndexPass2Processor @Inject constructor(
     private val storage: IStorage,
@@ -44,6 +47,7 @@ class IndexPass2Processor @Inject constructor(
 
             var entry = indexQueueDao.claimNext(pass = PASS_2, now = now, leaseTimeoutMillis = LEASE_TIMEOUT_MILLIS)
             while (entry != null) {
+                currentCoroutineContext().ensureActive()
                 val current = entry
                 val updatedAt = System.currentTimeMillis()
                 when (current.operation) {
@@ -112,6 +116,7 @@ class IndexPass2Processor @Inject constructor(
                                 )
                             }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
                             Log.e(TAG, "Pass 2 indexing failed for ${current.path}", e)
                             indexQueueDao.upsert(
                                 current.copy(
@@ -127,7 +132,7 @@ class IndexPass2Processor @Inject constructor(
                 }
                 entry = indexQueueDao.claimNext(pass = PASS_2, now = now, leaseTimeoutMillis = LEASE_TIMEOUT_MILLIS)
             }
-        }
+        }.onFailure { if (it is CancellationException) throw it }
     }
 
     companion object {

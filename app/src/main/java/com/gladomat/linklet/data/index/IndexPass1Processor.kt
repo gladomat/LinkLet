@@ -4,7 +4,10 @@ import android.util.Log
 import androidx.room.withTransaction
 import com.gladomat.linklet.data.parser.NoteMetadataParser
 import com.gladomat.linklet.data.storage.IStorage
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import javax.inject.Inject
+import kotlin.coroutines.cancellation.CancellationException
 
 class IndexPass1Processor @Inject constructor(
     private val storage: IStorage,
@@ -56,6 +59,7 @@ class IndexPass1Processor @Inject constructor(
 
             var entry = indexQueueDao.claimNext(pass = PASS_1, now = now, leaseTimeoutMillis = LEASE_TIMEOUT_MILLIS)
             while (entry != null) {
+                currentCoroutineContext().ensureActive()
                 val current = entry
                 val updatedAt = System.currentTimeMillis()
                 if (timeBudgetMillis != null && updatedAt - startedAt >= timeBudgetMillis) {
@@ -122,6 +126,7 @@ class IndexPass1Processor @Inject constructor(
                         )
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     Log.e(TAG, "Pass 1 indexing failed for ${current.path}", e)
                     indexQueueDao.upsert(
                         current.copy(
@@ -135,7 +140,7 @@ class IndexPass1Processor @Inject constructor(
                 }
                 entry = indexQueueDao.claimNext(pass = PASS_1, now = now, leaseTimeoutMillis = LEASE_TIMEOUT_MILLIS)
             }
-        }
+        }.onFailure { if (it is CancellationException) throw it }
     }
 
     private fun isTrashPath(path: String): Boolean =
