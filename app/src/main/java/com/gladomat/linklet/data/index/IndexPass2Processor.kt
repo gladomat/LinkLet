@@ -20,10 +20,13 @@ class IndexPass2Processor @Inject constructor(
 
     suspend fun run(): Result<Unit> {
         return runCatching {
+            val runStartedAt = System.currentTimeMillis()
+            Log.d(TAG, "Pass 2 run starting")
             storage.invalidateCache()
             val now = System.currentTimeMillis()
 
             val notesNeedingLinks = noteDao.listNotesNeedingLinks()
+            Log.d(TAG, "Pass 2 notes needing links count=${notesNeedingLinks.size}")
             if (notesNeedingLinks.isNotEmpty()) {
                 indexQueueDao.upsertAll(
                     notesNeedingLinks.map { note ->
@@ -41,15 +44,20 @@ class IndexPass2Processor @Inject constructor(
                     },
                 )
             }
+            Log.d(TAG, "Pass 2 enqueue complete pending=${indexQueueDao.countByStatus(PASS_2, IndexQueueStatus.PENDING)}")
 
             // This processor is single-threaded; keep the cache simple.
             val orgIdCache = mutableMapOf<String, String?>()
 
             var entry = indexQueueDao.claimNext(pass = PASS_2, now = now, leaseTimeoutMillis = LEASE_TIMEOUT_MILLIS)
+            var processed = 0
+            var deleted = 0
+            var failed = 0
             while (entry != null) {
                 currentCoroutineContext().ensureActive()
                 val current = entry
                 val updatedAt = System.currentTimeMillis()
+                Log.d(TAG, "Pass 2 processing operation=${current.operation} path=${current.path} attempt=${current.attempts + 1}")
                 when (current.operation) {
                     IndexQueueOperation.DELETE -> {
                         val orgId = noteDao.findOrgIdByPath(current.path)
@@ -70,6 +78,9 @@ class IndexPass2Processor @Inject constructor(
                                 ),
                             )
                         }
+                        deleted += 1
+                        processed += 1
+                        Log.d(TAG, "Pass 2 deleted links for path=${current.path} processed=$processed")
                     }
                     IndexQueueOperation.UPSERT -> {
                         try {
@@ -115,8 +126,14 @@ class IndexPass2Processor @Inject constructor(
                                     ),
                                 )
                             }
+                            processed += 1
+                            Log.d(
+                                TAG,
+                                "Pass 2 indexed links path=${current.path} links=${resolvedLinks.size} linksReady=${!hasUnresolvedIdLinks} processed=$processed",
+                            )
                         } catch (e: Exception) {
                             if (e is CancellationException) throw e
+                            failed += 1
                             Log.e(TAG, "Pass 2 indexing failed for ${current.path}", e)
                             indexQueueDao.upsert(
                                 current.copy(
@@ -132,6 +149,10 @@ class IndexPass2Processor @Inject constructor(
                 }
                 entry = indexQueueDao.claimNext(pass = PASS_2, now = now, leaseTimeoutMillis = LEASE_TIMEOUT_MILLIS)
             }
+            Log.d(
+                TAG,
+                "Pass 2 run complete processed=$processed deleted=$deleted failed=$failed pending=${indexQueueDao.countByStatus(PASS_2, IndexQueueStatus.PENDING)} done=${indexQueueDao.countByStatus(PASS_2, IndexQueueStatus.DONE)} totalElapsedMs=${System.currentTimeMillis() - runStartedAt}",
+            )
         }.onFailure { if (it is CancellationException) throw it }
     }
 

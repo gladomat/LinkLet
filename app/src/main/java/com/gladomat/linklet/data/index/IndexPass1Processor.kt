@@ -18,6 +18,8 @@ class IndexPass1Processor @Inject constructor(
 
     suspend fun run(timeBudgetMillis: Long? = null): Result<Unit> {
         return runCatching {
+            val runStartedAt = System.currentTimeMillis()
+            Log.d(TAG, "Pass 1 run starting timeBudgetMillis=$timeBudgetMillis")
             storage.invalidateCache()
             val allPaths = storage.listNotes().getOrThrow()
             val activePaths = allPaths.filterNot(::isTrashPath)
@@ -25,10 +27,17 @@ class IndexPass1Processor @Inject constructor(
             val existingNotes = noteDao.getAllNotes()
             val existingByPath = existingNotes.associateBy { it.path }
             val now = System.currentTimeMillis()
+            Log.d(
+                TAG,
+                "Pass 1 scan listed all=${allPaths.size} active=${activePaths.size} existing=${existingNotes.size} elapsedMs=${now - runStartedAt}",
+            )
 
-            existingNotes
+            val tombstoned = existingNotes
                 .filter { it.deletedAt == null && it.path !in activeSet }
-                .forEach { noteDao.markDeleted(path = it.path, deletedAt = now) }
+            tombstoned.forEach { noteDao.markDeleted(path = it.path, deletedAt = now) }
+            if (tombstoned.isNotEmpty()) {
+                Log.d(TAG, "Pass 1 tombstoned missing notes count=${tombstoned.size}")
+            }
 
             val enqueueEntries = mutableListOf<IndexQueueEntity>()
             activePaths.forEach { path ->
@@ -55,21 +64,35 @@ class IndexPass1Processor @Inject constructor(
             if (enqueueEntries.isNotEmpty()) {
                 indexQueueDao.upsertAll(enqueueEntries)
             }
+            Log.d(
+                TAG,
+                "Pass 1 enqueue complete queued=${enqueueEntries.size} pending=${indexQueueDao.countByStatus(PASS_1, IndexQueueStatus.PENDING)} elapsedMs=${System.currentTimeMillis() - runStartedAt}",
+            )
 
             val processingStartedAt = System.currentTimeMillis()
             var entry = indexQueueDao.claimNext(pass = PASS_1, now = now, leaseTimeoutMillis = LEASE_TIMEOUT_MILLIS)
+            var processed = 0
+            var staleEntries = 0
+            var failed = 0
             while (entry != null) {
                 currentCoroutineContext().ensureActive()
                 val current = entry
                 val updatedAt = System.currentTimeMillis()
                 if (timeBudgetMillis != null && updatedAt - processingStartedAt >= timeBudgetMillis) {
+                    Log.d(
+                        TAG,
+                        "Pass 1 budget exhausted processed=$processed stale=$staleEntries failed=$failed elapsedProcessingMs=${updatedAt - processingStartedAt}",
+                    )
                     break
                 }
+                Log.d(TAG, "Pass 1 processing path=${current.path} attempt=${current.attempts + 1}")
                 val stat = storage.statNote(current.path).getOrNull()
                 val stale = stat != null &&
                     ((current.expectedMtime != null && current.expectedMtime != stat.lastModifiedEpochMillis) ||
                         (current.expectedSize != null && current.expectedSize != stat.sizeBytes))
                 if (stale) {
+                    staleEntries += 1
+                    Log.d(TAG, "Pass 1 found stale fingerprint path=${current.path}; requeueing")
                     indexQueueDao.upsert(
                         current.copy(
                             status = IndexQueueStatus.PENDING,
@@ -125,8 +148,11 @@ class IndexPass1Processor @Inject constructor(
                             ),
                         )
                     }
+                    processed += 1
+                    Log.d(TAG, "Pass 1 indexed path=${current.path} processed=$processed")
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
+                    failed += 1
                     Log.e(TAG, "Pass 1 indexing failed for ${current.path}", e)
                     indexQueueDao.upsert(
                         current.copy(
@@ -140,6 +166,10 @@ class IndexPass1Processor @Inject constructor(
                 }
                 entry = indexQueueDao.claimNext(pass = PASS_1, now = now, leaseTimeoutMillis = LEASE_TIMEOUT_MILLIS)
             }
+            Log.d(
+                TAG,
+                "Pass 1 run complete processed=$processed stale=$staleEntries failed=$failed pending=${indexQueueDao.countByStatus(PASS_1, IndexQueueStatus.PENDING)} done=${indexQueueDao.countByStatus(PASS_1, IndexQueueStatus.DONE)} totalElapsedMs=${System.currentTimeMillis() - runStartedAt}",
+            )
         }.onFailure { if (it is CancellationException) throw it }
     }
 

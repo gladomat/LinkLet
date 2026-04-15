@@ -1,6 +1,7 @@
 package com.gladomat.linklet.data.index.worker
 
 import android.content.Context
+import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
@@ -22,16 +23,33 @@ class IndexPass2Worker @AssistedInject constructor(
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
+        Log.d(TAG, "Pass 2 worker starting id=$id attempt=$runAttemptCount")
         val now = System.currentTimeMillis()
         val pass1Pending = indexQueueDao.countByStatus(pass = PASS_1, status = IndexQueueStatus.PENDING)
         val state = indexingStateDao.get()
+        val lastPass1EnqueueAt = state?.lastPass1EnqueueAtEpochMillis
+        val idleAgeMs = lastPass1EnqueueAt?.let { now - it }
+        Log.d(
+            TAG,
+            "Pass 2 gate check pass1Pending=$pass1Pending lastPass1EnqueueAt=$lastPass1EnqueueAt idleAgeMs=$idleAgeMs idleWindowMs=$IDLE_WINDOW_MILLIS",
+        )
         if (!shouldRunPass2(pass1Pending, state?.lastPass1EnqueueAtEpochMillis, now, IDLE_WINDOW_MILLIS)) {
+            val reason = if (pass1Pending > PASS1_PENDING_THRESHOLD) {
+                "pass1_pending"
+            } else {
+                "idle_window"
+            }
+            Log.d(TAG, "Pass 2 worker retrying; gate blocked reason=$reason")
             return Result.retry()
         }
 
         val result = processor.run()
         return result.fold(
             onSuccess = {
+                val pending = indexQueueDao.countByStatus(pass = PASS_2, status = IndexQueueStatus.PENDING)
+                val done = indexQueueDao.countByStatus(pass = PASS_2, status = IndexQueueStatus.DONE)
+                val failed = indexQueueDao.countByStatus(pass = PASS_2, status = IndexQueueStatus.FAILED)
+                Log.d(TAG, "Pass 2 worker finished pending=$pending done=$done failed=$failed")
                 val existing = indexingStateDao.get()
                 indexingStateDao.upsert(
                     IndexingStateEntity(
@@ -42,11 +60,16 @@ class IndexPass2Worker @AssistedInject constructor(
                 )
                 Result.success()
             },
-            onFailure = { Result.retry() },
+            onFailure = { error ->
+                Log.e(TAG, "Pass 2 worker failed; retrying", error)
+                Result.retry()
+            },
         )
     }
 
     companion object {
+        private const val TAG = "IndexPass2Worker"
+        private const val PASS_2 = 2
         private const val PASS_1 = 1
         private const val IDLE_WINDOW_MILLIS = 10_000L
         private const val PASS1_PENDING_THRESHOLD = 0
