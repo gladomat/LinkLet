@@ -72,8 +72,9 @@ class NoteRepositoryImpl(
         combine(
             indexQueueDao.observeCountByPass(pass),
             indexQueueDao.observeCountByStatus(pass, IndexQueueStatus.DONE),
-        ) { total, completed ->
-            IndexingProgress(completed = completed, total = total)
+            indexQueueDao.observeCountByStatus(pass, IndexQueueStatus.FAILED),
+        ) { total, done, failed ->
+            IndexingProgress(completed = done + failed, total = total)
         }
 
     override fun observeIndexingFailures(pass: Int): Flow<Int> =

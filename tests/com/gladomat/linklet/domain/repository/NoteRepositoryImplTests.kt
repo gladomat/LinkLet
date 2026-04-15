@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.gladomat.linklet.data.index.IndexingScheduler
+import com.gladomat.linklet.data.index.IndexQueueEntity
+import com.gladomat.linklet.data.index.IndexQueueStatus
 import com.gladomat.linklet.data.index.NoteDatabase
 import com.gladomat.linklet.data.model.Note
 import com.gladomat.linklet.data.parser.RegexParser
@@ -14,6 +16,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import java.io.IOException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -86,6 +89,24 @@ class NoteRepositoryImplTests {
         advanceUntilIdle()
 
         verify { indexingScheduler.schedulePass1() }
+    }
+
+    @Test
+    fun `indexing progress counts failed queue entries as terminal`() = runTest(dispatcher) {
+        val storage = FakeStorage(mutableMapOf())
+        val indexQueueDao = database.indexQueueDao()
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), indexQueueDao, syncScheduler, indexingScheduler, dispatcher)
+        indexQueueDao.upsert(
+            IndexQueueEntity(path = "done.org", pass = 1, status = IndexQueueStatus.DONE),
+        )
+        indexQueueDao.upsert(
+            IndexQueueEntity(path = "failed.org", pass = 1, status = IndexQueueStatus.FAILED),
+        )
+
+        val progress = repository.observeIndexingProgress(pass = 1).first()
+
+        assertEquals(2, progress.completed)
+        assertEquals(2, progress.total)
     }
 
     @Test
