@@ -156,6 +156,23 @@ class IndexPass1ProcessorTests {
         assertEquals(1, indexQueueDao.countByStatus(pass = 1, status = IndexQueueStatus.DONE))
     }
 
+    @Test
+    fun `run does not stat every new note before first insert`() = runTest {
+        val storage = SlowStatStorage(
+            mutableMapOf(
+                "a.org" to "#+title: A",
+                "b.org" to "#+title: B",
+                "c.org" to "#+title: C",
+            ),
+        )
+        val processor = IndexPass1Processor(storage, noteDao, indexQueueDao, database)
+
+        processor.run(timeBudgetMillis = 5L).getOrThrow()
+
+        assertEquals(1, noteDao.getAllNotes().size)
+        assertEquals(1, storage.statCalls)
+    }
+
     private open class FakeStorage(
         private val files: MutableMap<String, String>,
     ) : IStorage {
@@ -207,7 +224,11 @@ class IndexPass1ProcessorTests {
     private class SlowStatStorage(
         files: MutableMap<String, String>,
     ) : FakeStorage(files) {
+        var statCalls = 0
+            private set
+
         override suspend fun statNote(path: String): Result<StorageFileStat> {
+            statCalls += 1
             Thread.sleep(10L)
             return super.statNote(path)
         }

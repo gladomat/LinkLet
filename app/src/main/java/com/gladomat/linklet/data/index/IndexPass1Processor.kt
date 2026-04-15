@@ -41,11 +41,15 @@ class IndexPass1Processor @Inject constructor(
 
             val enqueueEntries = mutableListOf<IndexQueueEntity>()
             activePaths.forEach { path ->
-                val stat = storage.statNote(path).getOrNull()
                 val existing = existingByPath[path]
-                val unchanged = stat != null &&
-                    existing != null &&
+                val stat = if (existing != null && existing.deletedAt == null) {
+                    storage.statNote(path).getOrNull()
+                } else {
+                    null
+                }
+                val unchanged = existing != null &&
                     existing.deletedAt == null &&
+                    stat != null &&
                     existing.fingerprintMtime == stat.lastModifiedEpochMillis &&
                     existing.fingerprintSize == stat.sizeBytes
                 if (!unchanged) {
@@ -110,6 +114,8 @@ class IndexPass1Processor @Inject constructor(
                 try {
                     val content = storage.readNote(current.path).getOrThrow()
                     val metadata = NoteMetadataParser.parse(content, current.path)
+                    val fingerprintMtime = stat?.lastModifiedEpochMillis ?: current.expectedMtime
+                    val fingerprintSize = stat?.sizeBytes ?: current.expectedSize
                     database.withTransaction {
                         noteDao.insertNotes(
                             listOf(
@@ -119,8 +125,8 @@ class IndexPass1Processor @Inject constructor(
                                     orgId = metadata.orgId,
                                     fileTags = metadata.fileTags,
                                     deletedAt = null,
-                                    fingerprintMtime = current.expectedMtime,
-                                    fingerprintSize = current.expectedSize,
+                                    fingerprintMtime = fingerprintMtime,
+                                    fingerprintSize = fingerprintSize,
                                     linksReady = false,
                                 ),
                             ),
@@ -143,8 +149,8 @@ class IndexPass1Processor @Inject constructor(
                                 attempts = 0,
                                 lastError = null,
                                 updatedAtEpochMillis = updatedAt,
-                                expectedMtime = current.expectedMtime,
-                                expectedSize = current.expectedSize,
+                                expectedMtime = fingerprintMtime,
+                                expectedSize = fingerprintSize,
                             ),
                         )
                     }
