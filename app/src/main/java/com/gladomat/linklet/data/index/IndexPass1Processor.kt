@@ -170,6 +170,7 @@ class IndexPass1Processor @Inject constructor(
                 TAG,
                 "Pass 1 run complete processed=$processed stale=$staleEntries failed=$failed pending=${indexQueueDao.countByStatus(PASS_1, IndexQueueStatus.PENDING)} done=${indexQueueDao.countByStatus(PASS_1, IndexQueueStatus.DONE)} totalElapsedMs=${System.currentTimeMillis() - runStartedAt}",
             )
+            Unit
         }.onFailure { if (it is CancellationException) throw it }
     }
 
