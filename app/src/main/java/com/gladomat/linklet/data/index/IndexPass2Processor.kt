@@ -118,7 +118,7 @@ class IndexPass2Processor @Inject constructor(
                                 noteDao.updateLinksReady(path = current.path, linksReady = linksReady)
                                 indexQueueDao.upsert(
                                     current.copy(
-                                        status = if (linksReady) IndexQueueStatus.DONE else IndexQueueStatus.PENDING,
+                                        status = IndexQueueStatus.DONE,
                                         attempts = current.attempts + 1,
                                         lastError = null,
                                         updatedAtEpochMillis = updatedAt,

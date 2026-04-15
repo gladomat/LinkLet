@@ -99,7 +99,7 @@ class IndexPass2ProcessorTests {
     }
 
     @Test
-    fun `run keeps links pending when id link cannot be resolved`() = runTest {
+    fun `run marks unresolved id link attempts done without marking links ready`() = runTest {
         noteDao.insertNotes(listOf(NoteEntity(path = "a.org", title = "A", linksReady = false)))
         val storage = FakeStorage(mutableMapOf("a.org" to "[[id:missing-id][X]]"))
         val processor = IndexPass2Processor(storage, RegexParser(), noteDao, indexQueueDao, database)
@@ -107,7 +107,8 @@ class IndexPass2ProcessorTests {
         processor.run().getOrThrow()
 
         assertEquals(0, noteDao.getBacklinks("any.org").size)
-        assertEquals(1, indexQueueDao.countByStatus(pass = 2, status = IndexQueueStatus.PENDING))
+        assertEquals(0, indexQueueDao.countByStatus(pass = 2, status = IndexQueueStatus.PENDING))
+        assertEquals(1, indexQueueDao.countByStatus(pass = 2, status = IndexQueueStatus.DONE))
         assertEquals(false, noteDao.getAllNotes().first { it.path == "a.org" }.linksReady)
     }
 
