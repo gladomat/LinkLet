@@ -8,17 +8,17 @@ import org.junit.Test
 class IndexingSchedulerTests {
 
     @Test
-    fun `pass1 scheduling appends instead of replacing running work`() {
-        assertEquals(ExistingWorkPolicy.APPEND_OR_REPLACE, IndexingScheduler.PASS1_EXISTING_WORK_POLICY)
+    fun `pass1 scheduling replaces stale delayed work`() {
+        assertEquals(ExistingWorkPolicy.REPLACE, IndexingScheduler.PASS1_EXISTING_WORK_POLICY)
     }
 
     @Test
-    fun `pass2 scheduling appends instead of replacing retrying work`() {
-        assertEquals(ExistingWorkPolicy.APPEND_OR_REPLACE, IndexingScheduler.PASS2_EXISTING_WORK_POLICY)
+    fun `pass2 scheduling replaces stale delayed work`() {
+        assertEquals(ExistingWorkPolicy.REPLACE, IndexingScheduler.PASS2_EXISTING_WORK_POLICY)
     }
 
     @Test
-    fun `pass1 worker appends pass2 instead of dropping stale completed work`() {
-        assertEquals(ExistingWorkPolicy.APPEND_OR_REPLACE, IndexPass1Worker.PASS2_EXISTING_WORK_POLICY)
+    fun `pass1 worker replaces stale delayed pass2 work`() {
+        assertEquals(ExistingWorkPolicy.REPLACE, IndexPass1Worker.PASS2_EXISTING_WORK_POLICY)
     }
 }

@@ -84,7 +84,7 @@ class IndexPass1Worker @AssistedInject constructor(
             if (pending > 0) Pass1Completion.CONTINUE_PASS_1 else Pass1Completion.START_PASS_2
 
         internal val PASS1_CONTINUATION_EXISTING_WORK_POLICY = ExistingWorkPolicy.APPEND_OR_REPLACE
-        internal val PASS2_EXISTING_WORK_POLICY = ExistingWorkPolicy.APPEND_OR_REPLACE
+        internal val PASS2_EXISTING_WORK_POLICY = ExistingWorkPolicy.REPLACE
         private const val TAG = "IndexPass1Worker"
         private const val PASS_1 = 1
         private const val TIME_BUDGET_MILLIS = 20_000L
