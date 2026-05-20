@@ -1,9 +1,9 @@
 package com.gladomat.linklet.data.utils
 
-import java.security.MessageDigest
 import java.time.LocalDateTime
-import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import java.util.Locale
+import java.util.UUID
 
 /**
  * Utility functions for manipulating Org-mode files as plain text.
@@ -17,8 +17,7 @@ import java.time.format.DateTimeFormatter
 object OrgFileUtils {
 
     private const val MAX_TITLE_LENGTH = 60
-    private const val ID_HEX_LENGTH = 16
-    private const val TIMESTAMP_PATTERN = "yyyyMMddHH"
+    private const val TIMESTAMP_PATTERN = "yyyyMMddHHmmss"
 
     private val TITLE_REGEX = Regex(
         pattern = """^#\+title:[ \t]*(.*)$""",
@@ -68,39 +67,36 @@ object OrgFileUtils {
      *
      * Rules:
      * - Lowercase
-     * - Replace non-alphanumeric with "-"
-     * - Collapse repeated "-"
-     * - Trim leading/trailing "-"
+     * - Replace non-alphanumeric with "_"
+     * - Collapse repeated "_"
+     * - Trim leading/trailing "_"
      * - Return "untitled" if result is empty
      */
     fun slugifyTitle(title: String): String {
         val truncated = truncateForFilename(title)
         val slug = truncated
             .lowercase()
-            .replace(Regex("[^a-z0-9]+"), "-")
-            .replace(Regex("-+"), "-")
-            .trim('-')
+            .replace(Regex("[^a-z0-9]+"), "_")
+            .replace(Regex("_+"), "_")
+            .trim('_')
         return slug.ifEmpty { "untitled" }
     }
 
     /**
-     * Generates a unique note ID from title and creation timestamp.
+     * Generates a unique note ID in org-id UUID format.
      *
-     * Uses SHA-1 hash of "<epochSeconds>|<title>", returning first 16 hex chars.
+     * Returns uppercase UUID text with dashes, e.g.
+     * `09F227F6-01ED-4B3D-9D0C-5EA03961E109`.
      */
+    @Suppress("UNUSED_PARAMETER")
     fun generateNoteId(title: String, createdAt: LocalDateTime): String {
-        val epochSeconds = createdAt.toEpochSecond(ZoneOffset.UTC)
-        val input = "$epochSeconds|$title"
-        val digest = MessageDigest.getInstance("SHA-1")
-        val hashBytes = digest.digest(input.toByteArray(Charsets.UTF_8))
-        return hashBytes.take(ID_HEX_LENGTH / 2)
-            .joinToString("") { "%02x".format(it) }
+        return UUID.randomUUID().toString().uppercase(Locale.ROOT)
     }
 
     /**
      * Generates a filename for a new note.
      *
-     * Format: `yyyyMMddHH-<slug>.org`
+     * Format: `yyyyMMddHHmmss-<slug>.org`
      */
     fun generateFilename(title: String, createdAt: LocalDateTime): String {
         val timestamp = createdAt.format(DateTimeFormatter.ofPattern(TIMESTAMP_PATTERN))
@@ -208,4 +204,3 @@ object OrgFileUtils {
         }
     }
 }
-

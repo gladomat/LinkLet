@@ -176,10 +176,10 @@ class NoteEditViewModelTests {
         assertTrue("Saved state should be emitted", viewModel.state.value is NoteEditUiState.Saved)
         val saved = viewModel.state.value as NoteEditUiState.Saved
 
-        // Filename should follow pattern: yyyyMMddHH-test-note.org
+        // Filename should follow pattern: yyyyMMddHHmmss-test_note.org
         assertTrue("Path should end with .org", saved.path.endsWith(".org"))
-        assertTrue("Path should contain slugified title", saved.path.contains("test-note"))
-        assertTrue("Path should start with timestamp", saved.path.matches(Regex("^\\d{10}-.*")))
+        assertTrue("Path should contain slugified title", saved.path.contains("test_note"))
+        assertTrue("Path should start with 14-digit timestamp", saved.path.matches(Regex("^\\d{14}-.*")))
     }
 
     @Test
@@ -208,6 +208,11 @@ class NoteEditViewModelTests {
         assertTrue("Saved content should contain PROPERTIES drawer", savedContent!!.contains(":PROPERTIES:"))
         assertTrue("Saved content should contain ID property", savedContent!!.contains(":ID:"))
         assertTrue("Saved content should contain END", savedContent!!.contains(":END:"))
+        assertTrue(
+            "ID should be uppercase dashed UUID",
+            Regex("""(?m)^:ID:\s+[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\s*$""")
+                .containsMatchIn(savedContent!!),
+        )
     }
 
     @Test

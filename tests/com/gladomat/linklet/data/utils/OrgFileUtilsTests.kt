@@ -109,32 +109,32 @@ class OrgFileUtilsTests {
 
     @Test
     fun `slugifyTitle converts to lowercase`() {
-        assertEquals("hello-world", OrgFileUtils.slugifyTitle("Hello World"))
+        assertEquals("hello_world", OrgFileUtils.slugifyTitle("Hello World"))
     }
 
     @Test
-    fun `slugifyTitle replaces spaces with hyphens`() {
-        assertEquals("multiple-word-title", OrgFileUtils.slugifyTitle("Multiple Word Title"))
+    fun `slugifyTitle replaces spaces with underscores`() {
+        assertEquals("multiple_word_title", OrgFileUtils.slugifyTitle("Multiple Word Title"))
     }
 
     @Test
-    fun `slugifyTitle replaces special chars with hyphens`() {
-        assertEquals("hello-world", OrgFileUtils.slugifyTitle("Hello @#$ World"))
+    fun `slugifyTitle replaces special chars with underscores`() {
+        assertEquals("hello_world", OrgFileUtils.slugifyTitle("Hello @#$ World"))
     }
 
     @Test
-    fun `slugifyTitle collapses repeated hyphens`() {
-        assertEquals("hello-world", OrgFileUtils.slugifyTitle("Hello---World"))
+    fun `slugifyTitle collapses repeated underscores`() {
+        assertEquals("hello_world", OrgFileUtils.slugifyTitle("Hello---World"))
     }
 
     @Test
-    fun `slugifyTitle trims leading and trailing hyphens`() {
+    fun `slugifyTitle trims leading and trailing underscores`() {
         assertEquals("title", OrgFileUtils.slugifyTitle("---Title---"))
     }
 
     @Test
     fun `slugifyTitle handles special characters in title`() {
-        assertEquals("note-about-kotlin-java", OrgFileUtils.slugifyTitle("Note about Kotlin & Java!"))
+        assertEquals("note_about_kotlin_java", OrgFileUtils.slugifyTitle("Note about Kotlin & Java!"))
     }
 
     @Test
@@ -156,8 +156,8 @@ class OrgFileUtilsTests {
 
     @Test
     fun `slugifyTitle handles unicode characters`() {
-        // Unicode gets replaced with hyphens, collapsed
-        assertEquals("caf-latt", OrgFileUtils.slugifyTitle("Café Latté"))
+        // Unicode gets replaced with underscores, collapsed
+        assertEquals("caf_latt", OrgFileUtils.slugifyTitle("Café Latté"))
     }
 
     // ================================
@@ -165,34 +165,19 @@ class OrgFileUtilsTests {
     // ================================
 
     @Test
-    fun `generateNoteId returns 16 hex characters`() {
+    fun `generateNoteId returns dashed UUID in uppercase format`() {
         val id = OrgFileUtils.generateNoteId("Test", LocalDateTime.of(2025, 3, 11, 21, 30, 0))
-        assertEquals(16, id.length)
-        assertTrue("ID should be hex", id.all { it in '0'..'9' || it in 'a'..'f' })
+        assertTrue(
+            "ID should match 8-4-4-4-12 uppercase UUID format",
+            id.matches(Regex("^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$")),
+        )
     }
 
     @Test
-    fun `generateNoteId is deterministic for same inputs`() {
-        val timestamp = LocalDateTime.of(2025, 3, 11, 21, 30, 0)
-        val id1 = OrgFileUtils.generateNoteId("Test", timestamp)
-        val id2 = OrgFileUtils.generateNoteId("Test", timestamp)
-        assertEquals(id1, id2)
-    }
-
-    @Test
-    fun `generateNoteId differs for different titles`() {
-        val timestamp = LocalDateTime.of(2025, 3, 11, 21, 30, 0)
-        val id1 = OrgFileUtils.generateNoteId("Title A", timestamp)
-        val id2 = OrgFileUtils.generateNoteId("Title B", timestamp)
-        assertTrue("Different titles should produce different IDs", id1 != id2)
-    }
-
-    @Test
-    fun `generateNoteId differs for different timestamps`() {
-        val title = "Same Title"
-        val id1 = OrgFileUtils.generateNoteId(title, LocalDateTime.of(2025, 3, 11, 21, 30, 0))
-        val id2 = OrgFileUtils.generateNoteId(title, LocalDateTime.of(2025, 3, 11, 21, 30, 1))
-        assertTrue("Different timestamps should produce different IDs", id1 != id2)
+    fun `generateNoteId creates unique values across calls`() {
+        val id1 = OrgFileUtils.generateNoteId("Same", LocalDateTime.of(2025, 3, 11, 21, 30, 0))
+        val id2 = OrgFileUtils.generateNoteId("Same", LocalDateTime.of(2025, 3, 11, 21, 30, 0))
+        assertTrue("IDs should differ between calls", id1 != id2)
     }
 
     // ================================
@@ -203,21 +188,21 @@ class OrgFileUtilsTests {
     fun `generateFilename creates correct format`() {
         val timestamp = LocalDateTime.of(2025, 3, 11, 21, 30, 0)
         val result = OrgFileUtils.generateFilename("My Note Title", timestamp)
-        assertEquals("2025031121-my-note-title.org", result)
+        assertEquals("20250311213000-my_note_title.org", result)
     }
 
     @Test
     fun `generateFilename uses untitled for empty title`() {
         val timestamp = LocalDateTime.of(2025, 3, 11, 21, 30, 0)
         val result = OrgFileUtils.generateFilename("", timestamp)
-        assertEquals("2025031121-untitled.org", result)
+        assertEquals("20250311213000-untitled.org", result)
     }
 
     @Test
     fun `generateFilename handles special characters in title`() {
         val timestamp = LocalDateTime.of(2025, 3, 11, 21, 30, 0)
         val result = OrgFileUtils.generateFilename("Note: Important! @#$", timestamp)
-        assertEquals("2025031121-note-important.org", result)
+        assertEquals("20250311213000-note_important.org", result)
     }
 
     @Test
@@ -225,8 +210,8 @@ class OrgFileUtilsTests {
         val timestamp = LocalDateTime.of(2025, 3, 11, 21, 30, 0)
         val longTitle = "A".repeat(100)
         val result = OrgFileUtils.generateFilename(longTitle, timestamp)
-        // Timestamp (10) + "-" (1) + slug (max 60) + ".org" (4)
-        assertTrue("Filename should have reasonable length", result.length <= 76)
+        // Timestamp (14) + "-" (1) + slug (max 60) + ".org" (4)
+        assertTrue("Filename should have reasonable length", result.length <= 79)
     }
 
     // ================================
@@ -440,4 +425,3 @@ class OrgFileUtilsTests {
         assertEquals("Original Title", extractedTitle)
     }
 }
-
