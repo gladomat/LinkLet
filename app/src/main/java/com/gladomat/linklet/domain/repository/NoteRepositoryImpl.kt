@@ -4,6 +4,7 @@ import android.util.Log
 import android.os.SystemClock
 import com.gladomat.linklet.BuildConfig
 import com.gladomat.linklet.data.index.IndexQueueDao
+import com.gladomat.linklet.data.index.IndexQueueEntity
 import com.gladomat.linklet.data.index.IndexQueueStatus
 import com.gladomat.linklet.data.index.IndexTypeConverters
 import com.gladomat.linklet.data.index.LinkEntity
@@ -17,6 +18,7 @@ import com.gladomat.linklet.data.model.Note
 import com.gladomat.linklet.data.model.NoteId
 import com.gladomat.linklet.data.model.NoteIndexEntry
 import com.gladomat.linklet.data.model.NoteLink
+import com.gladomat.linklet.data.parser.NoteMetadataParser
 import com.gladomat.linklet.data.parser.IParser
 import com.gladomat.linklet.data.storage.IStorage
 import com.gladomat.linklet.data.model.LinkTarget
@@ -183,7 +185,38 @@ class NoteRepositoryImpl(
         runCatching {
             Log.d(TAG, "saveNote() - Writing note to storage: path='$path'")
             storage.writeNote(path, content).getOrThrow()
-            Log.d(TAG, "saveNote() - Note written successfully, scheduling reindex and sync")
+            val metadata = NoteMetadataParser.parse(content, path)
+            val stat = storage.statNote(path).getOrNull()
+            noteDao.insertNotes(
+                listOf(
+                    NoteEntity(
+                        path = path,
+                        title = metadata.title,
+                        orgId = metadata.orgId,
+                        fileTags = metadata.fileTags,
+                        deletedAt = null,
+                        fingerprintMtime = stat?.lastModifiedEpochMillis,
+                        fingerprintSize = stat?.sizeBytes,
+                        linksReady = false,
+                        availability = NoteAvailability.AVAILABLE,
+                        source = NoteSource.LOCAL,
+                    ),
+                ),
+            )
+            val now = System.currentTimeMillis()
+            indexQueueDao.upsert(
+                IndexQueueEntity(
+                    path = path,
+                    pass = 1,
+                    status = IndexQueueStatus.PENDING,
+                    attempts = 0,
+                    lastError = null,
+                    updatedAtEpochMillis = now,
+                    expectedMtime = stat?.lastModifiedEpochMillis,
+                    expectedSize = stat?.sizeBytes,
+                ),
+            )
+            Log.d(TAG, "saveNote() - Note written and upserted locally, scheduling reindex and sync")
             // Schedule progressive indexing and sync asynchronously to avoid blocking the save operation
             backgroundScope.launch {
                 try {

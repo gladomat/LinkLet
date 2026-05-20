@@ -31,6 +31,7 @@ import org.robolectric.annotation.Config
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(Aarch64RobolectricTestRunner::class)
@@ -89,6 +90,34 @@ class NoteRepositoryImplTests {
         advanceUntilIdle()
 
         verify { indexingScheduler.schedulePass1() }
+    }
+
+    @Test
+    fun `saveNote upserts note metadata immediately`() = runTest(dispatcher) {
+        val storage = FakeStorage(mutableMapOf())
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, indexingScheduler, dispatcher)
+
+        repository.saveNote("a.org", "#+title: A\nBody").getOrThrow()
+        advanceUntilIdle()
+
+        val notes = database.noteDao().getAllNotes()
+        assertEquals(1, notes.size)
+        assertEquals("a.org", notes.first().path)
+        assertEquals("A", notes.first().title)
+        assertNull(notes.first().deletedAt)
+    }
+
+    @Test
+    fun `saveNote enqueues pass1 queue entry for saved path`() = runTest(dispatcher) {
+        val storage = FakeStorage(mutableMapOf())
+        val repository = NoteRepositoryImpl(storage, parser, database.noteDao(), database.indexQueueDao(), syncScheduler, indexingScheduler, dispatcher)
+
+        repository.saveNote("a.org", "#+title: A\nBody").getOrThrow()
+        advanceUntilIdle()
+
+        val pending = database.indexQueueDao().listByStatus(pass = 1, status = IndexQueueStatus.PENDING)
+        assertFalse(pending.isEmpty())
+        assertEquals("a.org", pending.first().path)
     }
 
     @Test
