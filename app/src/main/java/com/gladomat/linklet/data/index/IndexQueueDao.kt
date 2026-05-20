@@ -59,13 +59,36 @@ interface IndexQueueDao {
 
     @Query(
         """
+        UPDATE index_queue
+        SET status = 'FAILED',
+            lastError = :reason,
+            lockedAtEpochMillis = NULL,
+            nextAttemptAtEpochMillis = NULL,
+            updatedAtEpochMillis = :now
+        WHERE pass = :pass
+          AND status = 'RUNNING'
+          AND lockedAtEpochMillis IS NOT NULL
+          AND lockedAtEpochMillis <= :staleBefore
+        """,
+    )
+    suspend fun failStaleRunning(pass: Int, staleBefore: Long, now: Long, reason: String): Int
+
+    @Query(
+        """
         SELECT * FROM index_queue
         WHERE pass = :pass AND (
             status = 'PENDING' OR
             (status = 'RUNNING' AND lockedAtEpochMillis IS NOT NULL AND lockedAtEpochMillis <= :leaseExpiry) OR
             (status = 'FAILED' AND nextAttemptAtEpochMillis IS NOT NULL AND nextAttemptAtEpochMillis <= :now)
         )
-        ORDER BY updatedAtEpochMillis
+        ORDER BY
+            CASE
+                WHEN status = 'PENDING' THEN 0
+                WHEN status = 'RUNNING' THEN 1
+                WHEN status = 'FAILED' THEN 2
+                ELSE 3
+            END,
+            updatedAtEpochMillis DESC
         LIMIT 1
         """,
     )

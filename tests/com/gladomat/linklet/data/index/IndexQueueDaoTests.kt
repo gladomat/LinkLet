@@ -8,6 +8,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -63,5 +64,57 @@ class IndexQueueDaoTests {
 
         assertNotNull(claimed)
         assertEquals("a.org", claimed?.path)
+    }
+
+    @Test
+    fun `claimNext prefers newest item within same status priority`() = runTest {
+        val now = 1_000L
+        indexQueueDao.upsertAll(
+            listOf(
+                IndexQueueEntity(path = "old.org", pass = 1, status = IndexQueueStatus.PENDING, updatedAtEpochMillis = 10L),
+                IndexQueueEntity(path = "new.org", pass = 1, status = IndexQueueStatus.PENDING, updatedAtEpochMillis = 20L),
+            ),
+        )
+
+        val claimed = indexQueueDao.claimNext(pass = 1, now = now, leaseTimeoutMillis = 5_000)
+
+        assertNotNull(claimed)
+        assertEquals("new.org", claimed?.path)
+    }
+
+    @Test
+    fun `failStaleRunning marks stale running entries as failed`() = runTest {
+        val now = 10_000L
+        indexQueueDao.upsertAll(
+            listOf(
+                IndexQueueEntity(
+                    path = "stale.org",
+                    pass = 1,
+                    status = IndexQueueStatus.RUNNING,
+                    lockedAtEpochMillis = 1L,
+                    updatedAtEpochMillis = 1L,
+                ),
+                IndexQueueEntity(
+                    path = "fresh.org",
+                    pass = 1,
+                    status = IndexQueueStatus.RUNNING,
+                    lockedAtEpochMillis = 9_500L,
+                    updatedAtEpochMillis = 9_500L,
+                ),
+            ),
+        )
+
+        val updated = indexQueueDao.failStaleRunning(
+            pass = 1,
+            staleBefore = now - 1_000L,
+            now = now,
+            reason = "stale",
+        )
+
+        assertEquals(1, updated)
+        val failed = indexQueueDao.listByStatus(pass = 1, status = IndexQueueStatus.FAILED)
+        assertEquals(1, failed.size)
+        assertEquals("stale.org", failed.first().path)
+        assertTrue(failed.first().lastError?.contains("stale") == true)
     }
 }

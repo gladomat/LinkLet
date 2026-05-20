@@ -44,7 +44,7 @@ class IndexingScheduler @Inject constructor(
     }
 
     companion object {
-        internal val PASS1_EXISTING_WORK_POLICY = ExistingWorkPolicy.REPLACE
+        internal val PASS1_EXISTING_WORK_POLICY = ExistingWorkPolicy.APPEND_OR_REPLACE
         internal val PASS2_EXISTING_WORK_POLICY = ExistingWorkPolicy.REPLACE
         private const val TAG = "IndexingScheduler"
     }

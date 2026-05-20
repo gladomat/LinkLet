@@ -6,6 +6,8 @@ import com.gladomat.linklet.data.parser.NoteMetadataParser
 import com.gladomat.linklet.data.storage.IStorage
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withTimeoutOrNull
+import java.io.IOException
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -21,6 +23,15 @@ class IndexPass1Processor @Inject constructor(
             val runStartedAt = System.currentTimeMillis()
             Log.d(TAG, "Pass 1 run starting timeBudgetMillis=$timeBudgetMillis")
             val now = System.currentTimeMillis()
+            val recovered = indexQueueDao.failStaleRunning(
+                pass = PASS_1,
+                staleBefore = now - STALE_RUNNING_RECOVERY_MILLIS,
+                now = now,
+                reason = STALE_RUNNING_ERROR,
+            )
+            if (recovered > 0) {
+                Log.w(TAG, "Pass 1 recovered stale running entries count=$recovered")
+            }
             val pendingAtStart = indexQueueDao.countByStatus(PASS_1, IndexQueueStatus.PENDING)
             if (pendingAtStart > 0) {
                 Log.d(TAG, "Pass 1 skipping scan because pending=$pendingAtStart already exists")
@@ -32,8 +43,11 @@ class IndexPass1Processor @Inject constructor(
                 return@runCatching
             }
 
+            Log.d(TAG, "Pass 1 scan starting storage.listNotes()")
             storage.invalidateCache()
-            val allPaths = storage.listNotes().getOrThrow()
+            val allPaths = withTimeoutOrNull(STORAGE_SCAN_TIMEOUT_MILLIS) {
+                storage.listNotes().getOrThrow()
+            } ?: throw IOException("Pass 1 scan timed out after ${STORAGE_SCAN_TIMEOUT_MILLIS}ms")
             val activePaths = allPaths.filterNot(::isTrashPath)
             val activeSet = activePaths.toSet()
             val existingNotes = noteDao.getAllNotes()
@@ -54,7 +68,9 @@ class IndexPass1Processor @Inject constructor(
             activePaths.forEach { path ->
                 val existing = existingByPath[path]
                 val stat = if (existing != null && existing.deletedAt == null) {
-                    storage.statNote(path).getOrNull()
+                    withTimeoutOrNull(STORAGE_STAT_TIMEOUT_MILLIS) {
+                        storage.statNote(path).getOrNull()
+                    }
                 } else {
                     null
                 }
@@ -137,7 +153,9 @@ class IndexPass1Processor @Inject constructor(
             }
 
             try {
-                val content = storage.readNote(current.path).getOrThrow()
+                val content = withTimeoutOrNull(STORAGE_READ_TIMEOUT_MILLIS) {
+                    storage.readNote(current.path).getOrThrow()
+                } ?: throw IOException("Timed out reading ${current.path} after ${STORAGE_READ_TIMEOUT_MILLIS}ms")
                 val metadata = NoteMetadataParser.parse(content, current.path)
                 val fingerprintMtime = stat?.lastModifiedEpochMillis ?: current.expectedMtime
                 val fingerprintSize = stat?.sizeBytes
@@ -215,5 +233,10 @@ class IndexPass1Processor @Inject constructor(
         private const val PRIMARY_TRASH_PREFIX = "_trash_bin/"
         private const val LEGACY_TRASH_PREFIX = "_trash/"
         private const val LEASE_TIMEOUT_MILLIS = 10 * 60 * 1000L
+        private const val STALE_RUNNING_RECOVERY_MILLIS = 60 * 60 * 1000L
+        private const val STALE_RUNNING_ERROR = "Recovered stale RUNNING queue entry"
+        private const val STORAGE_SCAN_TIMEOUT_MILLIS = 60_000L
+        private const val STORAGE_STAT_TIMEOUT_MILLIS = 5_000L
+        private const val STORAGE_READ_TIMEOUT_MILLIS = 10_000L
     }
 }
