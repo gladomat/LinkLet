@@ -36,7 +36,7 @@ private class FakeServerSnapshotDao : ServerSnapshotDao {
         rows.removeAll {
             it.rootId == rootId &&
                 it.deletedAtEpochMillis != null &&
-                it.deletedAtEpochMillis < cutoffEpochMillis
+                it.deletedAtEpochMillis!! < cutoffEpochMillis
         }
         return before - rows.size
     }
@@ -47,7 +47,7 @@ private class FakeServerSnapshotDao : ServerSnapshotDao {
     ): List<ServerSnapshotEntity> = rows.filter {
         it.rootId == rootId &&
             it.deletedAtEpochMillis != null &&
-            it.deletedAtEpochMillis < cutoffEpochMillis
+            it.deletedAtEpochMillis!! < cutoffEpochMillis
     }
 }
 

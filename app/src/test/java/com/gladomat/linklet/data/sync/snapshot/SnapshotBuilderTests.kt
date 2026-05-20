@@ -69,12 +69,12 @@ class FakeServerSnapshotDao : ServerSnapshotDao {
 
     override suspend fun purgeTombstones(rootId: String, cutoffEpochMillis: Long): Int {
         val before = items.size
-        items.removeAll { it.rootId == rootId && it.deletedAtEpochMillis != null && it.deletedAtEpochMillis < cutoffEpochMillis }
+        items.removeAll { it.rootId == rootId && it.deletedAtEpochMillis != null && it.deletedAtEpochMillis!! < cutoffEpochMillis }
         return before - items.size
     }
 
     override suspend fun findExpiredTombstones(rootId: String, cutoffEpochMillis: Long): List<ServerSnapshotEntity> {
-        return items.filter { it.rootId == rootId && it.deletedAtEpochMillis != null && it.deletedAtEpochMillis < cutoffEpochMillis }
+        return items.filter { it.rootId == rootId && it.deletedAtEpochMillis != null && it.deletedAtEpochMillis!! < cutoffEpochMillis }
     }
 }
 
