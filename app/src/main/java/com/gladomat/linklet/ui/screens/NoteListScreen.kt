@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -79,6 +80,7 @@ import com.gladomat.linklet.ui.theme.LinkLetAppTheme
 import com.gladomat.linklet.viewmodel.ConflictInfo
 import com.gladomat.linklet.viewmodel.NoteListItemUiModel
 import com.gladomat.linklet.viewmodel.NoteListSnackbarAction
+import com.gladomat.linklet.viewmodel.NoteSortOption
 import com.gladomat.linklet.viewmodel.NoteListUiState
 import com.gladomat.linklet.viewmodel.NoteListViewModel
 
@@ -93,6 +95,7 @@ fun NoteListRoute(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val query by viewModel.query.collectAsStateWithLifecycle()
+    val currentSortOption by viewModel.currentSortOption.collectAsStateWithLifecycle()
     val isSyncing by viewModel.isSyncing.collectAsStateWithLifecycle()
     val syncProgress by viewModel.syncProgress.collectAsStateWithLifecycle()
     val indexingProgressPass1 by viewModel.indexingProgressPass1.collectAsStateWithLifecycle()
@@ -104,6 +107,7 @@ fun NoteListRoute(
     NoteListScreen(
         state = state,
         query = query,
+        currentSortOption = currentSortOption,
         isSyncing = isSyncing,
         syncProgress = syncProgress,
         indexingProgressPass1 = indexingProgressPass1,
@@ -118,6 +122,7 @@ fun NoteListRoute(
         onRetryLinkIndexing = viewModel::retryLinkIndexing,
         onOpenSettings = onOpenSettings,
         onOpenTrash = onOpenTrash,
+        onSortOptionSelected = viewModel::updateSortOption,
         onCreateNote = onCreateNote,
         onClearSnackbar = viewModel::clearSnackbar,
         onOpenSyncStatus = onOpenSyncStatus,
@@ -130,6 +135,7 @@ fun NoteListRoute(
 fun NoteListScreen(
     state: NoteListUiState,
     query: String,
+    currentSortOption: NoteSortOption,
     isSyncing: Boolean,
     syncProgress: Float,
     indexingProgressPass1: IndexingProgress,
@@ -144,6 +150,7 @@ fun NoteListScreen(
     onRetryLinkIndexing: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenTrash: () -> Unit,
+    onSortOptionSelected: (NoteSortOption) -> Unit,
     onCreateNote: () -> Unit,
     onClearSnackbar: () -> Unit,
     onOpenSyncStatus: () -> Unit,
@@ -201,6 +208,54 @@ fun NoteListScreen(
                             expanded = moreMenuExpanded.value,
                             onDismissRequest = { moreMenuExpanded.value = false },
                         ) {
+                            SortDropdownMenuItem(
+                                label = "Sort: Date (Newest)",
+                                selected = currentSortOption == NoteSortOption.DATE_DESC,
+                                onClick = {
+                                    moreMenuExpanded.value = false
+                                    onSortOptionSelected(NoteSortOption.DATE_DESC)
+                                },
+                            )
+                            SortDropdownMenuItem(
+                                label = "Sort: Date (Oldest)",
+                                selected = currentSortOption == NoteSortOption.DATE_ASC,
+                                onClick = {
+                                    moreMenuExpanded.value = false
+                                    onSortOptionSelected(NoteSortOption.DATE_ASC)
+                                },
+                            )
+                            SortDropdownMenuItem(
+                                label = "Sort: Name (A-Z)",
+                                selected = currentSortOption == NoteSortOption.NAME_ASC,
+                                onClick = {
+                                    moreMenuExpanded.value = false
+                                    onSortOptionSelected(NoteSortOption.NAME_ASC)
+                                },
+                            )
+                            SortDropdownMenuItem(
+                                label = "Sort: Name (Z-A)",
+                                selected = currentSortOption == NoteSortOption.NAME_DESC,
+                                onClick = {
+                                    moreMenuExpanded.value = false
+                                    onSortOptionSelected(NoteSortOption.NAME_DESC)
+                                },
+                            )
+                            SortDropdownMenuItem(
+                                label = "Sort: Path (A-Z)",
+                                selected = currentSortOption == NoteSortOption.PATH_ASC,
+                                onClick = {
+                                    moreMenuExpanded.value = false
+                                    onSortOptionSelected(NoteSortOption.PATH_ASC)
+                                },
+                            )
+                            SortDropdownMenuItem(
+                                label = "Sort: Path (Z-A)",
+                                selected = currentSortOption == NoteSortOption.PATH_DESC,
+                                onClick = {
+                                    moreMenuExpanded.value = false
+                                    onSortOptionSelected(NoteSortOption.PATH_DESC)
+                                },
+                            )
                             DropdownMenuItem(
                                 text = { Text("Show Deleted Notes") },
                                 onClick = {
@@ -384,6 +439,26 @@ fun NoteListScreen(
             }
         }
     }
+}
+
+@Composable
+private fun SortDropdownMenuItem(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    DropdownMenuItem(
+        text = { Text(label) },
+        leadingIcon = {
+            if (selected) {
+                Icon(
+                    imageVector = Icons.Filled.Done,
+                    contentDescription = null,
+                )
+            }
+        },
+        onClick = onClick,
+    )
 }
 
 @Composable
@@ -686,6 +761,7 @@ private fun NoteListLoadingPreview() {
             NoteListScreen(
                 state = NoteListUiState.Loading,
                 query = "",
+                currentSortOption = NoteSortOption.NAME_ASC,
                 isSyncing = false,
                 syncProgress = 0f,
                 indexingProgressPass1 = IndexingProgress(completed = 0, total = 0),
@@ -700,6 +776,7 @@ private fun NoteListLoadingPreview() {
                 onRetryLinkIndexing = {},
                 onOpenSettings = {},
                 onOpenTrash = {},
+                onSortOptionSelected = {},
                 onCreateNote = {},
                 onClearSnackbar = {},
                 onOpenSyncStatus = {},
@@ -736,6 +813,7 @@ private fun NoteListSuccessPreview() {
                     ),
                 ),
                 query = "sample",
+                currentSortOption = NoteSortOption.NAME_ASC,
                 isSyncing = true,
                 syncProgress = 0.5f,
                 indexingProgressPass1 = IndexingProgress(completed = 120, total = 240),
@@ -750,6 +828,7 @@ private fun NoteListSuccessPreview() {
                 onRetryLinkIndexing = {},
                 onOpenSettings = {},
                 onOpenTrash = {},
+                onSortOptionSelected = {},
                 onCreateNote = {},
                 onClearSnackbar = {},
                 onOpenSyncStatus = {},
@@ -786,6 +865,7 @@ private fun NoteListSuccessWithConflictsPreview() {
                     ),
                 ),
                 query = "",
+                currentSortOption = NoteSortOption.NAME_ASC,
                 isSyncing = false,
                 syncProgress = 0f,
                 indexingProgressPass1 = IndexingProgress(completed = 0, total = 0),
@@ -800,6 +880,7 @@ private fun NoteListSuccessWithConflictsPreview() {
                 onRetryLinkIndexing = {},
                 onOpenSettings = {},
                 onOpenTrash = {},
+                onSortOptionSelected = {},
                 onCreateNote = {},
                 onClearSnackbar = {},
                 onOpenSyncStatus = {},
@@ -816,6 +897,7 @@ private fun NoteListErrorPreview() {
             NoteListScreen(
                 state = NoteListUiState.Error("Something went wrong"),
                 query = "",
+                currentSortOption = NoteSortOption.NAME_ASC,
                 isSyncing = false,
                 syncProgress = 0f,
                 indexingProgressPass1 = IndexingProgress(completed = 0, total = 0),
@@ -830,6 +912,7 @@ private fun NoteListErrorPreview() {
                 onRetryLinkIndexing = {},
                 onOpenSettings = {},
                 onOpenTrash = {},
+                onSortOptionSelected = {},
                 onCreateNote = {},
                 onClearSnackbar = {},
                 onOpenSyncStatus = {},
@@ -846,6 +929,7 @@ private fun NoteListEmptyPreview() {
             NoteListScreen(
                 state = NoteListUiState.Success(notes = emptyList()),
                 query = "",
+                currentSortOption = NoteSortOption.NAME_ASC,
                 isSyncing = false,
                 syncProgress = 0f,
                 indexingProgressPass1 = IndexingProgress(completed = 0, total = 0),
@@ -860,6 +944,7 @@ private fun NoteListEmptyPreview() {
                 onRetryLinkIndexing = {},
                 onOpenSettings = {},
                 onOpenTrash = {},
+                onSortOptionSelected = {},
                 onCreateNote = {},
                 onClearSnackbar = {},
                 onOpenSyncStatus = {},

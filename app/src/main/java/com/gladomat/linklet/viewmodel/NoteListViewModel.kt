@@ -37,6 +37,7 @@ class NoteListViewModel @Inject constructor(
 
     private val errorState = MutableStateFlow<String?>(null)
     private val searchQuery = MutableStateFlow("")
+    private val sortOption = MutableStateFlow(NoteSortOption.NAME_ASC)
     private val hasLoaded = MutableStateFlow(false)
     private val _snackbarMessage = MutableStateFlow<String?>(null)
     private val _snackbarAction = MutableStateFlow<NoteListSnackbarAction?>(null)
@@ -46,9 +47,10 @@ class NoteListViewModel @Inject constructor(
     val state: StateFlow<NoteListUiState> = combine(
         repository.observeNotes(),
         searchQuery,
+        sortOption,
         errorState,
         hasLoaded,
-    ) { notes, query, error, loaded ->
+    ) { notes, query, sort, error, loaded ->
         when {
             error != null -> NoteListUiState.Error(error)
             loaded -> {
@@ -58,7 +60,8 @@ class NoteListViewModel @Inject constructor(
                 } else {
                     notes.filter { it.matchesQuery(trimmedQuery) }
                 }
-                val uiModels = filteredNotes.map { note ->
+                val sortedNotes = filteredNotes.sortedBy(sort)
+                val uiModels = sortedNotes.map { note ->
                     val snippet = if (trimmedQuery.isEmpty()) null else note.snippetForQuery(trimmedQuery)
                     note.toUiModel(snippet)
                 }
@@ -74,6 +77,7 @@ class NoteListViewModel @Inject constructor(
         )
 
     val query: StateFlow<String> = searchQuery
+    val currentSortOption: StateFlow<NoteSortOption> = sortOption
 
     // Sync state observation
     private val syncWorkInfo = workManager.getWorkInfosForUniqueWorkFlow(SyncWork.UNIQUE_ONE_TIME_NAME)
@@ -161,6 +165,10 @@ class NoteListViewModel @Inject constructor(
         searchQuery.value = value
     }
 
+    fun updateSortOption(option: NoteSortOption) {
+        sortOption.value = option
+    }
+
     fun clearSearchQuery() {
         searchQuery.value = ""
     }
@@ -205,6 +213,25 @@ class NoteListViewModel @Inject constructor(
         return filename.replace(regex, "")
     }
 
+    private fun List<NoteIndexEntry>.sortedBy(option: NoteSortOption): List<NoteIndexEntry> = when (option) {
+        NoteSortOption.NAME_ASC -> sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER, NoteIndexEntry::title).thenBy { it.id.path })
+        NoteSortOption.NAME_DESC -> sortedWith(compareByDescending<NoteIndexEntry> { it.title.lowercase() }.thenByDescending { it.id.path })
+        NoteSortOption.DATE_ASC -> sortedWith(compareBy<NoteIndexEntry> { it.orgRoamTimestampOrNull() == null }
+            .thenBy { it.orgRoamTimestampOrNull() ?: Long.MAX_VALUE }
+            .thenBy(String.CASE_INSENSITIVE_ORDER, NoteIndexEntry::title))
+        NoteSortOption.DATE_DESC -> sortedWith(compareBy<NoteIndexEntry> { it.orgRoamTimestampOrNull() == null }
+            .thenByDescending { it.orgRoamTimestampOrNull() ?: Long.MIN_VALUE }
+            .thenBy(String.CASE_INSENSITIVE_ORDER, NoteIndexEntry::title))
+        NoteSortOption.PATH_ASC -> sortedBy { it.id.path.lowercase() }
+        NoteSortOption.PATH_DESC -> sortedByDescending { it.id.path.lowercase() }
+    }
+
+    private fun NoteIndexEntry.orgRoamTimestampOrNull(): Long? {
+        val fileName = id.path.substringAfterLast('/')
+        val prefix = fileName.takeWhile(Char::isDigit).take(14)
+        return if (prefix.length == 14) prefix.toLongOrNull() else null
+    }
+
     private fun NoteIndexEntry.toUiModel(snippet: String? = null): NoteListItemUiModel = NoteListItemUiModel(
         id = id,
         title = title,
@@ -219,4 +246,13 @@ class NoteListViewModel @Inject constructor(
  */
 enum class NoteListSnackbarAction {
     OPEN_SYNC_STATUS,
+}
+
+enum class NoteSortOption {
+    NAME_ASC,
+    NAME_DESC,
+    DATE_ASC,
+    DATE_DESC,
+    PATH_ASC,
+    PATH_DESC,
 }

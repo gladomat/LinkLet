@@ -274,6 +274,115 @@ class NoteListViewModelTests {
     }
 
     @Test
+    fun `updateSortOption sorts notes by name descending`() = runTest {
+        val notes = MutableStateFlow<List<NoteIndexEntry>>(
+            listOf(
+                noteEntry("b.org", "Beta"),
+                noteEntry("a.org", "Alpha"),
+            ),
+        )
+
+        val repository = object : INoteRepository {
+            override fun observeNotes() = notes
+            override fun observeIndexingProgress(pass: Int) =
+                flowOf(IndexingProgress(completed = 0, total = 0))
+            override fun observeIndexingFailures(pass: Int) = flowOf(0)
+            override suspend fun listNotes(): Result<List<Note>> = Result.success(emptyList())
+            override suspend fun listAllNotes(): List<Note> = emptyList()
+            override suspend fun listTrashNotes(): List<Note> = emptyList()
+            override suspend fun getNote(path: String): Result<Note> = Result.failure(RuntimeException("unused"))
+            override suspend fun reindex(): Result<Unit> = Result.success(Unit)
+            override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(emptyList())
+            override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
+            override suspend fun deleteNoteSoft(path: String): Result<Unit> = Result.success(Unit)
+            override suspend fun restoreNoteFromTrash(trashPath: String): Result<String> = Result.success(trashPath)
+            override suspend fun deleteNotePermanent(path: String): Result<Unit> = Result.success(Unit)
+            override suspend fun deleteNote(path: String): Result<Unit> = Result.success(Unit)
+            override suspend fun duplicateNote(path: String): Result<String> = Result.success("copy-$path")
+            override suspend fun renameNote(oldPath: String, newPath: String): Result<Unit> = Result.success(Unit)
+            override suspend fun getAllTags(): Result<List<String>> = Result.success(emptyList())
+            override suspend fun updateNoteProperties(path: String, properties: Map<String, String>): Result<Unit> = Result.success(Unit)
+            override suspend fun updateNoteTags(path: String, tags: List<String>): Result<Unit> = Result.success(Unit)
+            override suspend fun resolveStorageUri(path: String): Result<android.net.Uri> =
+                Result.failure(UnsupportedOperationException("Not used in these tests"))
+        }
+
+        val indexingScheduler = mockk<IndexingScheduler>(relaxed = true)
+        val syncScheduler = mockk<SyncScheduler>(relaxed = true)
+        val viewModel = NoteListViewModel(
+            repository,
+            indexingScheduler,
+            syncScheduler,
+            syncStatusRepository,
+            application,
+        )
+
+        advanceUntilIdle()
+        viewModel.updateSortOption(NoteSortOption.NAME_DESC)
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertTrue(state is NoteListUiState.Success)
+        val items = (state as NoteListUiState.Success).notes
+        assertEquals(listOf("Beta", "Alpha"), items.map { it.title })
+    }
+
+    @Test
+    fun `updateSortOption sorts notes by date newest first`() = runTest {
+        val notes = MutableStateFlow<List<NoteIndexEntry>>(
+            listOf(
+                noteEntry("20240101000000-older_note.org", "Older"),
+                noteEntry("20250305083000-newer_note.org", "Newer"),
+                noteEntry("scratch.org", "Untimestamped"),
+            ),
+        )
+
+        val repository = object : INoteRepository {
+            override fun observeNotes() = notes
+            override fun observeIndexingProgress(pass: Int) =
+                flowOf(IndexingProgress(completed = 0, total = 0))
+            override fun observeIndexingFailures(pass: Int) = flowOf(0)
+            override suspend fun listNotes(): Result<List<Note>> = Result.success(emptyList())
+            override suspend fun listAllNotes(): List<Note> = emptyList()
+            override suspend fun listTrashNotes(): List<Note> = emptyList()
+            override suspend fun getNote(path: String): Result<Note> = Result.failure(RuntimeException("unused"))
+            override suspend fun reindex(): Result<Unit> = Result.success(Unit)
+            override suspend fun getBacklinks(path: String): Result<List<LinkEntityDto>> = Result.success(emptyList())
+            override suspend fun saveNote(path: String, content: String): Result<Unit> = Result.success(Unit)
+            override suspend fun deleteNoteSoft(path: String): Result<Unit> = Result.success(Unit)
+            override suspend fun restoreNoteFromTrash(trashPath: String): Result<String> = Result.success(trashPath)
+            override suspend fun deleteNotePermanent(path: String): Result<Unit> = Result.success(Unit)
+            override suspend fun deleteNote(path: String): Result<Unit> = Result.success(Unit)
+            override suspend fun duplicateNote(path: String): Result<String> = Result.success("copy-$path")
+            override suspend fun renameNote(oldPath: String, newPath: String): Result<Unit> = Result.success(Unit)
+            override suspend fun getAllTags(): Result<List<String>> = Result.success(emptyList())
+            override suspend fun updateNoteProperties(path: String, properties: Map<String, String>): Result<Unit> = Result.success(Unit)
+            override suspend fun updateNoteTags(path: String, tags: List<String>): Result<Unit> = Result.success(Unit)
+            override suspend fun resolveStorageUri(path: String): Result<android.net.Uri> =
+                Result.failure(UnsupportedOperationException("Not used in these tests"))
+        }
+
+        val indexingScheduler = mockk<IndexingScheduler>(relaxed = true)
+        val syncScheduler = mockk<SyncScheduler>(relaxed = true)
+        val viewModel = NoteListViewModel(
+            repository,
+            indexingScheduler,
+            syncScheduler,
+            syncStatusRepository,
+            application,
+        )
+
+        advanceUntilIdle()
+        viewModel.updateSortOption(NoteSortOption.DATE_DESC)
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertTrue(state is NoteListUiState.Success)
+        val items = (state as NoteListUiState.Success).notes
+        assertEquals(listOf("Newer", "Older", "Untimestamped"), items.map { it.title })
+    }
+
+    @Test
     fun `sync status requiring action emits snackbar with action`() = runTest {
         syncStatusRepository.setStatus(
             SyncStatus(
