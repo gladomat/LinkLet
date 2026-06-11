@@ -493,6 +493,7 @@ class NoteViewViewModel @Inject constructor(
                     text = block.content,
                 ),
             )
+            is OrgBlock.Drawer -> emptyList()
         }
     }
 }

@@ -1,6 +1,7 @@
 package com.gladomat.linklet.data.parser.org
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -181,7 +182,7 @@ class OrgDocumentParserTests {
             :ID: 6fa9215e-db36-476e-a8f1-33cc0f397eb4
             :DIR: data/custom
             :END:
-            
+
             Text
         """.trimIndent()
 
@@ -189,5 +190,158 @@ class OrgDocumentParserTests {
         val section = document.sections.single()
         assertEquals("6fa9215e-db36-476e-a8f1-33cc0f397eb4", section.properties["ID"])
         assertEquals("data/custom", section.properties["DIR"])
+    }
+
+    // ========================================================================
+    // Drawer block tests
+    // ========================================================================
+
+    @Test
+    fun `leading PROPERTIES drawer emits Drawer block and populates section properties`() {
+        val content = """
+            * Heading 1
+            :PROPERTIES:
+            :ID: abc-123
+            :CUSTOM_ID: my-heading
+            :END:
+
+            Body text.
+        """.trimIndent()
+
+        val document = parseOrgDocument(content)
+        val section = document.sections.single()
+        assertEquals("abc-123", section.properties["ID"])
+        assertEquals("my-heading", section.properties["CUSTOM_ID"])
+
+        val drawer = section.blocks.first { it is OrgBlock.Drawer } as OrgBlock.Drawer
+        assertEquals("PROPERTIES", drawer.name)
+        assertEquals("abc-123", drawer.properties["ID"])
+
+        assertFalse(
+            "Drawer lines should not leak into paragraphs",
+            section.blocks.any { it is OrgBlock.Paragraph && (it as OrgBlock.Paragraph).text.contains(":PROPERTIES:") },
+        )
+    }
+
+    @Test
+    fun `mid-body custom drawer emits in-place Drawer block between paragraphs`() {
+        val lines = listOf(
+            "Before drawer.",
+            "",
+            ":NOTES:",
+            "Some note content",
+            "More notes",
+            ":END:",
+            "",
+            "After drawer.",
+        )
+        val blocks = parseContentToBlocks(lines)
+
+        assertEquals(3, blocks.size)
+        assertTrue(blocks[0] is OrgBlock.Paragraph)
+        assertEquals("Before drawer.", (blocks[0] as OrgBlock.Paragraph).text)
+        assertTrue(blocks[1] is OrgBlock.Drawer)
+        val drawer = blocks[1] as OrgBlock.Drawer
+        assertEquals("NOTES", drawer.name)
+        assertEquals(listOf("Some note content", "More notes"), drawer.lines)
+        assertTrue(blocks[2] is OrgBlock.Paragraph)
+        assertEquals("After drawer.", (blocks[2] as OrgBlock.Paragraph).text)
+    }
+
+    @Test
+    fun `LOGBOOK drawer has raw lines and empty properties`() {
+        val lines = listOf(
+            ":LOGBOOK:",
+            "CLOCK: [2024-01-01 Mon 10:00]--[2024-01-01 Mon 11:00] =>  1:00",
+            "CLOCK: [2024-01-02 Tue 14:00]--[2024-01-02 Tue 15:30] =>  1:30",
+            ":END:",
+        )
+        val blocks = parseContentToBlocks(lines)
+
+        assertEquals(1, blocks.size)
+        val drawer = blocks[0] as OrgBlock.Drawer
+        assertEquals("LOGBOOK", drawer.name)
+        assertEquals(2, drawer.lines.size)
+        assertTrue(drawer.properties.isEmpty())
+    }
+
+    @Test
+    fun `unclosed drawer falls back to paragraph text`() {
+        val lines = listOf(
+            ":NOTES:",
+            "Some content",
+            "No :END: here",
+        )
+        val blocks = parseContentToBlocks(lines)
+
+        assertEquals(1, blocks.size)
+        assertTrue(blocks[0] is OrgBlock.Paragraph)
+        val text = (blocks[0] as OrgBlock.Paragraph).text
+        assertTrue(text.contains(":NOTES:"))
+        assertTrue(text.contains("Some content"))
+        assertTrue(text.contains("No :END: here"))
+    }
+
+    @Test
+    fun `property line alone does not start a drawer`() {
+        val lines = listOf(
+            ":ID: some-value",
+        )
+        val blocks = parseContentToBlocks(lines)
+
+        assertEquals(1, blocks.size)
+        assertTrue(blocks[0] is OrgBlock.Paragraph)
+    }
+
+    @Test
+    fun `drawer-like lines inside source block stay in source block`() {
+        val lines = listOf(
+            "#+BEGIN_SRC org",
+            ":PROPERTIES:",
+            ":ID: inside-src",
+            ":END:",
+            "#+END_SRC",
+        )
+        val blocks = parseContentToBlocks(lines)
+
+        assertEquals(1, blocks.size)
+        assertTrue(blocks[0] is OrgBlock.SourceBlock)
+        assertTrue((blocks[0] as OrgBlock.SourceBlock).content.contains(":PROPERTIES:"))
+    }
+
+    @Test
+    fun `drawer in preface is parsed as Drawer block`() {
+        val content = """
+            Intro text.
+
+            :NOTES:
+            A preface note.
+            :END:
+
+            * Heading
+            Body
+        """.trimIndent()
+
+        val document = parseOrgDocument(content)
+        assertTrue(document.prefaceBlocks.any { it is OrgBlock.Drawer })
+        val drawer = document.prefaceBlocks.first { it is OrgBlock.Drawer } as OrgBlock.Drawer
+        assertEquals("NOTES", drawer.name)
+    }
+
+    @Test
+    fun `blank lines between heading and PROPERTIES drawer still work`() {
+        val content = """
+            * Heading
+
+            :PROPERTIES:
+            :ID: with-blanks
+            :END:
+
+            Body text.
+        """.trimIndent()
+
+        val document = parseOrgDocument(content)
+        val section = document.sections.single()
+        assertEquals("with-blanks", section.properties["ID"])
     }
 }

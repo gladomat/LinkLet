@@ -4,6 +4,8 @@ private val HeadingRegex = Regex("""^(\*{1,})\s+(.*)$""")
 private val HeadingWithTagsRegex = Regex("""^(\*{1,})\s+(.*?)\s*(:(?:[a-zA-Z0-9_@#%]+:)+)\s*$""")
 private val FileTagsRegex = Regex("""^#\+filetags:\s*(.*)$""", RegexOption.IGNORE_CASE)
 private val PropertyLineRegex = Regex("""^:([A-Za-z_-]+):\s*(.*)$""")
+private val DrawerStartRegex = Regex("""^:([A-Za-z0-9_-]+):\s*$""")
+private val DrawerEndRegex = Regex("""^:END:\s*$""", RegexOption.IGNORE_CASE)
 private val BeginBlockRegex = Regex("""^\s*#\+BEGIN_(\w+)(?:\s+(.*?))?\s*$""", RegexOption.IGNORE_CASE)
 private val EndBlockRegex = Regex("""^\s*#\+END_(\w+)\s*$""", RegexOption.IGNORE_CASE)
 private val TableRowRegex = Regex("""^\s*\|.*\|\s*$""")
@@ -92,34 +94,28 @@ private data class OrgNode(
     val children: MutableList<OrgNode>,
 )
 
-private fun OrgNode.toSection(): OrgSection =
-    OrgSection(
+private fun OrgNode.toSection(): OrgSection {
+    val blocks = parseContentToBlocks(contentLines)
+    val drawerProps = blocks.firstOrNull { it is OrgBlock.Drawer && it.name == "PROPERTIES" }
+        ?.let { (it as OrgBlock.Drawer).properties }
+        ?: emptyMap()
+    return OrgSection(
         id = id,
         level = level,
         title = title,
         tags = tags,
-        properties = extractLeadingDrawerProperties(contentLines),
+        properties = drawerProps,
         body = contentLines.joinToString("\n").trim(),
-        blocks = parseContentToBlocks(contentLines),
+        blocks = blocks,
         children = children.map { it.toSection() },
     )
+}
 
-private fun extractLeadingDrawerProperties(lines: List<String>): Map<String, String> {
-    var index = 0
-    while (index < lines.size && lines[index].isBlank()) index++
-    if (index >= lines.size) return emptyMap()
-    if (!lines[index].trim().equals(":PROPERTIES:", ignoreCase = true)) return emptyMap()
-    index++
-
+private fun parseDrawerProperties(lines: List<String>): Map<String, String> {
     val properties = mutableMapOf<String, String>()
-    while (index < lines.size) {
-        val trimmed = lines[index].trim()
-        if (trimmed.equals(":END:", ignoreCase = true)) break
-        val match = PropertyLineRegex.matchEntire(trimmed)
-        if (match != null) {
-            properties[match.groupValues[1].uppercase()] = match.groupValues[2]
-        }
-        index++
+    for (line in lines) {
+        val match = PropertyLineRegex.matchEntire(line.trim()) ?: continue
+        properties[match.groupValues[1].uppercase()] = match.groupValues[2]
     }
     return properties
 }
@@ -132,6 +128,7 @@ private sealed interface ParseState {
     data object Idle : ParseState
     data class InBlock(val type: String, val langOrParams: String?, val lines: MutableList<String>) : ParseState
     data class InTable(val rows: MutableList<List<String>>, val separatorAfterRow: Int?) : ParseState
+    data class InDrawer(val name: String, val lines: MutableList<String>) : ParseState
 }
 
 /**
@@ -173,6 +170,16 @@ fun parseContentToBlocks(lines: List<String>): List<OrgBlock> {
             val cells = parseTableRow(line)
             state = ParseState.InTable(mutableListOf(cells), null)
             return
+        }
+
+        val drawerMatch = DrawerStartRegex.matchEntire(line.trim())
+        if (drawerMatch != null) {
+            val name = drawerMatch.groupValues[1].uppercase()
+            if (name != "END") {
+                flushParagraph()
+                state = ParseState.InDrawer(name, mutableListOf())
+                return
+            }
         }
 
         if (line.isBlank()) {
@@ -218,6 +225,21 @@ fun parseContentToBlocks(lines: List<String>): List<OrgBlock> {
                     }
                 }
             }
+
+            is ParseState.InDrawer -> {
+                if (DrawerEndRegex.matches(line.trim())) {
+                    blocks.add(
+                        OrgBlock.Drawer(
+                            name = currentState.name,
+                            lines = currentState.lines.toList(),
+                            properties = parseDrawerProperties(currentState.lines),
+                        ),
+                    )
+                    state = ParseState.Idle
+                } else {
+                    currentState.lines.add(line)
+                }
+            }
         }
     }
 
@@ -228,6 +250,16 @@ fun parseContentToBlocks(lines: List<String>): List<OrgBlock> {
             blocks.add(OrgBlock.UnknownBlock(finalState.type, content))
         }
         is ParseState.InTable -> flushTable(finalState)
+        is ParseState.InDrawer -> {
+            // Unclosed drawer: replay as paragraph text so no content is lost
+            if (paragraphBuffer.isNotEmpty()) paragraphBuffer.append("\n")
+            paragraphBuffer.append(":${finalState.name}:")
+            finalState.lines.forEach { l ->
+                paragraphBuffer.append("\n")
+                paragraphBuffer.append(l)
+            }
+            flushParagraph()
+        }
     }
 
     return blocks

@@ -108,6 +108,7 @@ fun OrgBlockView(
         is OrgBlock.VerseBlock -> OrgVerseBlock(block, blockId, context, modifier)
         is OrgBlock.ExampleBlock -> OrgExampleBlock(block, blockId, context, modifier)
         is OrgBlock.UnknownBlock -> OrgUnknownBlock(block, blockId, context, modifier)
+        is OrgBlock.Drawer -> { /* Handled upstream by DrawerBlockView */ }
     }
 }
 

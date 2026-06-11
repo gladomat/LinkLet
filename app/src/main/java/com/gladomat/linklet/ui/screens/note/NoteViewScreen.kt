@@ -380,6 +380,7 @@ private fun SuccessState(
     val logTag = "NoteSearch"
     val document = remember(note.content) { parseOrgDocument(note.content) }
     var propertiesExpanded by remember(note.id.path) { mutableStateOf(false) }
+    val drawerExpansion = remember(note.content) { mutableStateMapOf<String, Boolean>() }
     var showBacklinksSheet by remember { mutableStateOf(false) }
     var showMoreSheet by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -691,13 +692,24 @@ private fun SuccessState(
                         )
                         is NoteBodyItem.BlockItem -> {
                             Column(modifier = Modifier.padding(start = item.indent)) {
-                                OrgBlockView(
-                                    block = item.block,
-                                    blockId = item.blockId,
-                                    context = renderContext,
-                                    nodeId = item.nodeId,
-                                    nodeDir = item.nodeDir,
-                                )
+                                if (item.block is OrgBlock.Drawer) {
+                                    DrawerBlockView(
+                                        block = item.block,
+                                        expanded = drawerExpansion[item.blockId] ?: false,
+                                        onToggle = {
+                                            drawerExpansion[item.blockId] =
+                                                !(drawerExpansion[item.blockId] ?: false)
+                                        },
+                                    )
+                                } else {
+                                    OrgBlockView(
+                                        block = item.block,
+                                        blockId = item.blockId,
+                                        context = renderContext,
+                                        nodeId = item.nodeId,
+                                        nodeDir = item.nodeDir,
+                                    )
+                                }
                             }
                         }
                     }

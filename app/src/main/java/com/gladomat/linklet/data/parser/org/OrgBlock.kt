@@ -56,6 +56,19 @@ sealed interface OrgBlock {
     data class ExampleBlock(val content: String) : OrgBlock
 
     /**
+     * A drawer (`:NAME:` … `:END:`). Hidden behind a pill in the UI.
+     *
+     * @param name Drawer name, uppercased (e.g. "PROPERTIES", "LOGBOOK").
+     * @param lines Raw content lines between the delimiters.
+     * @param properties Parsed key/value pairs for `:KEY: value` lines.
+     */
+    data class Drawer(
+        val name: String,
+        val lines: List<String>,
+        val properties: Map<String, String>,
+    ) : OrgBlock
+
+    /**
      * Fallback for any unrecognized block type.
      *
      * @param blockType The captured TYPE from `#+BEGIN_<TYPE>`.
