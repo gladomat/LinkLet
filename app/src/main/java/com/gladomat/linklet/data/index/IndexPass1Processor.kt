@@ -33,6 +33,16 @@ class IndexPass1Processor @Inject constructor(
             if (recovered > 0) {
                 Log.w(TAG, "Pass 1 recovered stale running entries count=$recovered")
             }
+            // Return entries orphaned by a killed worker to PENDING so they're processed via the
+            // cheap path below, without forcing another full (and easily-interrupted) cold scan.
+            val requeued = indexQueueDao.requeueStaleRunning(
+                pass = PASS_1,
+                staleBefore = now - ORPHAN_RECOVERY_MILLIS,
+                now = now,
+            )
+            if (requeued > 0) {
+                Log.w(TAG, "Pass 1 requeued orphaned running entries count=$requeued")
+            }
             val pendingAtStart = indexQueueDao.countByStatus(PASS_1, IndexQueueStatus.PENDING)
             if (pendingAtStart > 0) {
                 Log.d(TAG, "Pass 1 skipping scan because pending=$pendingAtStart already exists")
@@ -275,6 +285,9 @@ class IndexPass1Processor @Inject constructor(
         private const val PASS_1 = 1
         private const val PASS_2 = 2
         private const val MAX_ATTEMPTS = 5
+        // A RUNNING row older than this has no live owner (indexing is single-worker unique work),
+        // so it is an orphan from a killed worker and is safe to requeue.
+        private const val ORPHAN_RECOVERY_MILLIS = 2 * 60 * 1000L
         private const val PRIMARY_TRASH_PREFIX = "_trash_bin/"
         private const val LEGACY_TRASH_PREFIX = "_trash/"
         private const val LEASE_TIMEOUT_MILLIS = 10 * 60 * 1000L

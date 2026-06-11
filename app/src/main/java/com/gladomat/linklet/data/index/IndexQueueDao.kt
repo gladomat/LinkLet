@@ -95,6 +95,30 @@ interface IndexQueueDao {
     )
     suspend fun failStaleRunning(pass: Int, staleBefore: Long, now: Long, reason: String): Int
 
+    /**
+     * Returns orphaned RUNNING entries (claimed by a worker that was killed before finishing) back
+     * to PENDING so the cheap "process pending" path can pick them up without a full rescan.
+     * [staleBefore] should be well past normal per-item processing time; indexing is single-worker
+     * unique work, so a RUNNING row older than that has no live owner.
+     */
+    @Query(
+        """
+        UPDATE index_queue
+        SET status = 'PENDING',
+            lockedAtEpochMillis = NULL,
+            attempts = attempts + 1,
+            updatedAtEpochMillis = :now
+        WHERE pass = :pass
+          AND status = 'RUNNING'
+          AND lockedAtEpochMillis IS NOT NULL
+          AND lockedAtEpochMillis <= :staleBefore
+        """,
+    )
+    suspend fun requeueStaleRunning(pass: Int, staleBefore: Long, now: Long): Int
+
+    @Query("SELECT COUNT(*) FROM index_queue WHERE pass = :pass AND status = 'RUNNING'")
+    suspend fun countRunning(pass: Int): Int
+
     @Query(
         """
         SELECT * FROM index_queue
