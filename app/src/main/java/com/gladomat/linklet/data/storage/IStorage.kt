@@ -1,6 +1,15 @@
 package com.gladomat.linklet.data.storage
 
 import android.net.Uri
+import java.io.IOException
+
+/**
+ * Thrown when a note is expected at [path] but no longer exists in storage.
+ *
+ * Distinguished from generic I/O errors so callers (e.g. the indexer) can treat a vanished file
+ * as a deletion to reconcile rather than a transient failure to retry forever.
+ */
+class NoteNotFoundException(val path: String) : IOException("Note not found: $path")
 
 /**
  * Abstraction over note persistence.

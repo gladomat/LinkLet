@@ -108,7 +108,9 @@ class WebDavRemoteSyncProvider @Inject constructor(
                     remoteId = relativePath,
                     path = relativePath,
                     fingerprint = normalizeEtag(resource.etag),
-                    lastModifiedEpochMillis = resource.modified?.time
+                    lastModifiedEpochMillis = resource.modified?.time,
+                    sizeBytes = resource.contentLength?.takeIf { it >= 0 },
+                    checksums = extractRemoteChecksums(resource),
                 ).also {
                     Log.d(TAG, "DEBUG: Added remote note: path='${it.path}', fingerprint='${it.fingerprint}'")
                 }
@@ -437,6 +439,19 @@ class WebDavRemoteSyncProvider @Inject constructor(
         // This keeps remote-change detection stable across servers that switch weak prefixes,
         // but it also means strength metadata is not preserved here.
         return raw.replace("W/", "", ignoreCase = true).trim('"')
+    }
+
+    /**
+     * Best-effort extraction of server-reported content checksums from a PROPFIND response.
+     * ownCloud/Nextcloud expose a `{http://owncloud.org/ns}checksums` property whose text is like
+     * "SHA1:.. MD5:..". We don't fail or change behaviour if absent — adoption falls back to size.
+     */
+    private fun extractRemoteChecksums(
+        resource: com.thegrizzlylabs.sardineandroid.DavResource,
+    ): Map<String, String>? {
+        val custom = runCatching { resource.customProps }.getOrNull() ?: return null
+        val raw = custom["checksums"] ?: custom["checksum"] ?: return null
+        return NoteHashCalculator.parseChecksums(raw)
     }
 }
 

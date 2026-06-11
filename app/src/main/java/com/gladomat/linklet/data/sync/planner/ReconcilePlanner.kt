@@ -19,15 +19,34 @@ class ReconcilePlanner {
             if (isFreshInstall) {
                 when {
                     local != null && remote != null -> {
-                        operations.add(
-                            SyncEngine.SyncOperation.Download(
-                                path = path,
-                                remoteId = remote.remoteId,
-                                fingerprint = remote.fingerprint,
-                                reason = "Fresh Install: Server wins",
-                                backupLocalIfDifferent = true,
-                            ),
-                        )
+                        when (local.adoptMatch) {
+                            // Local already matches the remote (by checksum, or by size when the
+                            // server offers no checksum): adopt it in place — no download, no
+                            // overwrite, no spurious conflict.
+                            true -> operations.add(
+                                SyncEngine.SyncOperation.Adopt(
+                                    path = path,
+                                    remoteId = remote.remoteId,
+                                    fingerprint = remote.fingerprint,
+                                    localHash = local.hash,
+                                ),
+                            )
+                            // Genuinely different content under the same path: preserve both sides.
+                            false -> operations.add(
+                                SyncEngine.SyncOperation.Conflict(path, remote.remoteId, remote.fingerprint),
+                            )
+                            // Couldn't determine identity (no checksum and no size): fall back to the
+                            // safe server-wins download, backing up local if it turns out to differ.
+                            null -> operations.add(
+                                SyncEngine.SyncOperation.Download(
+                                    path = path,
+                                    remoteId = remote.remoteId,
+                                    fingerprint = remote.fingerprint,
+                                    reason = "Fresh Install: Server wins",
+                                    backupLocalIfDifferent = true,
+                                ),
+                            )
+                        }
                     }
 
                     local != null -> {

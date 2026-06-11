@@ -6,6 +6,7 @@ import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.gladomat.linklet.data.index.IndexResetService
 import com.gladomat.linklet.data.index.SyncStateDao
 import com.gladomat.linklet.data.settings.FolderSettingsRepository
 import com.gladomat.linklet.data.settings.SyncSettingsRepository
@@ -27,6 +28,7 @@ class SettingsViewModel @Inject constructor(
     private val syncScheduler: SyncScheduler,
     private val syncStateDao: SyncStateDao,
     private val syncSettingsRepository: SyncSettingsRepository,
+    private val indexResetService: IndexResetService,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsUiState())
@@ -89,10 +91,20 @@ class SettingsViewModel @Inject constructor(
         _state.update { it.copy(directoryChangeDialog = null) }
     }
 
+    /**
+     * Resets sync state AND the local index for a directory change, then triggers a sync.
+     *
+     * Clearing sync state alone used to leave the index pointing at the old directory; we now
+     * rebuild both so the new directory is reconciled cleanly. On the following sync the engine
+     * runs its fresh-install "adopt" path: local files that already match the remote (by content
+     * checksum, or by size when the server offers no checksum) are adopted in place without being
+     * re-downloaded or overwritten; genuinely different files become conflicts.
+     */
     fun clearSyncStateAndRetry() {
         viewModelScope.launch {
             runCatching {
                 syncStateDao.clearAllStates()
+                indexResetService.resetAndReindex()
                 _state.update { it.copy(directoryChangeDialog = null) }
                 triggerSync()
             }.onFailure { error ->

@@ -44,8 +44,15 @@ class IndexingScheduler @Inject constructor(
     }
 
     companion object {
-        internal val PASS1_EXISTING_WORK_POLICY = ExistingWorkPolicy.APPEND_OR_REPLACE
-        internal val PASS2_EXISTING_WORK_POLICY = ExistingWorkPolicy.REPLACE
+        // KEEP (not REPLACE/APPEND_OR_REPLACE): a re-schedule that arrives while a scan is in
+        // flight must NOT cancel and restart it. The cold SAF scan of a large vault takes longer
+        // than the gap between the triggers that schedule indexing (app launch, every sync
+        // completion, note saves), so REPLACE caused the worker to be interrupted and restarted
+        // from zero forever, never committing. An in-flight worker already drains the whole queue
+        // and chains its own continuation, so keeping it is sufficient; newly-enqueued work is
+        // picked up by that continuation's next scan.
+        internal val PASS1_EXISTING_WORK_POLICY = ExistingWorkPolicy.KEEP
+        internal val PASS2_EXISTING_WORK_POLICY = ExistingWorkPolicy.KEEP
         private const val TAG = "IndexingScheduler"
     }
 }

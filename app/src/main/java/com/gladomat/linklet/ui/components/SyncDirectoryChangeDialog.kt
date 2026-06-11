@@ -19,7 +19,7 @@ fun SyncDirectoryChangeDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "WebDAV Directory Changed",
+                text = "Sync directory changed",
                 style = MaterialTheme.typography.headlineSmall,
             )
         },
@@ -27,19 +27,21 @@ fun SyncDirectoryChangeDialog(
             Text(
                 text = buildString {
                     if (oldPath == null) {
-                        append("Sync state from a previous version was detected.\n\n")
-                        append("Current directory: $newPath\n\n")
-                        append("To ensure data safety and prevent accidental deletions, ")
-                        append("you need to clear the sync state before continuing. ")
-                        append("This will treat the current directory as a fresh installation.\n\n")
+                        append("Sync history from a previous version was detected for:\n\n")
+                        append("$newPath\n\n")
                     } else {
-                        append("The WebDAV sync directory has changed:\n\n")
+                        append("The sync directory has changed:\n\n")
                         append("Previous: $oldPath\n")
-                        append("Current: $newPath\n\n")
-                        append("To prevent data loss, you need to clear the sync state before continuing. ")
-                        append("This will treat the new directory as a fresh installation.\n\n")
+                        append("Now: $newPath\n\n")
                     }
-                    append("Your local files will not be deleted, but the sync history will be reset.")
+                    append("Choose how to continue:\n\n")
+                    append("• Clear & reconcile (recommended): resets the sync history and rebuilds ")
+                    append("the local index for this directory, then syncs. Local files that already ")
+                    append("match the server are adopted as-is — they are not re-downloaded or ")
+                    append("overwritten. Files that genuinely differ are kept as conflict copies, so ")
+                    append("nothing is lost. Your local files are never deleted.\n\n")
+                    append("• Cancel: makes no changes. Syncing stays paused for this directory until ")
+                    append("you reconcile, or switch the setting back to the previous directory.")
                 },
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -47,7 +49,7 @@ fun SyncDirectoryChangeDialog(
         confirmButton = {
             TextButton(onClick = onClearAndContinue) {
                 Text(
-                    text = "Clear & Continue",
+                    text = "Clear & reconcile",
                     fontWeight = FontWeight.Bold,
                 )
             }

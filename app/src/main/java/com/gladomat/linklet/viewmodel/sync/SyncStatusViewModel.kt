@@ -2,6 +2,7 @@ package com.gladomat.linklet.viewmodel.sync
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.gladomat.linklet.data.index.IndexResetService
 import com.gladomat.linklet.data.index.SyncStateDao
 import com.gladomat.linklet.data.sync.SyncScheduler
 import com.gladomat.linklet.data.sync.SyncStatus
@@ -23,6 +24,7 @@ class SyncStatusViewModel @Inject constructor(
     private val syncStatusRepository: SyncStatusRepository,
     private val syncStateDao: SyncStateDao,
     private val syncScheduler: SyncScheduler,
+    private val indexResetService: IndexResetService,
 ) : ViewModel() {
 
     val status: StateFlow<SyncStatus?> = syncStatusRepository.statusFlow
@@ -36,7 +38,10 @@ class SyncStatusViewModel @Inject constructor(
      */
     fun clearAndContinue() {
         viewModelScope.launch {
-            val cleared = runCatching { syncStateDao.clearAllStates() }
+            val cleared = runCatching {
+                syncStateDao.clearAllStates()
+                indexResetService.resetAndReindex()
+            }
                 .onFailure { error ->
                     _message.value = "Failed to clear sync state: ${error.message}"
                 }

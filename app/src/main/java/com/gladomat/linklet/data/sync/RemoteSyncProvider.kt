@@ -25,6 +25,15 @@ data class RemoteNoteMetadata(
     val path: String,
     val fingerprint: String?,
     val lastModifiedEpochMillis: Long?,
+    /** Remote file size in bytes (WebDAV getcontentlength), if reported. */
+    val sizeBytes: Long? = null,
+    /**
+     * Server-advertised content checksums, keyed by uppercase algorithm name (e.g. "SHA-256",
+     * "SHA-1", "MD5") with a lowercase hex value. Populated best-effort from PROPFIND when the
+     * server exposes them (e.g. ownCloud/Nextcloud). Used on directory-change adoption to decide
+     * whether a local file already matches the remote without downloading it.
+     */
+    val checksums: Map<String, String>? = null,
 )
 
 data class RemoteUploadResult(

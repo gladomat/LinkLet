@@ -16,6 +16,28 @@ interface IndexQueueDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entry: IndexQueueEntity)
 
+    @Query("DELETE FROM index_queue")
+    suspend fun clearAll()
+
+    @Query("SELECT * FROM index_queue WHERE path = :path AND pass = :pass LIMIT 1")
+    suspend fun getEntry(path: String, pass: Int): IndexQueueEntity?
+
+    @Query("SELECT * FROM index_queue WHERE pass = :pass")
+    suspend fun listAllByPass(pass: Int): List<IndexQueueEntity>
+
+    /**
+     * Paths whose entry for [pass] has terminally failed: it is FAILED and has already been
+     * attempted at least [maxAttempts] times. These must not be re-enqueued, otherwise an
+     * unreadable/missing file loops forever.
+     */
+    @Query(
+        """
+        SELECT path FROM index_queue
+        WHERE pass = :pass AND status = 'FAILED' AND attempts >= :maxAttempts
+        """,
+    )
+    suspend fun terminallyFailedPaths(pass: Int, maxAttempts: Int): List<String>
+
     @Query(
         """
         SELECT COUNT(*) FROM index_queue

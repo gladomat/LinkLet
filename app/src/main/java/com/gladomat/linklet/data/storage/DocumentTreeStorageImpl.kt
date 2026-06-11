@@ -82,7 +82,7 @@ class DocumentTreeStorageImpl @Inject constructor(
                 return@runCatching readFromUri(cachedUri)
             }
 
-            val target = resolveFile(path) ?: throw IOException("Note not found: $path")
+            val target = resolveFile(path) ?: throw NoteNotFoundException(path)
             pathUriCache.get()[path] = target.uri
             readFromUri(target.uri)
         }

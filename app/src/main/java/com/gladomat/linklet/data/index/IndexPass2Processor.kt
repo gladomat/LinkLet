@@ -5,6 +5,7 @@ import androidx.room.withTransaction
 import com.gladomat.linklet.data.model.LinkTarget
 import com.gladomat.linklet.data.parser.IParser
 import com.gladomat.linklet.data.storage.IStorage
+import com.gladomat.linklet.data.storage.NoteNotFoundException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import javax.inject.Inject
@@ -27,22 +28,35 @@ class IndexPass2Processor @Inject constructor(
 
             val notesNeedingLinks = noteDao.listNotesNeedingLinks()
             Log.d(TAG, "Pass 2 notes needing links count=${notesNeedingLinks.size}")
-            if (notesNeedingLinks.isNotEmpty()) {
-                indexQueueDao.upsertAll(
-                    notesNeedingLinks.map { note ->
-                        IndexQueueEntity(
-                            path = note.path,
-                            pass = PASS_2,
-                            operation = IndexQueueOperation.UPSERT,
-                            status = IndexQueueStatus.PENDING,
-                            attempts = 0,
-                            lastError = null,
-                            updatedAtEpochMillis = now,
-                            expectedMtime = note.fingerprintMtime,
-                            expectedSize = note.fingerprintSize,
-                        )
-                    },
+            var terminalSkipped = 0
+            for (note in notesNeedingLinks) {
+                val existing = indexQueueDao.getEntry(note.path, PASS_2)
+                // Don't resurrect entries that have exhausted their retry budget: a permanently
+                // unreadable/missing file used to be re-enqueued here every run, looping forever.
+                if (existing != null &&
+                    existing.status == IndexQueueStatus.FAILED &&
+                    existing.attempts >= MAX_ATTEMPTS
+                ) {
+                    terminalSkipped += 1
+                    continue
+                }
+                indexQueueDao.upsert(
+                    IndexQueueEntity(
+                        path = note.path,
+                        pass = PASS_2,
+                        operation = IndexQueueOperation.UPSERT,
+                        status = IndexQueueStatus.PENDING,
+                        // Preserve the running attempt count so the retry cap is actually reached.
+                        attempts = existing?.attempts ?: 0,
+                        lastError = null,
+                        updatedAtEpochMillis = now,
+                        expectedMtime = note.fingerprintMtime,
+                        expectedSize = note.fingerprintSize,
+                    ),
                 )
+            }
+            if (terminalSkipped > 0) {
+                Log.w(TAG, "Pass 2 skipped $terminalSkipped note(s) that exhausted $MAX_ATTEMPTS attempts")
             }
             Log.d(TAG, "Pass 2 enqueue complete pending=${indexQueueDao.countByStatus(PASS_2, IndexQueueStatus.PENDING)}")
 
@@ -133,6 +147,28 @@ class IndexPass2Processor @Inject constructor(
                             )
                         } catch (e: Exception) {
                             if (e is CancellationException) throw e
+                            if (e is NoteNotFoundException) {
+                                // File vanished from storage — reconcile as a deletion instead of
+                                // retrying a read that can never succeed.
+                                Log.d(TAG, "Pass 2 file missing, tombstoning path=${current.path}")
+                                database.withTransaction {
+                                    noteDao.deleteLinksBySource(current.path)
+                                    noteDao.markDeleted(path = current.path, deletedAt = updatedAt)
+                                    indexQueueDao.upsert(
+                                        current.copy(
+                                            status = IndexQueueStatus.DONE,
+                                            attempts = current.attempts + 1,
+                                            lastError = null,
+                                            updatedAtEpochMillis = updatedAt,
+                                            lockedAtEpochMillis = null,
+                                        ),
+                                    )
+                                }
+                                deleted += 1
+                                processed += 1
+                                entry = indexQueueDao.claimNext(pass = PASS_2, now = now, leaseTimeoutMillis = LEASE_TIMEOUT_MILLIS)
+                                continue
+                            }
                             failed += 1
                             Log.e(TAG, "Pass 2 indexing failed for ${current.path}", e)
                             indexQueueDao.upsert(
@@ -160,6 +196,7 @@ class IndexPass2Processor @Inject constructor(
     companion object {
         private const val TAG = "IndexPass2Processor"
         private const val PASS_2 = 2
+        private const val MAX_ATTEMPTS = 5
         private const val LEASE_TIMEOUT_MILLIS = 10 * 60 * 1000L
     }
 }

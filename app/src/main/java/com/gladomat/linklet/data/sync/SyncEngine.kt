@@ -163,6 +163,7 @@ class SyncEngine @Inject constructor(
         is SyncOperation.Conflict -> "CONFLICT"
         is SyncOperation.UpdateState -> "UPDATE_STATE"
         is SyncOperation.CleanupOrphanState -> "CLEANUP_ORPHAN_STATE"
+        is SyncOperation.Adopt -> "ADOPT"
     }
 
     private fun operationPriority(operation: SyncOperation): Int = when (operation) {
@@ -173,12 +174,14 @@ class SyncEngine @Inject constructor(
         is SyncOperation.SoftDeleteLocal -> 60
         is SyncOperation.UpdateState -> 10
         is SyncOperation.CleanupOrphanState -> 10
+        is SyncOperation.Adopt -> 10
     }
 
     private fun operationRemoteId(operation: SyncOperation): String? = when (operation) {
         is SyncOperation.Download -> operation.remoteId
         is SyncOperation.DeleteRemote -> operation.remoteId
         is SyncOperation.Conflict -> operation.remoteId
+        is SyncOperation.Adopt -> operation.remoteId
         else -> null
     }
 
@@ -186,6 +189,7 @@ class SyncEngine @Inject constructor(
         is SyncOperation.Download -> operation.fingerprint
         is SyncOperation.DeleteRemote -> operation.etag
         is SyncOperation.Conflict -> operation.fingerprint
+        is SyncOperation.Adopt -> operation.fingerprint
         else -> null
     }
 
@@ -221,7 +225,36 @@ class SyncEngine @Inject constructor(
         val syncStates: Map<String, SyncStateEntity>,
     )
 
-    data class LocalFile(val path: String, val hash: String)
+    data class LocalFile(
+        val path: String,
+        val hash: String,
+        val sizeBytes: Long? = null,
+        /**
+         * Fresh-install/adopt only: whether this local file already matches its remote counterpart.
+         * true = identical (adopt without transfer), false = differs (conflict), null = couldn't be
+         * determined (fall back to the safe server-wins download).
+         */
+        val adoptMatch: Boolean? = null,
+    )
+
+    /**
+     * Decides whether [localBytes] already matches [remote] without downloading it: prefer a
+     * server-advertised content checksum (verified by recomputing the same digest locally), and
+     * fall back to file size. Returns null when neither signal is available.
+     */
+    private fun computeAdoptMatch(localBytes: ByteArray, remote: RemoteNoteMetadata?): Boolean? {
+        if (remote == null) return null
+        val checksums = remote.checksums
+        if (!checksums.isNullOrEmpty()) {
+            for (algo in NoteHashCalculator.SUPPORTED_ALGORITHMS) {
+                val remoteHex = checksums[algo] ?: continue
+                val localHex = NoteHashCalculator.computeBytes(localBytes, algo) ?: continue
+                return localHex.equals(remoteHex, ignoreCase = true)
+            }
+        }
+        val remoteSize = remote.sizeBytes ?: return null
+        return remoteSize == localBytes.size.toLong()
+    }
 
     private suspend fun discoverState(provider: RemoteSyncProvider, isFreshInstall: Boolean): DiscoveryResult {
         // 1. Local Files (excluding trash bin - that's local-only)
@@ -229,32 +262,49 @@ class SyncEngine @Inject constructor(
             .filter { !it.startsWith(TRASH_DIR) }
             .filter { SyncPathFilter.shouldInclude(it) }
         Log.d(TAG, "DEBUG Discovery: Found ${localPaths.size} local paths (excluding $TRASH_DIR)")
-        localPaths.forEach { path -> Log.d(TAG, "DEBUG Discovery: Local path: '$path'") }
-        
+
+        // Remote listing first: on a fresh install we use it to decide which local files can be
+        // adopted as-is (already identical to the remote) versus downloaded.
+        val remoteList = provider.listRemoteNotes().getOrThrow()
+        val remoteFiles = remoteList.associateBy { it.path }
+        Log.d(TAG, "DEBUG Discovery: Found ${remoteFiles.size} remote files")
+
+        var adoptable = 0
         val localFiles = localPaths.mapNotNull { path ->
             if (isFreshInstall) {
-                // No sync state exists yet, so we don't need hashes to plan work.
-                // Hashing whole vaults can be extremely slow on large note sets.
-                path to LocalFile(path, "")
+                val remote = remoteFiles[path]
+                if (remote == null) {
+                    // Local-only file: no remote to compare against, so no hashing needed.
+                    path to LocalFile(path, "")
+                } else {
+                    // Overlapping file on a directory-change/adopt: hash locally (cheap vs. a
+                    // network download) so identical files can be adopted without transfer.
+                    val bytes = storage.readFileBytes(path).getOrNull()
+                    if (bytes != null) {
+                        val match = computeAdoptMatch(bytes, remote)
+                        if (match == true) adoptable += 1
+                        path to LocalFile(
+                            path = path,
+                            hash = NoteHashCalculator.computeBytes(bytes),
+                            sizeBytes = bytes.size.toLong(),
+                            adoptMatch = match,
+                        )
+                    } else {
+                        Log.w(TAG, "DEBUG Discovery: Could not read local file: '$path'")
+                        null
+                    }
+                }
             } else {
                 val bytes = storage.readFileBytes(path).getOrNull()
                 if (bytes != null) {
-                    path to LocalFile(path, NoteHashCalculator.computeBytes(bytes))
+                    path to LocalFile(path, NoteHashCalculator.computeBytes(bytes), sizeBytes = bytes.size.toLong())
                 } else {
                     Log.w(TAG, "DEBUG Discovery: Could not read local file: '$path'")
                     null
                 }
             }
         }.toMap()
-        Log.d(TAG, "DEBUG Discovery: Successfully read ${localFiles.size} local files")
-
-        // 2. Remote Files
-        val remoteList = provider.listRemoteNotes().getOrThrow()
-        val remoteFiles = remoteList.associateBy { it.path }
-        Log.d(TAG, "DEBUG Discovery: Found ${remoteFiles.size} remote files")
-        remoteFiles.forEach { (path, meta) -> 
-            Log.d(TAG, "DEBUG Discovery: Remote path: '$path', fingerprint=${meta.fingerprint}")
-        }
+        Log.d(TAG, "DEBUG Discovery: Successfully read ${localFiles.size} local files (adoptable=$adoptable)")
 
         // 3. Sync State (excluding trash bin files - they're local-only)
         val allSyncStates = syncStateDao.getAllStates()
@@ -262,10 +312,7 @@ class SyncEngine @Inject constructor(
             .filter { !it.path.startsWith(TRASH_DIR) }
             .associateBy { it.path }
         Log.d(TAG, "DEBUG Discovery: Found ${syncStates.size} sync states (excluding $TRASH_DIR)")
-        syncStates.forEach { (path, state) ->
-            Log.d(TAG, "DEBUG Discovery: Sync state: path='$path', lifecycle=${state.lifecycle}, remoteId=${state.remoteId}, lastSynced=${state.lastSyncedAtEpochMillis}")
-        }
-        
+
         // Clean up any orphan trash bin sync states (they shouldn't exist but let's be safe)
         val trashStates = allSyncStates.filter { it.path.startsWith(TRASH_DIR) }
         if (trashStates.isNotEmpty()) {
@@ -288,13 +335,17 @@ class SyncEngine @Inject constructor(
             }
         }
 
-        // Log summary of path overlaps
+        // Log summary of path overlaps (counts only — materialising and logging these whole sets
+        // for a large vault drove heavy allocation/GC churn and slowed discovery substantially).
         val allPaths = localFiles.keys + remoteFiles.keys + syncStates.keys
         Log.d(TAG, "DEBUG Discovery: Total unique paths to reconcile: ${allPaths.size}")
-        Log.d(TAG, "DEBUG Discovery: Local-only paths: ${localFiles.keys - remoteFiles.keys - syncStates.keys}")
-        Log.d(TAG, "DEBUG Discovery: Remote-only paths: ${remoteFiles.keys - localFiles.keys - syncStates.keys}")
-        Log.d(TAG, "DEBUG Discovery: State-only paths: ${syncStates.keys - localFiles.keys - remoteFiles.keys}")
-        Log.d(TAG, "DEBUG Discovery: Local+Remote overlap: ${localFiles.keys.intersect(remoteFiles.keys)}")
+        Log.d(
+            TAG,
+            "DEBUG Discovery: counts local-only=${(localFiles.keys - remoteFiles.keys - syncStates.keys).size}" +
+                " remote-only=${(remoteFiles.keys - localFiles.keys - syncStates.keys).size}" +
+                " state-only=${(syncStates.keys - localFiles.keys - remoteFiles.keys).size}" +
+                " local+remote=${localFiles.keys.count { it in remoteFiles.keys }}",
+        )
 
         return DiscoveryResult(localFiles, remoteFiles, syncStates)
     }
@@ -337,6 +388,16 @@ class SyncEngine @Inject constructor(
         data class Conflict(override val path: String, val remoteId: String, val fingerprint: String?) : SyncOperation()
         data class UpdateState(override val path: String) : SyncOperation() // Just update DB
         data class CleanupOrphanState(override val path: String) : SyncOperation() // Remove orphan sync state
+        /**
+         * Adopt an already-identical local file: record it as synced (no upload/download/overwrite).
+         * Used on directory-change/fresh-install when the local copy matches the remote.
+         */
+        data class Adopt(
+            override val path: String,
+            val remoteId: String,
+            val fingerprint: String?,
+            val localHash: String,
+        ) : SyncOperation()
     }
 
     private fun reconcile(discovery: DiscoveryResult, isFreshInstall: Boolean): List<SyncOperation> {
@@ -349,7 +410,8 @@ class SyncEngine @Inject constructor(
         val deleteRemotes = operations.filterIsInstance<SyncOperation.DeleteRemote>().size
         val softDeletes = operations.filterIsInstance<SyncOperation.SoftDeleteLocal>().size
         val conflictOps = operations.filterIsInstance<SyncOperation.Conflict>()
-        Log.i(TAG, "DEBUG Reconcile: Summary - uploads=$uploads, downloads=$downloads, deleteRemotes=$deleteRemotes, softDeletes=$softDeletes, conflicts=${conflictOps.size}")
+        val adopts = operations.filterIsInstance<SyncOperation.Adopt>().size
+        Log.i(TAG, "DEBUG Reconcile: Summary - uploads=$uploads, downloads=$downloads, adopts=$adopts, deleteRemotes=$deleteRemotes, softDeletes=$softDeletes, conflicts=${conflictOps.size}")
         
         // Log all delete operations explicitly
         operations.filterIsInstance<SyncOperation.DeleteRemote>().forEach { op ->
@@ -428,6 +490,7 @@ class SyncEngine @Inject constructor(
                 is SyncOperation.SoftDeleteLocal -> performSoftDelete(op)
                 is SyncOperation.Conflict -> performConflictResolution(op, provider)
                 is SyncOperation.UpdateState -> { /* Just ensure DB matches */ }
+                is SyncOperation.Adopt -> performAdopt(op)
                 is SyncOperation.CleanupOrphanState -> {
                     Log.d(TAG, "Cleaning up orphan sync state: ${op.path}")
                     syncStateDao.deleteState(op.path)
@@ -446,6 +509,25 @@ class SyncEngine @Inject constructor(
                 )
             }
         }
+    }
+
+    private suspend fun performAdopt(op: SyncOperation.Adopt) {
+        // The local file already matches the remote, so just record the sync relationship; no
+        // bytes move and the existing local file is left untouched.
+        Log.d(TAG, "Executing Adopt: ${op.path} (already identical to remote)")
+        val existing = syncStateDao.getState(op.path)
+        val newState = (existing ?: SyncStateEntity(op.path)).copy(
+            lifecycle = NoteLifecycle.ACTIVE,
+            remoteId = op.remoteId,
+            remoteFingerprint = op.fingerprint,
+            remoteETag = op.fingerprint,
+            localContentHash = op.localHash,
+            lastKnownHash = op.localHash,
+            lastSyncedAtEpochMillis = System.currentTimeMillis(),
+            pendingAction = SyncPendingAction.NONE,
+            lastError = null,
+        )
+        syncStateDao.upsert(newState)
     }
 
     private suspend fun performUpload(op: SyncOperation.Upload, provider: RemoteSyncProvider) {

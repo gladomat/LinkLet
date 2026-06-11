@@ -48,7 +48,7 @@ class FileStorageImpl(
     override suspend fun readNote(path: String): Result<String> = withContext(dispatcher) {
         runCatching {
             val file = resolvePath(path)
-            if (!file.exists()) throw IOException("Note not found: $path")
+            if (!file.exists()) throw NoteNotFoundException(path)
             file.readText()
         }
     }
