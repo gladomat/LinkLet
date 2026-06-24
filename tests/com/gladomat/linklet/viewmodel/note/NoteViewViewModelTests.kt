@@ -201,6 +201,45 @@ class NoteViewViewModelTests {
         assertTrue(state is NoteViewUiState.Stub)
     }
 
+    @Test
+    fun `toggleFavorite flips favorite flag on a loaded note`() = runTest {
+        val viewModel = NoteViewViewModel(
+            repository = RecordingRepository(),
+            savedStateHandle = SavedStateHandle(mapOf(NoteViewViewModel.NoteArgs.NOTE_PATH to "path.org")),
+        )
+        advanceUntilIdle()
+
+        val initial = viewModel.state.value
+        assertTrue(initial is NoteViewUiState.Success)
+        assertEquals(false, (initial as NoteViewUiState.Success).isFavorite)
+
+        viewModel.toggleFavorite()
+        assertEquals(true, (viewModel.state.value as NoteViewUiState.Success).isFavorite)
+
+        viewModel.toggleFavorite()
+        assertEquals(false, (viewModel.state.value as NoteViewUiState.Success).isFavorite)
+    }
+
+    @Test
+    fun `toggleFavorite is a no-op when note is not loaded`() = runTest {
+        val repository = object : INoteRepository by RecordingRepository() {
+            override suspend fun getNote(path: String): Result<Note> = Result.failure(RuntimeException("boom"))
+        }
+        val viewModel = NoteViewViewModel(
+            repository = repository,
+            savedStateHandle = SavedStateHandle(mapOf(NoteViewViewModel.NoteArgs.NOTE_PATH to "path.org")),
+        )
+        advanceUntilIdle()
+
+        val before = viewModel.state.value
+        assertTrue(before is NoteViewUiState.Error)
+
+        viewModel.toggleFavorite()
+
+        // State class is unchanged; toggling a favorite has no meaning outside Success.
+        assertEquals(before::class, viewModel.state.value::class)
+    }
+
     private class StubNoteRepository : INoteRepository {
         var requestedDownloadPath: String? = null
 

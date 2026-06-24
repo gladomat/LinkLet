@@ -5,6 +5,7 @@ import com.gladomat.linklet.data.sync.db.CapabilitiesCacheEntity
 import com.gladomat.linklet.data.sync.metrics.InMemorySyncMetrics
 import com.gladomat.linklet.testing.Aarch64RobolectricTestRunner
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.Dispatcher
@@ -48,6 +49,11 @@ class CapabilitiesProbeTests {
     private lateinit var metrics: InMemorySyncMetrics
     private lateinit var probe: CapabilitiesProbe
 
+    // Share ONE scheduler between the probe's dispatcher and runTest, otherwise dispatching the
+    // probe's async work inside runTest throws "Detected use of different schedulers".
+    private val scheduler = TestCoroutineScheduler()
+    private val dispatcher = StandardTestDispatcher(scheduler)
+
     private val rootId = "test-root"
     private val rootPath = "/remote.php/dav/files/alice/Documents"
     private val now = 1_700_000_000_000L
@@ -76,8 +82,9 @@ class CapabilitiesProbeTests {
         client = OkHttpClient.Builder().build()
         dao = FakeCapabilitiesCacheDao()
         metrics = InMemorySyncMetrics()
-        // Use StandardTestDispatcher so async blocks are deterministic
-        probe = CapabilitiesProbe(client, dao, metrics, dispatcher = StandardTestDispatcher())
+        // Use the shared-scheduler dispatcher so async blocks are deterministic and compatible
+        // with runTest's scheduler.
+        probe = CapabilitiesProbe(client, dao, metrics, dispatcher = dispatcher)
     }
 
     @After
@@ -88,7 +95,7 @@ class CapabilitiesProbeTests {
     private fun baseUrl(): String = server.url("/").toString().trimEnd('/')
 
     @Test
-    fun `cache hit returns without network call`() = runTest {
+    fun `cache hit returns without network call`() = runTest(dispatcher) {
         dao.upsert(
             CapabilitiesCacheEntity(
                 rootId = rootId,
@@ -109,7 +116,7 @@ class CapabilitiesProbeTests {
     }
 
     @Test
-    fun `expired cache triggers re-probe`() = runTest {
+    fun `expired cache triggers re-probe`() = runTest(dispatcher) {
         dao.upsert(
             CapabilitiesCacheEntity(
                 rootId = rootId,
@@ -134,7 +141,7 @@ class CapabilitiesProbeTests {
     }
 
     @Test
-    fun `SEARCH support detected with 207 response`() = runTest {
+    fun `SEARCH support detected with 207 response`() = runTest(dispatcher) {
         searchResponse = MockResponse().setResponseCode(207)
 
         val result = probe.probe(rootId, baseUrl(), rootPath, nowEpochMillis = now)
@@ -143,7 +150,7 @@ class CapabilitiesProbeTests {
     }
 
     @Test
-    fun `SEARCH not supported with 405 response`() = runTest {
+    fun `SEARCH not supported with 405 response`() = runTest(dispatcher) {
         searchResponse = MockResponse().setResponseCode(405)
 
         val result = probe.probe(rootId, baseUrl(), rootPath, nowEpochMillis = now)
@@ -152,7 +159,7 @@ class CapabilitiesProbeTests {
     }
 
     @Test
-    fun `trashbin support detected with 207 response`() = runTest {
+    fun `trashbin support detected with 207 response`() = runTest(dispatcher) {
         trashbinResponse = MockResponse().setResponseCode(207)
 
         val result = probe.probe(rootId, baseUrl(), rootPath, nowEpochMillis = now)
@@ -161,7 +168,7 @@ class CapabilitiesProbeTests {
     }
 
     @Test
-    fun `fileId support detected when propfind returns item with fileId`() = runTest {
+    fun `fileId support detected when propfind returns item with fileId`() = runTest(dispatcher) {
         fileIdResponse = MockResponse().setResponseCode(207).setBody(propfindResponseWithFileId("99999"))
 
         val result = probe.probe(rootId, baseUrl(), rootPath, nowEpochMillis = now)
@@ -170,7 +177,7 @@ class CapabilitiesProbeTests {
     }
 
     @Test
-    fun `all negative uses shorter TTL`() = runTest {
+    fun `all negative uses shorter TTL`() = runTest(dispatcher) {
         searchResponse = MockResponse().setResponseCode(405)
         trashbinResponse = MockResponse().setResponseCode(404)
         fileIdResponse = MockResponse().setResponseCode(207).setBody(propfindResponseWithoutFileId())
@@ -182,7 +189,7 @@ class CapabilitiesProbeTests {
     }
 
     @Test
-    fun `negative cache expires and re-probes`() = runTest {
+    fun `negative cache expires and re-probes`() = runTest(dispatcher) {
         dao.upsert(
             CapabilitiesCacheEntity(
                 rootId = rootId,
@@ -210,7 +217,7 @@ class CapabilitiesProbeTests {
     }
 
     @Test
-    fun `metrics are incremented for each probe request`() = runTest {
+    fun `metrics are incremented for each probe request`() = runTest(dispatcher) {
         searchResponse = MockResponse().setResponseCode(207)
         trashbinResponse = MockResponse().setResponseCode(207)
         fileIdResponse = MockResponse().setResponseCode(207).setBody(propfindResponseWithFileId())
@@ -230,7 +237,7 @@ class CapabilitiesProbeTests {
     }
 
     @Test
-    fun `trashbin returns false when username cannot be extracted`() = runTest {
+    fun `trashbin returns false when username cannot be extracted`() = runTest(dispatcher) {
         searchResponse = MockResponse().setResponseCode(207)
         fileIdResponse = MockResponse().setResponseCode(207).setBody(propfindResponseWithFileId())
 

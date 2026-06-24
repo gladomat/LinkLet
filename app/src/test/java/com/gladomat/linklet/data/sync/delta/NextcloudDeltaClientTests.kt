@@ -132,7 +132,7 @@ class NextcloudDeltaClientTests {
     }
 
     @Test
-    fun `successful delta returns changes and valid`() = runTest {
+    fun `successful delta without trashbin returns changes and soft-invalid`() = runTest {
         watermarkDao.upsert(
             SyncWatermarkEntity(
                 rootId = "root1",
@@ -174,7 +174,9 @@ class NextcloudDeltaClientTests {
             nowEpochMillis = System.currentTimeMillis(),
         )
 
-        assertEquals(DeltaValidityState.VALID, result.validity.state)
+        // supportsTrashbin = false: SEARCH alone cannot observe remote deletions, so the delta is
+        // deliberately SOFT_INVALID (caller must still run a periodic full sweep). See NextcloudDeltaClient.
+        assertEquals(DeltaValidityState.SOFT_INVALID, result.validity.state)
         // Verify server time was captured from Date header (Mon, 01 Jan 2024 12:05:00 GMT)
         assertEquals(1704110700000L, result.serverTimeEpochMillis)
         assertEquals(1, result.changes.size)
