@@ -380,7 +380,7 @@ private fun SuccessState(
     val logTag = "NoteSearch"
     val document = remember(note.content) { parseOrgDocument(note.content) }
     var propertiesExpanded by remember(note.id.path) { mutableStateOf(false) }
-    val drawerExpansion = remember(note.content) { mutableStateMapOf<String, Boolean>() }
+    val drawerExpansion = remember(note.id.path) { mutableStateMapOf<String, Boolean>() }
     var showBacklinksSheet by remember { mutableStateOf(false) }
     var showMoreSheet by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }

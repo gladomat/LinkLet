@@ -1,6 +1,9 @@
 package com.gladomat.linklet.data.sync
 
 import android.util.Log
+import com.gladomat.linklet.data.index.IndexQueueDao
+import com.gladomat.linklet.data.index.IndexQueueEntity
+import com.gladomat.linklet.data.index.IndexQueueStatus
 import com.gladomat.linklet.data.index.SyncStateDao
 import com.gladomat.linklet.data.settings.WebDavSettings
 import com.gladomat.linklet.data.settings.WebDavSettingsRepository
@@ -30,6 +33,8 @@ class SyncDirectoryChangedException(
     message: String,
 ) : Exception(message)
 
+private const val INDEX_PASS_1 = 1
+
 @Singleton
 class SyncEngine @Inject constructor(
     private val storage: IStorage,
@@ -38,6 +43,7 @@ class SyncEngine @Inject constructor(
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val metrics: SyncMetrics,
     private val operationJournalDao: OperationJournalDao? = null,
+    private val indexQueueDao: IndexQueueDao? = null,
 ) {
     private val reconcilePlanner = ReconcilePlanner()
 
@@ -589,12 +595,20 @@ class SyncEngine @Inject constructor(
                             pendingAction = SyncPendingAction.UPLOAD,
                         )
                         syncStateDao.upsert(conflictState)
+                        indexQueueDao?.upsert(
+                            IndexQueueEntity(
+                                path = conflictPath,
+                                pass = INDEX_PASS_1,
+                                status = IndexQueueStatus.PENDING,
+                                updatedAtEpochMillis = System.currentTimeMillis(),
+                            )
+                        )
                     }
                 }
 
                 writeLocalBytes(op.path, bytes)
                 val hash = NoteHashCalculator.computeBytes(bytes)
-                
+
                 val state = syncStateDao.getState(op.path) ?: SyncStateEntity(op.path)
                 val newState = state.copy(
                      lifecycle = NoteLifecycle.ACTIVE,
@@ -608,6 +622,15 @@ class SyncEngine @Inject constructor(
                      lastError = null
                 )
                 syncStateDao.upsert(newState)
+                indexQueueDao?.upsert(
+                    IndexQueueEntity(
+                        path = op.path,
+                        pass = INDEX_PASS_1,
+                        status = IndexQueueStatus.PENDING,
+                        expectedHash = hash,
+                        updatedAtEpochMillis = System.currentTimeMillis(),
+                    )
+                )
                 Log.d(TAG, "DEBUG Download: Saved state for ${op.path} with fingerprint=${op.fingerprint}")
             }
             .onFailure { e ->
@@ -666,6 +689,15 @@ class SyncEngine @Inject constructor(
                 pendingAction = SyncPendingAction.UPLOAD
             )
             syncStateDao.upsert(conflictState)
+            indexQueueDao?.upsert(
+                IndexQueueEntity(
+                    path = conflictPath,
+                    pass = INDEX_PASS_1,
+                    status = IndexQueueStatus.PENDING,
+                    expectedHash = conflictHash,
+                    updatedAtEpochMillis = System.currentTimeMillis(),
+                )
+            )
             Log.d(TAG, "DEBUG Conflict: Conflict copy created and sync state saved")
         } else {
             Log.w(TAG, "DEBUG Conflict: No local content to backup for ${op.path}")

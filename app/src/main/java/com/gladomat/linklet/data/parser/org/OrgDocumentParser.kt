@@ -3,7 +3,7 @@ package com.gladomat.linklet.data.parser.org
 private val HeadingRegex = Regex("""^(\*{1,})\s+(.*)$""")
 private val HeadingWithTagsRegex = Regex("""^(\*{1,})\s+(.*?)\s*(:(?:[a-zA-Z0-9_@#%]+:)+)\s*$""")
 private val FileTagsRegex = Regex("""^#\+filetags:\s*(.*)$""", RegexOption.IGNORE_CASE)
-private val PropertyLineRegex = Regex("""^:([A-Za-z_-]+):\s*(.*)$""")
+private val PropertyLineRegex = Regex("""^:([A-Za-z0-9_-]+):\s*(.*)$""")
 private val DrawerStartRegex = Regex("""^:([A-Za-z0-9_-]+):\s*$""")
 private val DrawerEndRegex = Regex("""^:END:\s*$""", RegexOption.IGNORE_CASE)
 private val BeginBlockRegex = Regex("""^\s*#\+BEGIN_(\w+)(?:\s+(.*?))?\s*$""", RegexOption.IGNORE_CASE)
@@ -96,17 +96,18 @@ private data class OrgNode(
 
 private fun OrgNode.toSection(): OrgSection {
     val blocks = parseContentToBlocks(contentLines)
-    val drawerProps = blocks.firstOrNull { it is OrgBlock.Drawer && it.name == "PROPERTIES" }
-        ?.let { (it as OrgBlock.Drawer).properties }
-        ?: emptyMap()
+    // Only the leading block (first non-blank element) qualifies as node metadata per org-mode spec.
+    val leadingProperties = blocks.firstOrNull()
+        ?.takeIf { it is OrgBlock.Drawer && (it as OrgBlock.Drawer).name == "PROPERTIES" }
+        ?.let { it as OrgBlock.Drawer }
     return OrgSection(
         id = id,
         level = level,
         title = title,
         tags = tags,
-        properties = drawerProps,
+        properties = leadingProperties?.properties ?: emptyMap(),
         body = contentLines.joinToString("\n").trim(),
-        blocks = blocks,
+        blocks = if (leadingProperties != null) blocks.drop(1) else blocks,
         children = children.map { it.toSection() },
     )
 }
