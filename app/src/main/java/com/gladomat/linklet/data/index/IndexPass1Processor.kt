@@ -19,7 +19,15 @@ class IndexPass1Processor @Inject constructor(
     private val database: NoteDatabase,
 ) {
 
-    suspend fun run(timeBudgetMillis: Long? = null): Result<Unit> {
+    /**
+     * Outcome of a pass 1 run. [scanTruncated] is true when the change-detection sweep over
+     * known files ran out of time budget before covering the whole vault; the caller should
+     * schedule a continuation so the sweep resumes (least-recently-verified first) instead of
+     * waiting for the next sync.
+     */
+    data class Outcome(val scanTruncated: Boolean)
+
+    suspend fun run(timeBudgetMillis: Long? = null): Result<Outcome> {
         return runCatching {
             val runStartedAt = System.currentTimeMillis()
             Log.d(TAG, "Pass 1 run starting timeBudgetMillis=$timeBudgetMillis")
@@ -51,7 +59,7 @@ class IndexPass1Processor @Inject constructor(
                     claimNow = now,
                     timeBudgetMillis = timeBudgetMillis,
                 )
-                return@runCatching
+                return@runCatching Outcome(scanTruncated = false)
             }
 
             Log.d(TAG, "Pass 1 scan starting storage.listNotes()")
@@ -78,31 +86,94 @@ class IndexPass1Processor @Inject constructor(
             // Existing queue rows for this pass, so we can preserve attempt counts (so the retry
             // cap is reachable) and skip paths that have exhausted their retry budget.
             val existingQueueByPath = indexQueueDao.listAllByPass(PASS_1).associateBy { it.path }
-            val enqueueEntries = mutableListOf<IndexQueueEntity>()
-            activePaths.forEach { path ->
-                val existing = existingByPath[path]
-                val queued = existingQueueByPath[path]
-                if (queued != null &&
+
+            fun exhaustedRetries(queued: IndexQueueEntity?): Boolean =
+                queued != null &&
                     queued.status == IndexQueueStatus.FAILED &&
                     queued.attempts >= MAX_ATTEMPTS
+
+            // New (or resurrected) paths need no stat — enqueue them in one durable batch BEFORE
+            // the slow per-file stat sweep below, so a mid-scan process death can no longer lose
+            // the very files the scan exists to discover.
+            val (newPaths, knownPaths) = activePaths.partition { path ->
+                val existing = existingByPath[path]
+                existing == null || existing.deletedAt != null
+            }
+            val newEntries = newPaths.mapNotNull { path ->
+                val queued = existingQueueByPath[path]
+                // Terminally failed (e.g. unreadable file); don't loop on it.
+                if (exhaustedRetries(queued)) return@mapNotNull null
+                IndexQueueEntity(
+                    path = path,
+                    pass = PASS_1,
+                    status = IndexQueueStatus.PENDING,
+                    // Carry forward attempts for an entry that keeps failing; reset for one
+                    // that previously succeeded (a genuine content change).
+                    attempts = if (queued?.status == IndexQueueStatus.FAILED) queued.attempts else 0,
+                    lastError = null,
+                    updatedAtEpochMillis = now,
+                )
+            }
+            if (newEntries.isNotEmpty()) {
+                indexQueueDao.upsertAll(newEntries)
+            }
+            Log.d(
+                TAG,
+                "Pass 1 enqueued new paths count=${newEntries.size} elapsedMs=${System.currentTimeMillis() - runStartedAt}",
+            )
+
+            // Change-detection sweep over known files, least-recently-verified first. Unchanged
+            // files get their DONE queue row touched, so a budget-truncated sweep resumes where
+            // it left off on the next run instead of re-statting the same prefix forever.
+            // Entries are flushed in small batches so progress survives a killed worker.
+            val sweepStartedAt = System.currentTimeMillis()
+            var sweepTruncated = false
+            var sweepChanged = 0
+            var sweepStatted = 0
+            val sweepEntries = mutableListOf<IndexQueueEntity>()
+            suspend fun flushSweep() {
+                if (sweepEntries.isNotEmpty()) {
+                    indexQueueDao.upsertAll(sweepEntries.toList())
+                    sweepEntries.clear()
+                }
+            }
+            val sweepOrder = knownPaths.sortedBy {
+                existingQueueByPath[it]?.updatedAtEpochMillis ?: Long.MIN_VALUE
+            }
+            for (path in sweepOrder) {
+                currentCoroutineContext().ensureActive()
+                if (timeBudgetMillis != null &&
+                    System.currentTimeMillis() - sweepStartedAt >= timeBudgetMillis
                 ) {
-                    // Terminally failed (e.g. unreadable file); don't loop on it.
-                    return@forEach
+                    sweepTruncated = true
+                    break
                 }
-                val stat = if (existing != null && existing.deletedAt == null) {
-                    withTimeoutOrNull(STORAGE_STAT_TIMEOUT_MILLIS) {
-                        storage.statNote(path).getOrNull()
-                    }
-                } else {
-                    null
+                val queued = existingQueueByPath[path]
+                // Terminally failed (e.g. unreadable file); don't loop on it.
+                if (exhaustedRetries(queued)) continue
+                val existing = existingByPath.getValue(path)
+                val stat = withTimeoutOrNull(STORAGE_STAT_TIMEOUT_MILLIS) {
+                    storage.statNote(path).getOrNull()
                 }
-                val unchanged = existing != null &&
-                    existing.deletedAt == null &&
-                    stat != null &&
+                sweepStatted += 1
+                val unchanged = stat != null &&
                     existing.fingerprintMtime == stat.lastModifiedEpochMillis &&
                     existing.fingerprintSize == stat.sizeBytes
-                if (!unchanged) {
-                    enqueueEntries += IndexQueueEntity(
+                val sweepNow = System.currentTimeMillis()
+                if (unchanged) {
+                    // Touch only settled rows; a concurrent sync may have re-enqueued this path,
+                    // and a PENDING/RUNNING row must not be flipped to DONE underneath it.
+                    if (queued == null || queued.status == IndexQueueStatus.DONE) {
+                        sweepEntries += (queued ?: IndexQueueEntity(path = path, pass = PASS_1)).copy(
+                            status = IndexQueueStatus.DONE,
+                            lastError = null,
+                            updatedAtEpochMillis = sweepNow,
+                            lockedAtEpochMillis = null,
+                        )
+                    }
+                } else {
+                    sweepChanged += 1
+                    sweepEntries += IndexQueueEntity(
                         path = path,
                         pass = PASS_1,
                         status = IndexQueueStatus.PENDING,
@@ -110,18 +181,19 @@ class IndexPass1Processor @Inject constructor(
                         // that previously succeeded (a genuine content change).
                         attempts = if (queued?.status == IndexQueueStatus.FAILED) queued.attempts else 0,
                         lastError = null,
-                        updatedAtEpochMillis = now,
+                        updatedAtEpochMillis = sweepNow,
                         expectedMtime = stat?.lastModifiedEpochMillis,
                         expectedSize = stat?.sizeBytes,
                     )
                 }
+                if (sweepEntries.size >= SWEEP_FLUSH_BATCH) {
+                    flushSweep()
+                }
             }
-            if (enqueueEntries.isNotEmpty()) {
-                indexQueueDao.upsertAll(enqueueEntries)
-            }
+            flushSweep()
             Log.d(
                 TAG,
-                "Pass 1 enqueue complete queued=${enqueueEntries.size} pending=${indexQueueDao.countByStatus(PASS_1, IndexQueueStatus.PENDING)} elapsedMs=${System.currentTimeMillis() - runStartedAt}",
+                "Pass 1 sweep complete statted=$sweepStatted changed=$sweepChanged truncated=$sweepTruncated pending=${indexQueueDao.countByStatus(PASS_1, IndexQueueStatus.PENDING)} elapsedMs=${System.currentTimeMillis() - runStartedAt}",
             )
 
             processQueue(
@@ -129,6 +201,7 @@ class IndexPass1Processor @Inject constructor(
                 claimNow = now,
                 timeBudgetMillis = timeBudgetMillis,
             )
+            Outcome(scanTruncated = sweepTruncated)
         }.onFailure { if (it is CancellationException) throw it }
     }
 
@@ -285,6 +358,9 @@ class IndexPass1Processor @Inject constructor(
         private const val PASS_1 = 1
         private const val PASS_2 = 2
         private const val MAX_ATTEMPTS = 5
+        // Sweep results are persisted in small batches so a killed worker loses at most one
+        // batch of change-detection progress instead of the whole scan.
+        private const val SWEEP_FLUSH_BATCH = 50
         // A RUNNING row older than this has no live owner (indexing is single-worker unique work),
         // so it is an orphan from a killed worker and is safe to requeue.
         private const val ORPHAN_RECOVERY_MILLIS = 2 * 60 * 1000L

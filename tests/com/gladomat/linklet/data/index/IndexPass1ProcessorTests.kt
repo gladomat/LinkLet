@@ -106,7 +106,10 @@ class IndexPass1ProcessorTests {
 
         processor.run().getOrThrow()
 
-        assertEquals(0, indexQueueDao.countByPass(pass = 1))
+        // Not re-indexed: no pending work, title untouched. The sweep leaves a DONE
+        // "verified" touch row behind (that is what advances the sweep rotation).
+        assertEquals(0, indexQueueDao.countByStatus(pass = 1, status = IndexQueueStatus.PENDING))
+        assertEquals(1, indexQueueDao.countByStatus(pass = 1, status = IndexQueueStatus.DONE))
         val notes = noteDao.getAllNotes()
         assertEquals("Old Title", notes.first().title)
     }
@@ -178,6 +181,92 @@ class IndexPass1ProcessorTests {
 
         assertEquals(3, noteDao.getAllNotes().size)
         assertEquals(0, storage.statCalls)
+    }
+
+    @Test
+    fun `run enqueues new files before the stat sweep so they survive interruption`() = runTest {
+        // Two known-unchanged notes (whose stats are glacial) plus one brand-new file. The new
+        // file must be durably PENDING in the queue even though the sweep's budget expires before
+        // the slow stats complete — previously the single end-of-scan batch lost it on process
+        // death. The 100 ms stat against a 50 ms budget guarantees the sweep truncates by the
+        // second iteration regardless of host speed.
+        val knownContent = "#+title: Known"
+        val storage = object : FakeStorage(
+            mutableMapOf(
+                "known1.org" to knownContent,
+                "known2.org" to knownContent,
+                "new.org" to "#+title: New",
+            ),
+        ) {
+            override suspend fun statNote(path: String): Result<StorageFileStat> {
+                Thread.sleep(100L)
+                return super.statNote(path)
+            }
+        }
+        noteDao.insertNotes(
+            listOf("known1.org", "known2.org").map { path ->
+                NoteEntity(
+                    path = path,
+                    title = "Known",
+                    fingerprintMtime = 10L,
+                    fingerprintSize = knownContent.toByteArray(Charsets.UTF_8).size.toLong(),
+                )
+            },
+        )
+        val processor = IndexPass1Processor(storage, noteDao, indexQueueDao, database)
+
+        val outcome = processor.run(timeBudgetMillis = 50L).getOrThrow()
+
+        val newRow = indexQueueDao.listAllByPass(pass = 1).firstOrNull { it.path == "new.org" }
+        assertNotNull("new file must be enqueued before the sweep", newRow)
+        assertTrue("sweep should report truncation for the continuation", outcome.scanTruncated)
+    }
+
+    @Test
+    fun `truncated sweep resumes with least recently verified files`() = runTest {
+        // Two known notes, one already verified (DONE row touched recently), one never verified.
+        // A sweep with room for a single stat must pick the never-verified one first.
+        val contentA = "#+title: A"
+        val contentB = "#+title: B"
+        noteDao.insertNotes(
+            listOf(
+                NoteEntity(
+                    path = "a.org",
+                    title = "A",
+                    fingerprintMtime = 10L,
+                    fingerprintSize = contentA.toByteArray(Charsets.UTF_8).size.toLong(),
+                ),
+                NoteEntity(
+                    path = "b.org",
+                    title = "B",
+                    fingerprintMtime = 10L,
+                    fingerprintSize = contentB.toByteArray(Charsets.UTF_8).size.toLong(),
+                ),
+            ),
+        )
+        indexQueueDao.upsert(
+            IndexQueueEntity(
+                path = "a.org",
+                pass = 1,
+                status = IndexQueueStatus.DONE,
+                updatedAtEpochMillis = System.currentTimeMillis(),
+            ),
+        )
+        val statted = mutableListOf<String>()
+        val storage = object : FakeStorage(
+            mutableMapOf("a.org" to contentA, "b.org" to contentB),
+        ) {
+            override suspend fun statNote(path: String): Result<StorageFileStat> {
+                statted += path
+                Thread.sleep(100L)
+                return super.statNote(path)
+            }
+        }
+        val processor = IndexPass1Processor(storage, noteDao, indexQueueDao, database)
+
+        processor.run(timeBudgetMillis = 50L).getOrThrow()
+
+        assertEquals(listOf("b.org"), statted)
     }
 
     @Test

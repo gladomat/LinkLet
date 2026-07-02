@@ -32,13 +32,16 @@ class IndexPass1Worker @AssistedInject constructor(
         Log.d(TAG, "Pass 1 worker starting id=$id attempt=$runAttemptCount")
         val result = processor.run(timeBudgetMillis = TIME_BUDGET_MILLIS)
         return result.fold(
-            onSuccess = {
+            onSuccess = { outcome ->
                 val pending = indexQueueDao.countByStatus(pass = PASS_1, status = IndexQueueStatus.PENDING)
                 val done = indexQueueDao.countByStatus(pass = PASS_1, status = IndexQueueStatus.DONE)
                 val failed = indexQueueDao.countByStatus(pass = PASS_1, status = IndexQueueStatus.FAILED)
                 val running = indexQueueDao.countRunning(PASS_1)
-                Log.d(TAG, "Pass 1 worker finished pending=$pending done=$done failed=$failed running=$running")
-                if (pending > 0) {
+                Log.d(
+                    TAG,
+                    "Pass 1 worker finished pending=$pending done=$done failed=$failed running=$running scanTruncated=${outcome.scanTruncated}",
+                )
+                if (pending > 0 || outcome.scanTruncated) {
                     schedulePass1Continuation()
                     Log.d(TAG, "Pass 1 worker scheduled continuation because pending work remains")
                 } else {
