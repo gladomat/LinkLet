@@ -325,3 +325,16 @@ This **AGENTS.md** is your contract. Follow the structure, ask for
 clarifications, emit small, testable commits, and stay consistent with
 architecture. Let me know whenever you need help scaffolding a new
 module or feature!
+
+## Child DOX Index
+
+Layout: single Gradle module `:app` (Kotlin, Compose, Hilt, Room, WorkManager); unit tests live in top-level `tests/`; CI in `.github/workflows/android.yml`; helper scripts in `scripts/` (`ci_equiv_test.sh`, `bootstrap_github_issues.sh`) stay owned here.
+
+- `app/src/main/java/com/gladomat/linklet/data/AGENTS.md` — data layer: model, storage (SAF), parser, settings, utils; indexes its own children:
+  - `data/index/AGENTS.md` — index_queue semantics, two-pass pipeline, worker budgets/continuations.
+  - `data/sync/AGENTS.md` — WebDAV sync engine, sync_state lifecycle, indexing hand-off invariant.
+- `app/src/main/java/com/gladomat/linklet/ui/AGENTS.md` — Compose screens/components/theme conventions (drawer handling, remember keys).
+- `tests/AGENTS.md` — test wiring, arm64 Robolectric caveats, timing-robustness rules, CI parity.
+- `docs/AGENTS.md` — documentation ownership; `docs/QA_FEATURE_MATRIX.md` is the canonical QA record.
+
+Owned by the root (no child doc): `app/di`, `domain/`, `viewmodel/`, `data/model|storage|parser|settings|utils` (covered by `data/AGENTS.md`), Gradle build files.
