@@ -3,6 +3,7 @@ package com.gladomat.linklet.viewmodel.settings
 import android.content.Context
 import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
+import com.gladomat.linklet.data.index.IndexResetService
 import com.gladomat.linklet.data.index.SyncStateDao
 import com.gladomat.linklet.data.settings.FolderSettingsRepository
 import com.gladomat.linklet.data.settings.SyncSettingsRepository
@@ -55,7 +56,8 @@ class SettingsViewModelTests {
         val syncScheduler = mockk<SyncScheduler>(relaxed = true)
         val syncStateDao = mockk<SyncStateDao>(relaxed = true)
         val syncSettingsRepository = mockk<SyncSettingsRepository>(relaxed = true)
-        val viewModel = SettingsViewModel(folderSettingsRepository, syncScheduler, syncStateDao, syncSettingsRepository)
+        val indexResetService = mockk<IndexResetService>(relaxed = true)
+        val viewModel = SettingsViewModel(folderSettingsRepository, syncScheduler, syncStateDao, syncSettingsRepository, indexResetService)
 
         viewModel.requestManualSync()
 
@@ -71,7 +73,8 @@ class SettingsViewModelTests {
         val syncScheduler = mockk<SyncScheduler>(relaxed = true)
         val syncStateDao = mockk<SyncStateDao>(relaxed = true)
         val syncSettingsRepository = mockk<SyncSettingsRepository>(relaxed = true)
-        val viewModel = SettingsViewModel(folderSettingsRepository, syncScheduler, syncStateDao, syncSettingsRepository)
+        val indexResetService = mockk<IndexResetService>(relaxed = true)
+        val viewModel = SettingsViewModel(folderSettingsRepository, syncScheduler, syncStateDao, syncSettingsRepository, indexResetService)
 
         viewModel.requestManualSync()
 

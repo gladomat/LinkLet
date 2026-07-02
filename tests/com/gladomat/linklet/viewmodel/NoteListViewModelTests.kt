@@ -8,6 +8,7 @@ import com.gladomat.linklet.domain.repository.INoteRepository
 import com.gladomat.linklet.domain.repository.LinkEntityDto
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -434,7 +435,10 @@ class NoteListViewModelTests {
 
         advanceUntilIdle()
 
-        assertEquals("Sync blocked", viewModel.snackbarMessage.value)
+        // snackbarMessage/snackbarAction are driven by the DataStore-backed statusFlow, whose
+        // emission crosses the IO dispatcher that advanceUntilIdle cannot flush; wait for the
+        // value deterministically instead of racing it (flaked on CI otherwise).
+        assertEquals("Sync blocked", viewModel.snackbarMessage.first { it == "Sync blocked" })
         assertEquals(NoteListSnackbarAction.OPEN_SYNC_STATUS, viewModel.snackbarAction.value)
     }
 }

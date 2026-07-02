@@ -130,7 +130,9 @@ class IndexPass2ProcessorTests {
 
     @Test
     fun `run delete operation removes links by orgId`() = runTest {
-        noteDao.insertNotes(listOf(NoteEntity(path = "a.org", title = "A", orgId = "id-a", linksReady = false)))
+        // A DELETE pass-2 op models a tombstoned note, which carries deletedAt. Without it the
+        // note matches listNotesNeedingLinks and gets re-enqueued as UPSERT, clobbering the DELETE.
+        noteDao.insertNotes(listOf(NoteEntity(path = "a.org", title = "A", orgId = "id-a", linksReady = false, deletedAt = 1L)))
         noteDao.insertLinks(listOf(LinkEntity(source = "a.org", target = "b.org", alias = null, sourceOrgId = "id-a")))
         indexQueueDao.upsert(
             IndexQueueEntity(

@@ -156,7 +156,7 @@ fun NoteListScreen(
     onOpenSyncStatus: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val moreMenuExpanded = androidx.compose.runtime.mutableStateOf(false)
+    val moreMenuExpanded = remember { androidx.compose.runtime.mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val pass1Total = indexingProgressPass1.total
     val pass1Completed = indexingProgressPass1.completed

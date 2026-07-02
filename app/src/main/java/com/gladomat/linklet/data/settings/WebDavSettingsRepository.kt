@@ -10,7 +10,6 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import javax.crypto.AEADBadTagException
 import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
@@ -49,14 +48,27 @@ object WebDavSettingsModule {
     fun provideWebDavSharedPreferences(@ApplicationContext context: Context): SharedPreferences {
         return try {
             createEncryptedPrefs(context)
-        } catch (error: AEADBadTagException) {
-            Log.e(TAG, "Failed to open encrypted WebDAV preferences. Resetting.", error)
-            resetEncryptedPreferences(context)
-            val freshPrefs = createEncryptedPrefs(context)
-            freshPrefs.edit()
-                .putBoolean(WebDavSettingsRepository.Keys.RESET_DUE_TO_ERROR, true)
-                .apply()
-            freshPrefs
+        } catch (error: Exception) {
+            // Encrypted prefs can fail to open for several reasons: an AEAD tag mismatch
+            // (AEADBadTagException) from a corrupted value, a corrupted Tink keyset, or the
+            // AndroidKeyStore provider being unavailable/broken on this device or boot state
+            // (KeyStoreException / GeneralSecurityException). This provider is built eagerly during
+            // Application startup, so an uncaught failure here crashes the app on launch. Recover
+            // instead: reset the keyset and recreate once; if that still fails, fall back to a
+            // non-persistent in-memory store so the app stays usable (credentials simply aren't
+            // remembered and must be re-entered — we never write them to disk unencrypted).
+            Log.e(TAG, "Encrypted WebDAV prefs unavailable (${error.javaClass.simpleName}); attempting reset", error)
+            runCatching {
+                resetEncryptedPreferences(context)
+                createEncryptedPrefs(context).also { fresh ->
+                    fresh.edit().putBoolean(WebDavSettingsRepository.Keys.RESET_DUE_TO_ERROR, true).apply()
+                }
+            }.getOrElse { retryError ->
+                Log.e(TAG, "Encrypted WebDAV prefs unrecoverable; using in-memory fallback", retryError)
+                InMemorySharedPreferences().also { mem ->
+                    mem.edit().putBoolean(WebDavSettingsRepository.Keys.RESET_DUE_TO_ERROR, true).apply()
+                }
+            }
         }
     }
 
@@ -205,5 +217,97 @@ class WebDavSettingsRepository @Inject constructor(
             .filter { it.startsWith(Keys.INITIAL_SYNC_COMPLETED_PREFIX) }
             .forEach { editor.remove(it) }
         editor.apply()
+    }
+}
+
+/**
+ * Minimal in-process [SharedPreferences] used only as a last-resort fallback when encrypted
+ * preferences cannot be opened (see [WebDavSettingsModule.provideWebDavSharedPreferences]).
+ *
+ * It intentionally does NOT persist to disk: WebDAV credentials must never be written unencrypted,
+ * so when AndroidKeyStore is unavailable we keep them in memory for the process lifetime only. The
+ * user re-enters credentials on next launch; sync still works for the current session. It honours
+ * change listeners so the settings flow keeps working.
+ */
+internal class InMemorySharedPreferences : SharedPreferences {
+    private val values = java.util.concurrent.ConcurrentHashMap<String, Any?>()
+    private val listeners =
+        java.util.Collections.newSetFromMap(
+            java.util.concurrent.ConcurrentHashMap<SharedPreferences.OnSharedPreferenceChangeListener, Boolean>(),
+        )
+
+    override fun getAll(): MutableMap<String, *> = HashMap(values)
+
+    override fun getString(key: String?, defValue: String?): String? =
+        (values[key] as? String) ?: defValue
+
+    @Suppress("UNCHECKED_CAST")
+    override fun getStringSet(key: String?, defValues: MutableSet<String>?): MutableSet<String>? =
+        (values[key] as? Set<String>)?.toMutableSet() ?: defValues
+
+    override fun getInt(key: String?, defValue: Int): Int = (values[key] as? Int) ?: defValue
+    override fun getLong(key: String?, defValue: Long): Long = (values[key] as? Long) ?: defValue
+    override fun getFloat(key: String?, defValue: Float): Float = (values[key] as? Float) ?: defValue
+    override fun getBoolean(key: String?, defValue: Boolean): Boolean = (values[key] as? Boolean) ?: defValue
+    override fun contains(key: String?): Boolean = values.containsKey(key)
+
+    override fun registerOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) {
+        listener?.let { listeners.add(it) }
+    }
+
+    override fun unregisterOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) {
+        listener?.let { listeners.remove(it) }
+    }
+
+    override fun edit(): SharedPreferences.Editor = EditorImpl()
+
+    private fun notifyChange(keys: Collection<String>) {
+        for (l in listeners) {
+            for (k in keys) l.onSharedPreferenceChanged(this, k)
+        }
+    }
+
+    private inner class EditorImpl : SharedPreferences.Editor {
+        private val pending = LinkedHashMap<String, Any?>() // value, or REMOVED sentinel
+        private var clear = false
+
+        override fun putString(key: String, value: String?) = apply { pending[key] = value }
+        override fun putStringSet(key: String, values: MutableSet<String>?) = apply { pending[key] = values }
+        override fun putInt(key: String, value: Int) = apply { pending[key] = value }
+        override fun putLong(key: String, value: Long) = apply { pending[key] = value }
+        override fun putFloat(key: String, value: Float) = apply { pending[key] = value }
+        override fun putBoolean(key: String, value: Boolean) = apply { pending[key] = value }
+        override fun remove(key: String) = apply { pending[key] = REMOVED }
+        override fun clear() = apply { clear = true }
+
+        override fun commit(): Boolean {
+            applyChanges()
+            return true
+        }
+
+        override fun apply() {
+            applyChanges()
+        }
+
+        private fun applyChanges() {
+            val changed = LinkedHashSet<String>()
+            if (clear) {
+                changed.addAll(values.keys)
+                values.clear()
+            }
+            for ((k, v) in pending) {
+                if (v === REMOVED) {
+                    if (values.remove(k) != null) changed.add(k)
+                } else {
+                    values[k] = v
+                    changed.add(k)
+                }
+            }
+            if (changed.isNotEmpty()) notifyChange(changed)
+        }
+    }
+
+    private companion object {
+        val REMOVED = Any()
     }
 }

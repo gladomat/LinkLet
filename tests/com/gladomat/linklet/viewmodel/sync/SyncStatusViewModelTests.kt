@@ -2,6 +2,7 @@ package com.gladomat.linklet.viewmodel.sync
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.gladomat.linklet.data.index.IndexResetService
 import com.gladomat.linklet.data.index.SyncStateDao
 import com.gladomat.linklet.data.sync.SyncScheduler
 import com.gladomat.linklet.data.sync.SyncStatus
@@ -14,6 +15,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertNull
 import org.junit.Rule
@@ -49,12 +51,17 @@ class SyncStatusViewModelTests {
 
         val syncStateDao = mockk<SyncStateDao>(relaxed = true)
         val syncScheduler = mockk<SyncScheduler>(relaxed = true)
-        val viewModel = SyncStatusViewModel(repository, syncStateDao, syncScheduler)
+        val indexResetService = mockk<IndexResetService>(relaxed = true)
+        val viewModel = SyncStatusViewModel(repository, syncStateDao, syncScheduler, indexResetService)
 
         viewModel.clearAndContinue()
+        advanceUntilIdle()
 
         coVerify(exactly = 1) { syncStateDao.clearAllStates() }
         verify(exactly = 1) { syncScheduler.scheduleManual() }
-        assertNull(repository.statusFlow.first())
+        // clearStatus() persists via DataStore on its own IO dispatcher, which advanceUntilIdle
+        // cannot flush; wait for the cleared emission deterministically instead of racing the
+        // first (possibly still-set) value.
+        assertNull(repository.statusFlow.first { it == null })
     }
 }
