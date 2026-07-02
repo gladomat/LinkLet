@@ -59,6 +59,9 @@ class SyncStatusViewModelTests {
 
         coVerify(exactly = 1) { syncStateDao.clearAllStates() }
         verify(exactly = 1) { syncScheduler.scheduleManual() }
-        assertNull(repository.statusFlow.first())
+        // clearStatus() persists via DataStore on its own IO dispatcher, which advanceUntilIdle
+        // cannot flush; wait for the cleared emission deterministically instead of racing the
+        // first (possibly still-set) value.
+        assertNull(repository.statusFlow.first { it == null })
     }
 }
