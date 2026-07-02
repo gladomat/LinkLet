@@ -32,15 +32,31 @@ object SyncPathFilter {
     )
 
     fun shouldInclude(path: String): Boolean {
-        val normalized = path.trim('/')
-        if (normalized.isEmpty()) return false
-        val segments = normalized.split('/').filter { it.isNotEmpty() }
-        if (segments.any { it.startsWith('.') || it.startsWith('_') }) return false
-        if (segments.any { blockedFileNames.contains(it) }) return false
-        if (segments.any { segment -> blockedDirectoryNames.any { it.equals(segment, ignoreCase = true) } }) return false
+        if (!isNameAllowed(path)) return false
+        val segments = normalizedSegments(path)
         val last = segments.lastOrNull() ?: return false
         val ext = last.substringAfterLast('.', "").lowercase()
         if (ext.isEmpty()) return false
         return allowedExtensions.contains(ext)
     }
+
+    /**
+     * Whether a directory should be descended into during remote/local tree traversal.
+     * Unlike [shouldInclude], this has no extension gate — directories never have
+     * file extensions, so applying that gate here would prune every subfolder
+     * (e.g. org-attach/image folders) from being discovered at all.
+     */
+    fun isDirectoryTraversable(path: String): Boolean = isNameAllowed(path)
+
+    private fun isNameAllowed(path: String): Boolean {
+        val segments = normalizedSegments(path)
+        if (segments.isEmpty()) return false
+        if (segments.any { it.startsWith('.') || it.startsWith('_') }) return false
+        if (segments.any { blockedFileNames.contains(it) }) return false
+        if (segments.any { segment -> blockedDirectoryNames.any { it.equals(segment, ignoreCase = true) } }) return false
+        return true
+    }
+
+    private fun normalizedSegments(path: String): List<String> =
+        path.trim('/').split('/').filter { it.isNotEmpty() }
 }

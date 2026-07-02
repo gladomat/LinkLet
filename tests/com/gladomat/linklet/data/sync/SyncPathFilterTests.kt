@@ -51,4 +51,20 @@ class SyncPathFilterTests {
             ),
         )
     }
+
+    @Test
+    fun `directory traversal allows extensionless attachment folders`() {
+        assertTrue(SyncPathFilter.isDirectoryTraversable("images"))
+        assertTrue(SyncPathFilter.isDirectoryTraversable("data"))
+        assertTrue(SyncPathFilter.isDirectoryTraversable("data/3f"))
+        assertTrue(SyncPathFilter.isDirectoryTraversable("data/3f/abc123def"))
+    }
+
+    @Test
+    fun `directory traversal still excludes blocked and hidden names`() {
+        assertFalse(SyncPathFilter.isDirectoryTraversable(".git"))
+        assertFalse(SyncPathFilter.isDirectoryTraversable("_private"))
+        assertFalse(SyncPathFilter.isDirectoryTraversable("ltximg"))
+        assertFalse(SyncPathFilter.isDirectoryTraversable("notes/ltximg"))
+    }
 }

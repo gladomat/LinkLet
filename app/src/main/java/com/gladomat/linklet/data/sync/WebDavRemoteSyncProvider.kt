@@ -420,7 +420,7 @@ class WebDavRemoteSyncProvider @Inject constructor(
                 if (resource.isDirectory) {
                     val dirPath = relativePathFromUrl(resource.href.toString(), settings)
                     if (!dirPath.isNullOrBlank() && visitedDirs.add(dirPath)) {
-                        if (isSyncableRemotePath(dirPath)) {
+                        if (SyncPathFilter.isDirectoryTraversable(dirPath)) {
                             queue.add(dirPath)
                         }
                     }
