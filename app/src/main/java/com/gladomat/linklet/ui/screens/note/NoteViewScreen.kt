@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -74,9 +75,12 @@ import com.gladomat.linklet.domain.service.MatchRange
 import com.gladomat.linklet.domain.service.SearchOptions
 import com.gladomat.linklet.ui.REFRESH_NOTE_KEY
 import com.gladomat.linklet.ui.components.FullscreenImageViewer
+import com.gladomat.linklet.ui.components.ORG_EXTERNAL_LINK_ANNOTATION_TAG
+import com.gladomat.linklet.ui.components.ORG_LINK_ANNOTATION_TAG
 import com.gladomat.linklet.ui.components.OrgBlockView
 import com.gladomat.linklet.ui.components.OrgTextPalette
 import com.gladomat.linklet.ui.components.applyHighlights
+import com.gladomat.linklet.ui.components.buildOrgContentAnnotatedString
 import com.gladomat.linklet.ui.theme.LinkLetAppTheme
 import com.gladomat.linklet.viewmodel.note.NoteViewUiState
 import com.gladomat.linklet.viewmodel.note.NoteViewViewModel
@@ -685,6 +689,9 @@ private fun SuccessState(
                             searchActive = searchState.isActive,
                             matchListByBlockId = matchListByBlockId,
                             activeMatch = if (searchState.isActive) searchState.activeMatch else null,
+                            links = note.links,
+                            onOpenLink = onOpenLink,
+                            onOpenExternalLink = onOpenExternalLink,
                         )
                         is NoteBodyItem.SectionTagsItem -> TagRow(
                             tags = item.tags,
@@ -856,6 +863,9 @@ private fun SectionHeaderRow(
     searchActive: Boolean,
     matchListByBlockId: Map<String, List<MatchRange>>,
     activeMatch: MatchRange?,
+    links: List<NoteLink>,
+    onOpenLink: (String) -> Unit,
+    onOpenExternalLink: (String) -> Unit,
 ) {
     val isExpanded = expandedState[section.id] ?: true
     val blockId = "section/${section.id}/header"
@@ -875,9 +885,14 @@ private fun SectionHeaderRow(
     } else {
         null
     }
-    val highlightedTitle = remember(section.title, ranges, activeRange, palette) {
+    val highlightedTitle = remember(section.title, links, palette, ranges, activeRange) {
+        val base = buildOrgContentAnnotatedString(
+            content = section.title,
+            links = links,
+            palette = palette,
+        )
         applyHighlights(
-            base = androidx.compose.ui.text.AnnotatedString(section.title),
+            base = base,
             ranges = ranges,
             activeRange = activeRange,
             matchBackground = palette.searchHighlightBackground,
@@ -897,12 +912,30 @@ private fun SectionHeaderRow(
             style = MaterialTheme.typography.titleMedium,
             color = palette.colorForLevel(section.level),
         )
-        Text(
+        ClickableText(
             text = highlightedTitle,
-            style = MaterialTheme.typography.titleMedium,
-            color = palette.colorForLevel(section.level),
+            style = MaterialTheme.typography.titleMedium.copy(
+                color = palette.colorForLevel(section.level),
+                fontWeight = FontWeight.SemiBold,
+            ),
             modifier = Modifier.padding(start = 8.dp),
-            fontWeight = FontWeight.SemiBold,
+            onClick = { offset ->
+                val internal = highlightedTitle
+                    .getStringAnnotations(ORG_LINK_ANNOTATION_TAG, offset, offset)
+                    .firstOrNull()
+                if (internal != null) {
+                    onOpenLink(internal.item)
+                    return@ClickableText
+                }
+                val external = highlightedTitle
+                    .getStringAnnotations(ORG_EXTERNAL_LINK_ANNOTATION_TAG, offset, offset)
+                    .firstOrNull()
+                if (external != null) {
+                    onOpenExternalLink(external.item)
+                    return@ClickableText
+                }
+                expandedState[section.id] = !isExpanded
+            },
         )
     }
 }
