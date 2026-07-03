@@ -26,3 +26,9 @@
 - **Switched** the note body to a `LazyColumn` with measured top‑bar height–aware `animateScrollToItem` so the active match is scrolled into view below the header and search panel.
 - **Added** focused unit tests for the search engine, Org formatter display text, and ViewModel search behavior (debounce, options, navigation wrap‑around, and error handling).
 
+## Epic 5: Section-Heading Links & Sync Attachment Discovery
+
+- **Fixed** links inside section headings (`* Heading with [[id:target][alias]] link`) rendering as raw, unclickable markup — `SectionHeaderRow` built its title from a bare `AnnotatedString` instead of the shared Org inline-link builder; it now routes through `buildOrgContentAnnotatedString` and dispatches taps via `ClickableText`, same as body text.
+- **Fixed** the WebDAV remote crawler never descending into extensionless directories (`images/`, org-attach id folders) — directory traversal was gated through the same extension allowlist used for files, so any attachment one level below the vault root was invisible to sync. Split `SyncPathFilter` into `shouldInclude` (files) and `isDirectoryTraversable` (name-rules only, no extension gate).
+- **Removed** the file-extension allowlist entirely — it contradicted the original attachment-sync design decision ("sync all files") and silently dropped any attachment type outside a hardcoded 9-extension list. All files under the vault root sync by default now.
+- **Added** optional user-supplied `.syncignore` (gitignore-lite syntax) for vault-root excludes beyond the built-in junk blocklist, loaded fresh at the start of every sync run. Shipped a ready-to-copy default at `docs/templates/syncignore-default.txt`.

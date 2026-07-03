@@ -328,7 +328,7 @@ module or feature!
 
 ## Child DOX Index
 
-Layout: single Gradle module `:app` (Kotlin, Compose, Hilt, Room, WorkManager); unit tests live in top-level `tests/`; CI in `.github/workflows/android.yml`; helper scripts in `scripts/` (`ci_equiv_test.sh`, `bootstrap_github_issues.sh`) stay owned here.
+Layout: single Gradle module `:app` (Kotlin, Compose, Hilt, Room, WorkManager); unit tests live in top-level `tests/`; CI in `.github/workflows/android.yml`; helper scripts in `scripts/` (`ci_equiv_test.sh`, `bootstrap_github_issues.sh`) stay owned here. The root `README.md` is the user-facing overview (build/run, features, sync setup) — keep it in sync with behavior changes; it is not part of the DOX chain and carries no agent instructions.
 
 - `app/src/main/java/com/gladomat/linklet/data/AGENTS.md` — data layer: model, storage (SAF), parser, settings, utils; indexes its own children:
   - `data/index/AGENTS.md` — index_queue semantics, two-pass pipeline, worker budgets/continuations.
