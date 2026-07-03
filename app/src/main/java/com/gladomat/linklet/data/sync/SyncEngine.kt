@@ -26,6 +26,7 @@ import kotlin.text.Charsets
 
 private const val TAG = "SyncEngine"
 private const val TRASH_DIR = "_trash_bin"
+private const val SYNC_IGNORE_FILE = ".syncignore"
 
 class SyncDirectoryChangedException(
     val oldPath: String?,
@@ -69,7 +70,9 @@ class SyncEngine @Inject constructor(
             if (isFreshInstall) {
                 Log.i(TAG, "Fresh Install detected. Activating Pull Strategy.")
             }
-            
+
+            SyncPathFilter.ignoreRules = loadIgnoreRules()
+
             // Phase A: Discovery
             onProgress(SyncProgress(phase = SyncPhase.DISCOVERY, message = "Discovering changes"))
             val discoveryStartNanos = System.nanoTime()
@@ -260,6 +263,16 @@ class SyncEngine @Inject constructor(
         }
         val remoteSize = remote.sizeBytes ?: return null
         return remoteSize == localBytes.size.toLong()
+    }
+
+    /**
+     * Loads user-supplied exclude rules from an optional `.syncignore` file at the vault root.
+     * The file itself is never synced (its leading dot already excludes it from [SyncPathFilter]),
+     * so each device keeps its own local copy; reload it fresh at the start of every run.
+     */
+    private suspend fun loadIgnoreRules(): SyncIgnoreRules {
+        val bytes = storage.readFileBytes(SYNC_IGNORE_FILE).getOrNull() ?: return SyncIgnoreRules.EMPTY
+        return SyncIgnoreRules.parse(String(bytes, Charsets.UTF_8))
     }
 
     private suspend fun discoverState(provider: RemoteSyncProvider, isFreshInstall: Boolean): DiscoveryResult {

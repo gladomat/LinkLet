@@ -84,13 +84,39 @@ This avoids accidental path structure corruption for names containing encoded sl
 `fingerprint` is normalized from server ETag (weak prefix + quotes removed).
 
 ### Remote filtering
-Both local and remote paths pass through `SyncPathFilter.shouldInclude(...)`.
-Current allowlist includes:
-- `org`
-- `png`, `jpg`, `jpeg`, `gif`, `webp`, `svg`, `pdf`
-- `bib`
+Both local and remote paths pass through `SyncPathFilter.shouldInclude(...)`. There is no
+file-extension allowlist — every file under the vault root syncs by default. Excluded by
+default:
+- dot/underscore-prefixed path segments (for example `_trash_bin`, `.git`),
+- a small built-in junk blocklist (`.DS_Store`, `Thumbs.db`, `desktop.ini`, `__MACOSX`, `.git`,
+  `.trash`, `ltximg/`),
+- anything matched by the optional user-supplied `.syncignore` file (see below).
 
-Paths with dot/underscore-prefixed segments (for example `_trash_bin`, `.git`) are excluded.
+Directory descent during remote (WebDAV PROPFIND) and local traversal uses
+`SyncPathFilter.isDirectoryTraversable(...)`, which applies the same name-based rules — it does
+**not** gate on file extension, since directories have none. Gating directory descent on the
+file allowlist was a past bug: every non-root-level attachment folder (`images/`, org-attach id
+dirs, etc.) was silently invisible to the remote crawler even though the files inside would have
+passed `shouldInclude`.
+
+### User-supplied excludes (`.syncignore`)
+An optional `.syncignore` file at the vault root lets the user exclude paths beyond the built-in
+rules. Gitignore-lite syntax:
+- `#` starts a comment; blank lines are skipped.
+- `*` matches any run of characters within one path segment (not `/`); `?` matches one such
+  character.
+- `**` matches across segments; a leading `**/` matches at any depth, a trailing `/**` matches
+  everything under a directory.
+- A pattern containing `/` anywhere but the end is anchored to the vault root; a pattern with no
+  other `/` matches the name at any depth.
+- A trailing `/` restricts the pattern to a directory and its contents.
+- `!`-negation is not supported.
+
+`SyncEngine.run(...)` reloads `.syncignore` from local storage at the start of every sync run
+(`SyncEngine.loadIgnoreRules()`) and sets it on `SyncPathFilter.ignoreRules` for that run. The
+file's own leading dot already excludes it from sync, so it stays local-only — each device needs
+its own copy. A ready-to-copy default is checked in at
+[`docs/templates/syncignore-default.txt`](templates/syncignore-default.txt).
 
 ### Download
 `download(path, remoteId)` performs GET on the built URL and returns an InputStream.

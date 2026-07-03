@@ -206,16 +206,16 @@ class SnapshotBuilderTests {
             dirItem(""),
             fileItem(".hidden/secret.org"),   // hidden segment
             fileItem("_draft/notes.org"),      // underscore-prefixed segment
-            fileItem("readme.txt"),            // not in allowlist
+            fileItem("readme.txt"),            // no extension allowlist anymore: still syncable
             fileItem("readme.org"),            // allowed
         ))
 
         val result = builder().buildSnapshot(rootId, rootUrl)
 
         assertEquals(4, result.filesFound)
-        assertEquals(1, result.stubsCreated) // only readme.org
-        assertEquals(1, noteDao.notes.size)
-        assertEquals("readme.org", noteDao.notes.first().path)
+        assertEquals(2, result.stubsCreated) // readme.org and readme.txt
+        assertEquals(2, noteDao.notes.size)
+        assertEquals(setOf("readme.org", "readme.txt"), noteDao.notes.map { it.path }.toSet())
 
         // All files still go into server_snapshot
         assertEquals(4, snapshotDao.items.size)

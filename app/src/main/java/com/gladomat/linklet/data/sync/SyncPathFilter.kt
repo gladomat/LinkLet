@@ -1,5 +1,13 @@
 package com.gladomat.linklet.data.sync
 
+/**
+ * Decides which vault paths participate in sync.
+ *
+ * By design, all files under the vault root sync (there is no file-extension allowlist) —
+ * only a small built-in junk blocklist plus an optional user-supplied [SyncIgnoreRules] are
+ * excluded. [ignoreRules] is loaded once per sync run by [SyncEngine] from an optional
+ * `.syncignore` file at the vault root and applied here for the duration of that run.
+ */
 object SyncPathFilter {
     private val blockedFileNames = setOf(
         ".DS_Store",
@@ -15,35 +23,15 @@ object SyncPathFilter {
         "ltximg",
     )
 
-    // Tight allowlist to avoid syncing random artifacts (app backups, databases, caches, etc.).
-    // Expand intentionally as new legitimate file types are needed.
-    private val allowedExtensions = setOf(
-        "org",
-        // Common attachments.
-        "png",
-        "jpg",
-        "jpeg",
-        "gif",
-        "webp",
-        "svg",
-        "pdf",
-        // Bibliography
-        "bib",
-    )
+    @Volatile
+    var ignoreRules: SyncIgnoreRules = SyncIgnoreRules.EMPTY
 
-    fun shouldInclude(path: String): Boolean {
-        if (!isNameAllowed(path)) return false
-        val segments = normalizedSegments(path)
-        val last = segments.lastOrNull() ?: return false
-        val ext = last.substringAfterLast('.', "").lowercase()
-        if (ext.isEmpty()) return false
-        return allowedExtensions.contains(ext)
-    }
+    fun shouldInclude(path: String): Boolean = isNameAllowed(path)
 
     /**
      * Whether a directory should be descended into during remote/local tree traversal.
-     * Unlike [shouldInclude], this has no extension gate — directories never have
-     * file extensions, so applying that gate here would prune every subfolder
+     * Directories never have file extensions, so this shares [isNameAllowed]'s logic rather
+     * than any extension check — pruning by extension here would drop every subfolder
      * (e.g. org-attach/image folders) from being discovered at all.
      */
     fun isDirectoryTraversable(path: String): Boolean = isNameAllowed(path)
@@ -54,6 +42,7 @@ object SyncPathFilter {
         if (segments.any { it.startsWith('.') || it.startsWith('_') }) return false
         if (segments.any { blockedFileNames.contains(it) }) return false
         if (segments.any { segment -> blockedDirectoryNames.any { it.equals(segment, ignoreCase = true) } }) return false
+        if (ignoreRules.matches(path)) return false
         return true
     }
 
