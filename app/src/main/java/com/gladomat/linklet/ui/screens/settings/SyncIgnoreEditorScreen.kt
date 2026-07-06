@@ -273,7 +273,13 @@ private fun ImpactPreviewDialog(
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
-        onDismissRequest = onDismiss,
+        // Deliberately not `onDismiss`: tapping outside the dialog or pressing system back used
+        // to silently discard the pending save with no distinct feedback from "I chose Save" -
+        // easy to do by reflex (e.g. pressing back right after tapping Save, before registering
+        // this dialog appeared), which reads exactly like "I saved" until you leave the screen
+        // and the discard-changes prompt reveals nothing was ever written. Require one of the
+        // two explicit buttons below; a no-op keeps the dialog open otherwise.
+        onDismissRequest = {},
         title = { Text(if (preview.isCatastrophic) "This looks like a big change" else "Review changes") },
         text = {
             Column(
