@@ -95,7 +95,14 @@ class NoteViewScreenHeadingLinkTests {
         }
 
         val fullText = "Heading with alias link"
-        val headingNode = composeRule.onNodeWithText(fullText, substring = false)
+        // useUnmergedTree: the parent Row has Modifier.clickable{} (toggles section
+        // expand/collapse), which merges descendant semantics by default - without this, the
+        // match resolves to that merged Row (chevron Text + heading ClickableText combined),
+        // and GetTextLayoutResult on it returns every merged child's layout with .first()
+        // landing on the chevron's ("▾", one character) instead of the heading's - which is
+        // exactly why the previous attempt threw an out-of-range IllegalArgumentException.
+        // Target the actual ClickableText leaf directly instead.
+        val headingNode = composeRule.onNodeWithText(fullText, substring = false, useUnmergedTree = true)
         headingNode.assertExists()
 
         // ClickableText has no clickable-semantics action - it resolves taps to a character
