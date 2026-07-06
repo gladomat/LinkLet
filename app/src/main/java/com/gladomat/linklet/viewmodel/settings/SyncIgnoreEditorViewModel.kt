@@ -30,6 +30,10 @@ data class SyncIgnoreEditorUiState(
     val text: TextFieldValue = TextFieldValue(""),
     val lastSavedText: String = "",
     val isSaving: Boolean = false,
+    /** True while requestSave() is diffing rules against storage.listFiles() - can take a
+     *  noticeable moment on a large vault, so the Save button needs its own loading state
+     *  distinct from [isSaving] (which only covers the actual file write). */
+    val isComputingPreview: Boolean = false,
     val loadError: String? = null,
     /** Populated after a successful save; dropped lines are informational, never block Save. */
     val droppedLines: List<SyncIgnoreRules.DroppedLine> = emptyList(),
@@ -96,11 +100,12 @@ class SyncIgnoreEditorViewModel @Inject constructor(
     /** Step 1 of Save: compute the impact preview; the user confirms via [confirmSave]. */
     fun requestSave() {
         val current = _state.value
-        if (current.isSaving) return
+        if (current.isSaving || current.isComputingPreview) return
+        _state.update { it.copy(isComputingPreview = true) }
         viewModelScope.launch {
             val verbose = SyncIgnoreRules.parseVerbose(current.text.text)
             val preview = computeImpactPreview(current.lastSavedText, current.text.text, verbose)
-            _state.update { it.copy(impactPreview = preview) }
+            _state.update { it.copy(isComputingPreview = false, impactPreview = preview) }
         }
     }
 
