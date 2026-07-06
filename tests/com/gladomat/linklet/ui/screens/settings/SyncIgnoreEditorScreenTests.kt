@@ -7,6 +7,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.text.input.TextFieldValue
 import com.gladomat.linklet.data.sync.SyncIgnoreRules
 import com.gladomat.linklet.testing.Aarch64RobolectricTestRunner
@@ -103,7 +104,9 @@ class SyncIgnoreEditorScreenTests {
             ),
             onRevert = { reverted = true },
         )
-        composeRule.onNodeWithText("Revert").performClick()
+        // The buttons live below the OutlinedTextField inside a verticalScroll column, which
+        // can sit outside Robolectric's default test-window viewport - scroll into view first.
+        composeRule.onNodeWithText("Revert").performScrollTo().performClick()
         assertTrue(reverted)
     }
 
@@ -114,7 +117,7 @@ class SyncIgnoreEditorScreenTests {
             state = SyncIgnoreEditorUiState(isLoading = false, text = TextFieldValue(""), lastSavedText = ""),
             onSaveRequested = { requested = true },
         )
-        composeRule.onNodeWithTag("syncIgnoreSaveButton").performClick()
+        composeRule.onNodeWithTag("syncIgnoreSaveButton").performScrollTo().performClick()
         assertTrue(requested)
     }
 
@@ -168,7 +171,7 @@ class SyncIgnoreEditorScreenTests {
             state = SyncIgnoreEditorUiState(isLoading = false, text = TextFieldValue("*.bak\n"), lastSavedText = "*.bak\n"),
             onCopyToClipboard = { copied = true },
         )
-        composeRule.onNodeWithText("Copy to clipboard").performClick()
+        composeRule.onNodeWithText("Copy to clipboard").performScrollTo().performClick()
         assertTrue(copied)
     }
 
