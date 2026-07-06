@@ -197,7 +197,7 @@ class OrgDocumentParserTests {
     // ========================================================================
 
     @Test
-    fun `leading PROPERTIES drawer emits Drawer block and populates section properties`() {
+    fun `leading PROPERTIES drawer populates section properties and is dropped from blocks`() {
         val content = """
             * Heading 1
             :PROPERTIES:
@@ -213,9 +213,12 @@ class OrgDocumentParserTests {
         assertEquals("abc-123", section.properties["ID"])
         assertEquals("my-heading", section.properties["CUSTOM_ID"])
 
-        val drawer = section.blocks.first { it is OrgBlock.Drawer } as OrgBlock.Drawer
-        assertEquals("PROPERTIES", drawer.name)
-        assertEquals("abc-123", drawer.properties["ID"])
+        // Leading PROPERTIES drawer is node metadata, not a renderable block: it's
+        // consumed into section.properties and dropped from blocks (no pill for it).
+        assertFalse(
+            "Leading PROPERTIES drawer should not also appear as a Drawer block",
+            section.blocks.any { it is OrgBlock.Drawer && it.name == "PROPERTIES" },
+        )
 
         assertFalse(
             "Drawer lines should not leak into paragraphs",
