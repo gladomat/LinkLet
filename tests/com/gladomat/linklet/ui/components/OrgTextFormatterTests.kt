@@ -69,6 +69,29 @@ class OrgTextFormatterTests {
     }
 
     @Test
+    fun `links inside a heading title are annotated the same as body text`() {
+        // SectionHeaderRow passes section.title as `content` here - the org parser has already
+        // stripped the leading "* " marker upstream, so this is exactly what reaches
+        // buildOrgContentAnnotatedString for a heading's clickable link, matching the scenario
+        // NoteViewScreenHeadingLinkTests exercises end-to-end via Compose gesture simulation.
+        val content = "Heading with [[id:target-note][alias]] link"
+        val links = listOf(
+            NoteLink(
+                fromId = NoteId("notes/heading-link.org"),
+                target = LinkTarget.Id("target-note"),
+                label = "alias",
+                resolvedPath = "notes/target-note.org",
+            ),
+        )
+
+        val annotated = buildOrgContentAnnotatedString(content, links, palette)
+
+        assertEquals("Heading with alias link", annotated.text)
+        val linkAnnotation = annotated.findAnnotationRange("alias")
+        assertEquals("notes/target-note.org", linkAnnotation?.item)
+    }
+
+    @Test
     fun `unresolved links stay as original markup`() {
         val annotated = buildOrgContentAnnotatedString(
             content = "Broken [[id:missing][Missing]].",

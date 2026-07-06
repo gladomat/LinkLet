@@ -910,11 +910,13 @@ private fun SectionHeaderRow(
             style = MaterialTheme.typography.titleMedium,
             color = palette.colorForLevel(section.level),
             // The whole Row used to carry this clickable, wrapping the ClickableText title
-            // below - Compose's gesture system let that outer clickable consume every tap
-            // before the title's own detectTapGestures (used to resolve link annotations)
-            // ever saw it, so links inside headings could never actually be tapped. Scope
-            // the toggle to just the chevron glyph; the title's own onClick already falls
-            // back to toggling expand/collapse for any tap that isn't on a link.
+            // below. That turned out not to be why heading-link taps weren't landing (a
+            // dedicated OrgTextFormatterTests case confirms the annotation-building logic
+            // itself is correct) - the real cause is still open, most likely a Robolectric
+            // limitation simulating ClickableText's own tap-to-offset gesture rather than a
+            // production bug. Kept scoped to just the chevron regardless: the title's own
+            // onClick already falls back to toggling expand/collapse for any tap that isn't
+            // on a link, so this is a reasonable simplification either way.
             modifier = Modifier.clickable { expandedState[section.id] = !isExpanded },
         )
         ClickableText(
