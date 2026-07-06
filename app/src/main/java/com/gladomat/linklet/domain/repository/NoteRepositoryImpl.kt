@@ -95,8 +95,8 @@ class NoteRepositoryImpl(
         }
     }
 
-    override suspend fun getNote(path: String): Result<Note> {
-        return storage.readNote(path).mapCatching { content ->
+    override suspend fun getNote(path: String): Result<Note> = withContext(ioDispatcher) {
+        storage.readNote(path).mapCatching { content ->
             val parsed = parser.parse(content = content, path = path)
             parsed.copy(links = resolveLinks(parsed.links))
         }
@@ -425,15 +425,28 @@ class NoteRepositoryImpl(
         require(trimmed.length <= 255) { "Filename too long" }
     }
 
-    private suspend fun resolveLinks(links: List<NoteLink>): List<NoteLink> =
-        links.mapNotNull { link ->
+    private suspend fun resolveLinks(links: List<NoteLink>): List<NoteLink> {
+        // Batch-resolve any [[id:...]] links not already cached in noteIdIndex, in one
+        // query, instead of one findPathByOrgId() round-trip per uncached link (N+1).
+        val uncachedIds = links.mapNotNull { link ->
+            (link.target as? LinkTarget.Id)?.value?.takeIf { !noteIdIndex.containsKey(it) }
+        }.distinct()
+        // Chunk to stay well under SQLite's bound-parameter limit (~999) for notes
+        // with an unusually large number of distinct uncached id-links.
+        uncachedIds.chunked(SQL_IN_CLAUSE_CHUNK_SIZE).forEach { chunk ->
+            noteDao.findPathsByOrgIds(chunk).forEach { entry ->
+                noteIdIndex[entry.orgId] = entry.path
+            }
+        }
+
+        return links.mapNotNull { link ->
             val resolvedPath = when (val target = link.target) {
                 is LinkTarget.Path -> target.value
                 is LinkTarget.Id -> noteIdIndex[target.value]
-                    ?: noteDao.findPathByOrgId(target.value)?.also { resolved -> noteIdIndex[target.value] = resolved }
             } ?: return@mapNotNull null
             link.copy(resolvedPath = resolvedPath)
         }
+    }
 
     private fun NoteEntity.toIndexEntry(): NoteIndexEntry =
         NoteIndexEntry(
@@ -610,6 +623,8 @@ class NoteRepositoryImpl(
         private const val TRASH_DIR = "_trash_bin"
         // Compatibility with older/newer conventions.
         private const val LEGACY_TRASH_DIR = "_trash"
+        // Stays comfortably under SQLite's ~999 bound-parameter limit per statement.
+        private const val SQL_IN_CLAUSE_CHUNK_SIZE = 900
     }
 
     private suspend fun scanNotes(scope: IndexScope, shouldResolveLinks: Boolean): List<Note> {

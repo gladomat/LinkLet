@@ -13,6 +13,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import com.gladomat.linklet.data.model.Note
 import com.gladomat.linklet.data.model.NoteId
+import com.gladomat.linklet.data.parser.org.parseOrgDocument
 import com.gladomat.linklet.viewmodel.note.NoteViewUiState
 import com.gladomat.linklet.viewmodel.note.NoteViewViewModel
 import java.io.File
@@ -47,6 +48,7 @@ class NoteViewScreenImageTests {
 
         val state = NoteViewUiState.Success(
             note = note,
+            document = parseOrgDocument(note.content),
             backlinks = emptyList(),
             lastModified = null,
             isFavorite = false,

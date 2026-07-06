@@ -68,8 +68,8 @@ import com.gladomat.linklet.data.model.Note
 import com.gladomat.linklet.data.model.NoteId
 import com.gladomat.linklet.data.model.NoteLink
 import com.gladomat.linklet.data.parser.org.OrgBlock
+import com.gladomat.linklet.data.parser.org.OrgDocument
 import com.gladomat.linklet.data.parser.org.OrgSection
-import com.gladomat.linklet.data.parser.org.parseOrgDocument
 import com.gladomat.linklet.domain.repository.LinkEntityDto
 import com.gladomat.linklet.domain.service.MatchRange
 import com.gladomat.linklet.domain.service.SearchOptions
@@ -289,6 +289,7 @@ fun NoteViewScreen(
         NoteViewUiState.Loading -> LoadingState(modifier)
         is NoteViewUiState.Success -> SuccessState(
             note = state.note,
+            document = state.document,
             backlinks = state.backlinks,
             lastModified = state.lastModified,
             isFavorite = state.isFavorite,
@@ -350,6 +351,7 @@ private fun LoadingState(modifier: Modifier) {
 @Composable
 private fun SuccessState(
     note: Note,
+    document: OrgDocument,
     backlinks: List<LinkEntityDto>,
     lastModified: String?,
     isFavorite: Boolean,
@@ -382,7 +384,6 @@ private fun SuccessState(
     modifier: Modifier,
 ) {
     val logTag = "NoteSearch"
-    val document = remember(note.content) { parseOrgDocument(note.content) }
     var propertiesExpanded by remember(note.id.path) { mutableStateOf(false) }
     val drawerExpansion = remember(note.id.path) { mutableStateMapOf<String, Boolean>() }
     var showBacklinksSheet by remember { mutableStateOf(false) }
@@ -1107,6 +1108,21 @@ private fun OrgTextPalette.colorForLevel(level: Int): Color =
 @Preview
 @Composable
 private fun NoteViewSuccessPreview() {
+    val sampleContent = """
+        #+title: Sample
+        #+filetags: :test:demo:
+        :PROPERTIES:
+        :ID: abc
+        :CREATED: 2024-01-15
+        :END:
+
+        Introduction paragraph with https://kotlinlang.org link.
+
+        * Heading One                    :important:
+        Body *bold* text and [[file:other.org][alias]].
+        ** Sub heading                   :nested:tag:
+        More body.
+    """.trimIndent()
     LinkLetAppTheme {
         Surface {
             NoteViewScreen(
@@ -1114,21 +1130,7 @@ private fun NoteViewSuccessPreview() {
                     note = Note(
                         id = NoteId("notes/sample.org"),
                         title = "Sample Note",
-                        content = """
-                            #+title: Sample
-                            #+filetags: :test:demo:
-                            :PROPERTIES:
-                            :ID: abc
-                            :CREATED: 2024-01-15
-                            :END:
-
-                            Introduction paragraph with https://kotlinlang.org link.
-
-                            * Heading One                    :important:
-                            Body *bold* text and [[file:other.org][alias]].
-                            ** Sub heading                   :nested:tag:
-                            More body.
-                        """.trimIndent(),
+                        content = sampleContent,
                         links = listOf(
                             NoteLink(
                                 fromId = NoteId("notes/sample.org"),
@@ -1139,6 +1141,7 @@ private fun NoteViewSuccessPreview() {
                         ),
                         orgId = "sample-id",
                     ),
+                    document = com.gladomat.linklet.data.parser.org.parseOrgDocument(sampleContent),
                     backlinks = listOf(
                         LinkEntityDto(
                             source = "notes/linked.org",

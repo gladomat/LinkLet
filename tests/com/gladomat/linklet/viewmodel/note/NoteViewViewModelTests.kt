@@ -75,6 +75,7 @@ class NoteViewViewModelTests {
         val viewModel = NoteViewViewModel(
             repository = repository,
             savedStateHandle = SavedStateHandle(mapOf(NoteViewViewModel.NoteArgs.NOTE_PATH to "path.org")),
+            backgroundDispatcher = dispatcherRule.dispatcher,
         )
 
         advanceUntilIdle()
@@ -115,6 +116,7 @@ class NoteViewViewModelTests {
         val viewModel = NoteViewViewModel(
             repository = repository,
             savedStateHandle = SavedStateHandle(mapOf(NoteViewViewModel.NoteArgs.NOTE_PATH to "path.org")),
+            backgroundDispatcher = dispatcherRule.dispatcher,
         )
 
         advanceUntilIdle()
@@ -133,6 +135,7 @@ class NoteViewViewModelTests {
         val viewModel = NoteViewViewModel(
             repository = repository,
             savedStateHandle = savedStateHandle,
+            backgroundDispatcher = dispatcherRule.dispatcher,
         )
 
         advanceUntilIdle()
@@ -154,7 +157,7 @@ class NoteViewViewModelTests {
             mapOf(NoteViewViewModel.NoteArgs.NOTE_PATH to "first.org"),
         )
 
-        val viewModel = NoteViewViewModel(repository, savedStateHandle)
+        val viewModel = NoteViewViewModel(repository, savedStateHandle, dispatcherRule.dispatcher)
 
         advanceUntilIdle()
         viewModel.openNote("second.org")
@@ -176,6 +179,7 @@ class NoteViewViewModelTests {
         val viewModel = NoteViewViewModel(
             repository = repository,
             savedStateHandle = SavedStateHandle(mapOf(NoteViewViewModel.NoteArgs.NOTE_PATH to "stub.org")),
+            backgroundDispatcher = dispatcherRule.dispatcher,
         )
         advanceUntilIdle()
 
@@ -190,6 +194,7 @@ class NoteViewViewModelTests {
         val viewModel = NoteViewViewModel(
             repository = repository,
             savedStateHandle = SavedStateHandle(mapOf(NoteViewViewModel.NoteArgs.NOTE_PATH to "stub.org")),
+            backgroundDispatcher = dispatcherRule.dispatcher,
         )
         advanceUntilIdle()
 
@@ -206,6 +211,7 @@ class NoteViewViewModelTests {
         val viewModel = NoteViewViewModel(
             repository = RecordingRepository(),
             savedStateHandle = SavedStateHandle(mapOf(NoteViewViewModel.NoteArgs.NOTE_PATH to "path.org")),
+            backgroundDispatcher = dispatcherRule.dispatcher,
         )
         advanceUntilIdle()
 
@@ -228,6 +234,7 @@ class NoteViewViewModelTests {
         val viewModel = NoteViewViewModel(
             repository = repository,
             savedStateHandle = SavedStateHandle(mapOf(NoteViewViewModel.NoteArgs.NOTE_PATH to "path.org")),
+            backgroundDispatcher = dispatcherRule.dispatcher,
         )
         advanceUntilIdle()
 

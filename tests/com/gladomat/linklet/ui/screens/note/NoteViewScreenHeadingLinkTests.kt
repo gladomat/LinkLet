@@ -8,6 +8,7 @@ import com.gladomat.linklet.data.model.LinkTarget
 import com.gladomat.linklet.data.model.Note
 import com.gladomat.linklet.data.model.NoteId
 import com.gladomat.linklet.data.model.NoteLink
+import com.gladomat.linklet.data.parser.org.parseOrgDocument
 import com.gladomat.linklet.testing.Aarch64RobolectricTestRunner
 import com.gladomat.linklet.viewmodel.note.NoteViewUiState
 import com.gladomat.linklet.viewmodel.note.NoteViewViewModel
@@ -44,6 +45,7 @@ class NoteViewScreenHeadingLinkTests {
 
         val state = NoteViewUiState.Success(
             note = note,
+            document = parseOrgDocument(note.content),
             backlinks = emptyList(),
             lastModified = null,
             isFavorite = false,

@@ -7,6 +7,12 @@ import androidx.room.Query
 import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
+/** Projection for batch org-id -> path lookups (avoids N+1 queries when resolving [[id:...]] links). */
+data class OrgIdToPath(
+    val orgId: String,
+    val path: String,
+)
+
 @Dao
 interface NoteDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -53,6 +59,12 @@ interface NoteDao {
 
     @Query("SELECT path FROM notes WHERE deletedAt IS NULL AND orgId = :orgId LIMIT 1")
     suspend fun findPathByOrgId(orgId: String): String?
+
+    // GROUP BY + MIN(path) makes the pick deterministic if the same orgId is ever
+    // duplicated across two active notes (e.g. a copy-pasted :ID: drawer), matching
+    // findPathByOrgId's single-row-per-id contract instead of an arbitrary SQLite row order.
+    @Query("SELECT orgId, MIN(path) AS path FROM notes WHERE deletedAt IS NULL AND orgId IN (:orgIds) GROUP BY orgId")
+    suspend fun findPathsByOrgIds(orgIds: List<String>): List<OrgIdToPath>
 
     @Query("SELECT orgId FROM notes WHERE path = :path LIMIT 1")
     suspend fun findOrgIdByPath(path: String): String?

@@ -338,3 +338,5 @@ Layout: single Gradle module `:app` (Kotlin, Compose, Hilt, Room, WorkManager); 
 - `docs/AGENTS.md` — documentation ownership; `docs/QA_FEATURE_MATRIX.md` is the canonical QA record.
 
 Owned by the root (no child doc): `app/di`, `domain/`, `viewmodel/`, `data/model|storage|parser|settings|utils` (covered by `data/AGENTS.md`), Gradle build files.
+
+`app/di/AppModule.kt` has two `CoroutineDispatcher` bindings: an unqualified one (`Dispatchers.IO`, for blocking/storage/DB work) and `@DefaultDispatcher` (`Dispatchers.Default`, for CPU-bound work like parsing). Any `@Inject`-constructor param needing the CPU-bound dispatcher must be annotated `@DefaultDispatcher` — an unqualified `CoroutineDispatcher` param silently resolves to the IO binding via Hilt, ignoring any Kotlin default value.

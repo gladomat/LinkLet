@@ -6,8 +6,10 @@ import androidx.lifecycle.viewModelScope
 import android.util.Log
 import com.gladomat.linklet.data.index.NoteAvailability
 import com.gladomat.linklet.data.parser.org.OrgBlock
+import com.gladomat.linklet.data.parser.org.OrgDocument
 import com.gladomat.linklet.data.parser.org.buildOrgDisplayText
 import com.gladomat.linklet.data.parser.org.parseOrgDocument
+import com.gladomat.linklet.app.di.DefaultDispatcher
 import com.gladomat.linklet.domain.repository.INoteRepository
 import com.gladomat.linklet.domain.repository.LinkEntityDto
 import com.gladomat.linklet.domain.service.MatchRange
@@ -17,6 +19,7 @@ import com.gladomat.linklet.domain.service.SearchOptions
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import java.util.ArrayDeque
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,12 +28,17 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @HiltViewModel
 class NoteViewViewModel @Inject constructor(
     private val repository: INoteRepository,
     private val savedStateHandle: SavedStateHandle,
+    @DefaultDispatcher private val backgroundDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : ViewModel() {
 
     private val logTag = "NoteSearch"
@@ -114,13 +122,24 @@ class NoteViewViewModel @Inject constructor(
                 }
                 else -> Unit
             }
-            val noteResult = repository.getNote(notePath)
+            // getNote() and getBacklinks() are independent reads keyed only on notePath;
+            // run them concurrently instead of one after the other.
+            val (noteResult, backlinksResult) = coroutineScope {
+                val noteDeferred = async { repository.getNote(notePath) }
+                val backlinksDeferred = async { repository.getBacklinks(notePath) }
+                noteDeferred.await() to backlinksDeferred.await()
+            }
             _state.value = noteResult.fold(
                 onSuccess = { note ->
-                    val backlinks = repository.getBacklinks(notePath).getOrDefault(emptyList<LinkEntityDto>())
-                    updateSearchCorpus(content = note.content, links = note.links)
+                    val backlinks = backlinksResult.getOrDefault(emptyList<LinkEntityDto>())
+                    // Parse once off the main thread; both the search corpus and the
+                    // Compose renderer share this same OrgDocument instead of each
+                    // re-parsing note.content themselves.
+                    val document = withContext(backgroundDispatcher) { parseOrgDocument(note.content) }
+                    updateSearchCorpus(document = document, links = note.links)
                     NoteViewUiState.Success(
                         note = note,
+                        document = document,
                         backlinks = backlinks,
                         lastModified = null, // TODO: get from file metadata
                         isFavorite = false, // TODO: persist favorites
@@ -399,12 +418,11 @@ class NoteViewViewModel @Inject constructor(
     }
 
     private fun updateSearchCorpus(
-        content: String,
+        document: OrgDocument,
         links: List<com.gladomat.linklet.data.model.NoteLink>,
     ) {
         val state = _searchState.value
 
-        val document = parseOrgDocument(content)
         val blocks = mutableListOf<SearchBlock>()
         document.prefaceBlocks.forEachIndexed { index, block ->
             blocks += toSearchBlocks(

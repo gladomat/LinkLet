@@ -22,6 +22,7 @@ The pipeline assumes the app process can die at any moment. Every step must pers
 - `run()` returns `Outcome(scanTruncated)`; the worker schedules a continuation when the sweep was truncated OR pending rows remain. Workers run in ~20 s budget slices and chain via `enqueueUniqueWork(APPEND_OR_REPLACE)` — never rely on `Result.retry()` backoff for forward progress.
 - The sweep must never flip a PENDING/RUNNING row to DONE (a concurrent sync may have re-enqueued the path).
 - Change detection is fingerprint-based (`fingerprintMtime` + `fingerprintSize` vs `statNote`). A missing file during processing is a tombstone (`markDeleted` + pass 2 DELETE), not a retry.
+- `[[id:...]]` link resolution (org-id → path) must go through a batched `NoteDao` query (e.g. `findPathsByOrgIds`), never one query per link — that N+1 shape is a known perf bug class in this pipeline. `IndexPass2Processor`'s per-link `findPathByOrgId`/`findOrgIdByPath` loop still has this N+1 shape and is a known follow-up, not yet fixed.
 
 ## Work Guidance
 

@@ -39,6 +39,7 @@ class NoteViewSearchTests {
                 ),
             ),
             savedStateHandle = SavedStateHandle(mapOf(NoteViewViewModel.NoteArgs.NOTE_PATH to "note.org")),
+            backgroundDispatcher = dispatcherRule.dispatcher,
         )
         advanceUntilIdle()
 
@@ -70,6 +71,7 @@ class NoteViewSearchTests {
                 ),
             ),
             savedStateHandle = SavedStateHandle(mapOf(NoteViewViewModel.NoteArgs.NOTE_PATH to "note.org")),
+            backgroundDispatcher = dispatcherRule.dispatcher,
         )
         advanceUntilIdle()
 
@@ -93,6 +95,7 @@ class NoteViewSearchTests {
                 ),
             ),
             savedStateHandle = SavedStateHandle(mapOf(NoteViewViewModel.NoteArgs.NOTE_PATH to "note.org")),
+            backgroundDispatcher = dispatcherRule.dispatcher,
         )
         advanceUntilIdle()
 
