@@ -164,28 +164,22 @@ private fun GraphCanvas(
         }
         counts
     }
-    // First- and second-order connections of the selected node, so a tap clearly confirms not
-    // just "this node" but "everything it reaches within 2 hops" - both tiers get their own
-    // highlight treatment below, distinct from each other and from the unrelated/dimmed rest.
-    val (firstOrderPaths, secondOrderPaths) = remember(uiState.edges, selectedPath) {
+    // First-order (directly connected) notes of the selected node get a highlight treatment.
+    // Second-order is deliberately not surfaced here - on a real vault it lights up so much of
+    // the graph that it stops meaning anything and just makes the view harder to read.
+    val firstOrderPaths = remember(uiState.edges, selectedPath) {
         if (selectedPath == null) {
-            emptySet<String>() to emptySet<String>()
+            emptySet<String>()
         } else {
             val adjacency = HashMap<String, MutableSet<String>>()
             uiState.edges.forEach { edge ->
                 adjacency.getOrPut(edge.source) { mutableSetOf() }.add(edge.target)
                 adjacency.getOrPut(edge.target) { mutableSetOf() }.add(edge.source)
             }
-            val firstOrder = adjacency[selectedPath].orEmpty().toSet()
-            val visited = firstOrder + selectedPath
-            val secondOrder = firstOrder
-                .flatMap { adjacency[it].orEmpty() }
-                .filterNot { it in visited }
-                .toSet()
-            firstOrder to secondOrder
+            adjacency[selectedPath].orEmpty().toSet()
         }
     }
-    val highlightedPaths = firstOrderPaths + secondOrderPaths
+    val highlightedPaths = firstOrderPaths
 
     // Selecting a search result (Design decision 10) pans/zooms the camera to that node.
     LaunchedEffect(uiState.cameraFocusRequest) {
@@ -217,10 +211,7 @@ private fun GraphCanvas(
     val pendingNodeColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
     val dimmedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f)
     val selectedColor = MaterialTheme.colorScheme.secondary
-    // Two distinct tiers so both "directly connected" and "connected-through-a-connection" read
-    // as clearly different from each other, not just both "not dimmed".
     val firstOrderColor = MaterialTheme.colorScheme.tertiary
-    val secondOrderColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.55f)
     val labelColor = MaterialTheme.colorScheme.onBackground.toArgb()
 
     Canvas(
@@ -229,9 +220,19 @@ private fun GraphCanvas(
             .background(MaterialTheme.colorScheme.background)
             .onSizeChanged { canvasSize = it }
             .pointerInput(Unit) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    scale = (scale * zoom).coerceIn(MIN_SCALE, MAX_SCALE)
-                    panOffset += pan
+                detectTransformGestures { centroid, pan, zoom, _ ->
+                    val oldScale = scale
+                    val newScale = (oldScale * zoom).coerceIn(MIN_SCALE, MAX_SCALE)
+                    // Zoom must pivot on the gesture's centroid (pinch focal point), not the
+                    // canvas origin - otherwise every pinch also drags the graph towards
+                    // whatever graph-space point happens to sit at screen (0, 0), which reads as
+                    // the view sliding around instead of zooming in place like a photo. Using
+                    // newScale/oldScale (not the raw `zoom` factor) keeps the focal point fixed
+                    // even once scale saturates at MIN_SCALE/MAX_SCALE and further pinching would
+                    // otherwise have no scale effect but would still drift the pan.
+                    val effectiveZoom = newScale / oldScale
+                    panOffset = centroid + (panOffset - centroid) * effectiveZoom + pan
+                    scale = newScale
                 }
             }
             .pointerInput(Unit) {
@@ -275,9 +276,11 @@ private fun GraphCanvas(
             val targetPos = positions[edge.target] ?: return@forEach
             val start = toScreen(sourcePos, scale, panOffset)
             val end = toScreen(targetPos, scale, panOffset)
+            // Only edges incident to the selected node itself - an edge between two of its
+            // first-order notes (not touching the selection) stays unhighlighted, same as the
+            // second-order nodes it connects.
             val edgeIsHighlighted = selectedPath != null &&
-                (edge.source == selectedPath || edge.source in highlightedPaths) &&
-                (edge.target == selectedPath || edge.target in highlightedPaths)
+                (edge.source == selectedPath || edge.target == selectedPath)
             val targetPathObj = if (edgeIsHighlighted) highlightEdgePath else edgePath
             targetPathObj.moveTo(start.x, start.y)
             targetPathObj.lineTo(end.x, end.y)
@@ -297,7 +300,6 @@ private fun GraphCanvas(
             val screenPos = toScreen(graphPos, scale, panOffset)
             val isSelected = path == selectedPath
             val isFirstOrder = path in firstOrderPaths
-            val isSecondOrder = path in secondOrderPaths
             val isDimmed = selectedPath != null && !isSelected && path !in highlightedPaths
             val degree = degreeByPath[path] ?: 0
             val baseRadius = (BASE_NODE_RADIUS_DP + DEGREE_RADIUS_SCALE_DP * ln((degree + 1).toFloat())).dp.toPx()
@@ -310,16 +312,15 @@ private fun GraphCanvas(
                 !node.linksReady -> pendingNodeColor // Design decision 11: pending, not a confirmed orphan
                 isSelected -> selectedColor
                 isFirstOrder -> firstOrderColor
-                isSecondOrder -> secondOrderColor
                 isDimmed -> dimmedColor
                 else -> nodeColor
             }
             drawCircle(color = color, radius = radius, center = screenPos)
 
-            // First/second-order connections always show their label when a selection is
-            // active, regardless of zoom - the whole point is to let you read which notes are
-            // connected, not just see a colored dot.
-            if (isSelected || isFirstOrder || isSecondOrder || labelLegible) {
+            // First-order connections always show their label when a selection is active,
+            // regardless of zoom - the whole point is to let you read which notes are connected,
+            // not just see a colored dot.
+            if (isSelected || isFirstOrder || labelLegible) {
                 textPaint.textSize = (if (isSelected) SELECTED_LABEL_SP else LABEL_SP).sp.toPx()
                 textPaint.alpha = if (isDimmed) DIMMED_LABEL_ALPHA else OPAQUE_ALPHA
                 drawContext.canvas.nativeCanvas.drawText(
