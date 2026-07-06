@@ -9,7 +9,9 @@ package com.gladomat.linklet.data.sync
  * `.syncignore` file at the vault root and applied here for the duration of that run.
  */
 object SyncPathFilter {
-    private val blockedFileNames = setOf(
+    // Read-only from the outside — reused by the .syncignore editor's "always excluded" info
+    // card so that UI text can't drift from what actually gets filtered here.
+    val blockedFileNames = setOf(
         ".DS_Store",
         "Thumbs.db",
         "desktop.ini",
@@ -18,7 +20,7 @@ object SyncPathFilter {
         ".trash",
     )
 
-    private val blockedDirectoryNames = setOf(
+    val blockedDirectoryNames = setOf(
         // Emacs/Org LaTeX preview cache.
         "ltximg",
     )
@@ -36,12 +38,23 @@ object SyncPathFilter {
      */
     fun isDirectoryTraversable(path: String): Boolean = isNameAllowed(path)
 
-    private fun isNameAllowed(path: String): Boolean {
+    /**
+     * The built-in junk blocklist only, ignoring the user's [ignoreRules] layer entirely.
+     * Used by the .syncignore impact preview to figure out which locally-known paths are even
+     * eligible to be affected by a rule change — a path the blocklist already excludes can't be
+     * "newly excluded" or "newly included" by editing `.syncignore`.
+     */
+    fun isBuiltInAllowed(path: String): Boolean {
         val segments = normalizedSegments(path)
         if (segments.isEmpty()) return false
         if (segments.any { it.startsWith('.') || it.startsWith('_') }) return false
         if (segments.any { blockedFileNames.contains(it) }) return false
         if (segments.any { segment -> blockedDirectoryNames.any { it.equals(segment, ignoreCase = true) } }) return false
+        return true
+    }
+
+    private fun isNameAllowed(path: String): Boolean {
+        if (!isBuiltInAllowed(path)) return false
         if (ignoreRules.matches(path)) return false
         return true
     }

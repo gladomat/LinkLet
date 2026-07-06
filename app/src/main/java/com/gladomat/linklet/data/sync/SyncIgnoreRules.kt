@@ -21,16 +21,37 @@ class SyncIgnoreRules private constructor(private val patterns: List<Regex>) {
         return patterns.any { it.matches(normalized) }
     }
 
+    /** A line that survived comment/blank stripping but failed to compile into a rule — a no-op. */
+    data class DroppedLine(val lineNumber: Int, val rawText: String)
+
+    data class VerboseParseResult(val rules: SyncIgnoreRules, val droppedLines: List<DroppedLine>)
+
     companion object {
         val EMPTY = SyncIgnoreRules(emptyList())
 
-        fun parse(text: String): SyncIgnoreRules {
-            val patterns = text.lineSequence()
-                .map { it.trim() }
-                .filter { it.isNotEmpty() && !it.startsWith("#") }
-                .mapNotNull { compile(it) }
-                .toList()
-            return if (patterns.isEmpty()) EMPTY else SyncIgnoreRules(patterns)
+        fun parse(text: String): SyncIgnoreRules = parseVerbose(text).rules
+
+        /**
+         * Same parse as [parse] but also reports lines that were non-blank/non-comment yet
+         * dropped (failed to compile). Used only by the `.syncignore` in-app editor to warn the
+         * user about no-op rules — [parse] itself must stay cheap since [SyncEngine] reloads it
+         * on every sync run.
+         */
+        fun parseVerbose(text: String): VerboseParseResult {
+            val patterns = mutableListOf<Regex>()
+            val dropped = mutableListOf<DroppedLine>()
+            text.lines().forEachIndexed { index, rawLine ->
+                val trimmed = rawLine.trim()
+                if (trimmed.isEmpty() || trimmed.startsWith("#")) return@forEachIndexed
+                val compiled = compile(trimmed)
+                if (compiled == null) {
+                    dropped.add(DroppedLine(index + 1, rawLine))
+                } else {
+                    patterns.add(compiled)
+                }
+            }
+            val rules = if (patterns.isEmpty()) EMPTY else SyncIgnoreRules(patterns)
+            return VerboseParseResult(rules, dropped)
         }
 
         private fun compile(rawPattern: String, forceDirOnly: Boolean = false): Regex? {

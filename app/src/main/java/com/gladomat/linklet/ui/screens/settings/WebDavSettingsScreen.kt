@@ -48,6 +48,7 @@ import com.gladomat.linklet.viewmodel.settings.WebDavSettingsViewModel
 @Composable
 fun WebDavSettingsRoute(
     onNavigateBack: () -> Unit,
+    onOpenSyncIgnoreEditor: () -> Unit,
     viewModel: WebDavSettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -70,6 +71,7 @@ fun WebDavSettingsRoute(
         onEnabledChange = viewModel::updateEnabled,
         onSave = viewModel::save,
         onTestConnection = viewModel::testConnection,
+        onOpenSyncIgnoreEditor = onOpenSyncIgnoreEditor,
         snackbarHostState = snackbarHostState,
     )
 }
@@ -86,6 +88,7 @@ fun WebDavSettingsScreen(
     onEnabledChange: (Boolean) -> Unit,
     onSave: () -> Unit,
     onTestConnection: () -> Unit,
+    onOpenSyncIgnoreEditor: () -> Unit,
     snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier,
 ) {
@@ -204,6 +207,18 @@ fun WebDavSettingsScreen(
             ) {
                 Text(text = if (state.isSaving) "Saving…" else "Save")
             }
+            val isVaultConfigured = state.baseUrl.isNotBlank() &&
+                state.username.isNotBlank() &&
+                state.password.isNotBlank()
+            if (isVaultConfigured) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = onOpenSyncIgnoreEditor,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(text = "Edit sync exclusions (.syncignore)")
+                }
+            }
         }
     }
 }
@@ -239,6 +254,7 @@ private fun WebDavSettingsPreview() {
                 onEnabledChange = {},
                 onSave = {},
                 onTestConnection = {},
+                onOpenSyncIgnoreEditor = {},
                 snackbarHostState = SnackbarHostState(),
             )
         }

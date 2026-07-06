@@ -18,6 +18,7 @@ import com.gladomat.linklet.ui.screens.note.NoteViewRoute
 import com.gladomat.linklet.ui.screens.trash.TrashRoute
 import com.gladomat.linklet.ui.screens.noteedit.NoteEditRoute
 import com.gladomat.linklet.ui.screens.settings.SettingsRoute
+import com.gladomat.linklet.ui.screens.settings.SyncIgnoreEditorRoute
 import com.gladomat.linklet.ui.screens.settings.WebDavSettingsRoute
 import com.gladomat.linklet.ui.screens.sync.SyncStatusRoute
 import com.gladomat.linklet.ui.theme.LinkLetAppTheme
@@ -145,6 +146,15 @@ class MainActivity : ComponentActivity() {
                         composable(route = Routes.WEB_DAV_SETTINGS) {
                             WebDavSettingsRoute(
                                 onNavigateBack = { navController.popBackStack() },
+                                onOpenSyncIgnoreEditor = {
+                                    navController.navigate(Routes.SYNC_IGNORE_EDITOR)
+                                },
+                            )
+                        }
+
+                        composable(route = Routes.SYNC_IGNORE_EDITOR) {
+                            SyncIgnoreEditorRoute(
+                                onNavigateBack = { navController.popBackStack() },
                             )
                         }
 
@@ -183,6 +193,7 @@ private object Routes {
     const val NEW_NOTE_PATH = NoteEditViewModel.NEW_NOTE_PATH
     const val SETTINGS = "settings"
     const val WEB_DAV_SETTINGS = "webdav_settings"
+    const val SYNC_IGNORE_EDITOR = "sync_ignore_editor"
     const val TRASH = "trash"
     const val SYNC_STATUS = "sync_status"
 }

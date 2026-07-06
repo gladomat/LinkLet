@@ -81,4 +81,42 @@ class DocumentTreeStorageImplTests {
 
         storage.readNote("../escape.org").getOrThrow()
     }
+
+    /**
+     * Regression guard for the `.syncignore` in-app editor (see `SyncIgnoreEditorViewModel`):
+     * `writeFileBytes` must preserve a dot-prefixed filename with no extension exactly, both on
+     * first write and on overwrite. This only exercises the plain-filesystem `DocumentFile`
+     * branch (`fromFile`, used here and by `FileStorageImpl`) — `createFile()` on that branch
+     * ignores the mimeType entirely (`RawDocumentFile` just does `File.createNewFile()`), so it
+     * cannot reproduce the real risk this guards against: a real SAF tree-provider's
+     * `DocumentsContract.createDocument()` may append an extension derived from the mimeType if
+     * the display name doesn't already end with it. `writeFileBytes` picks
+     * `"application/octet-stream"`, which `MimeTypeMap` has no registered extension for — the
+     * same choice already relied on in production for arbitrary downloaded attachments
+     * (`SyncEngine.kt`) — so no known Android `DocumentsProvider` has an extension to append.
+     * That assumption is still UNVERIFIED against a real on-device SAF tree URI (no device/adb
+     * available in this environment); confirm once on a physical device before relying on it
+     * further: write `.syncignore` via the app, then `adb shell run-as com.gladomat.linklet ls
+     * -la <vault-tree-path>` (or inspect via the Nextcloud/Files app) and confirm the name is
+     * exactly `.syncignore`, not `.syncignore.bin` or similar.
+     */
+    @Test
+    fun `writeFileBytes preserves a dot-prefixed extensionless filename exactly`() = runTest(dispatcher) {
+        val root = tempDir.newFolder("vault")
+        folderSettingsRepository.setFolderUri(Uri.fromFile(root))
+        val storage = DocumentTreeStorageImpl(context, folderSettingsRepository, dispatcher)
+
+        val bytes = "*.bak\n".toByteArray()
+        storage.writeFileBytes(".syncignore", bytes).getOrThrow()
+
+        val written = File(root, ".syncignore")
+        assertTrue(written.exists())
+        assertEquals(".syncignore", written.name)
+        assertEquals("*.bak\n", written.readText())
+
+        // Overwrite must reuse the same file, not create a second one alongside it.
+        storage.writeFileBytes(".syncignore", "*.tmp\n".toByteArray()).getOrThrow()
+        assertEquals(listOf(".syncignore"), root.listFiles()?.map { it.name })
+        assertEquals("*.tmp\n", File(root, ".syncignore").readText())
+    }
 }

@@ -13,6 +13,21 @@ afterEvaluate {
     }
 }
 
+// Single source of truth for the .syncignore seed template lives in docs/; bundle a copy as an
+// asset so the in-app editor can seed a vault with no .syncignore yet without hand-duplicating
+// the file. Must run before assets are merged into the APK.
+val copySyncIgnoreTemplate = tasks.register<Copy>("copySyncIgnoreTemplate") {
+    from(rootProject.file("docs/templates/syncignore-default.txt"))
+    into(layout.projectDirectory.dir("src/main/assets"))
+}
+
+tasks.matching { it.name.startsWith("preBuild") }.configureEach {
+    dependsOn(copySyncIgnoreTemplate)
+}
+tasks.matching { it.name.startsWith("merge") && it.name.contains("Assets") }.configureEach {
+    dependsOn(copySyncIgnoreTemplate)
+}
+
 android {
     namespace = "com.gladomat.linklet"
     compileSdk = 34

@@ -15,7 +15,7 @@ Durable project documentation: QA records, design plans, research, and post-mort
 - `plans/` — one design doc per feature, written before implementation; they are historical once shipped and may lag the code.
 - `research/` — external research reports.
 - `github_issues.md` — issue-tracker snapshot (may be stale).
-- `templates/` — ready-to-copy user-facing config templates (e.g. `syncignore-default.txt`), referenced from the root `README.md`.
+- `templates/` — ready-to-copy user-facing config templates (e.g. `syncignore-default.txt`), referenced from the root `README.md`. `syncignore-default.txt` is also the single source of truth for the in-app `.syncignore` editor's seed content — a Gradle task (`app/build.gradle.kts`) copies it to `app/src/main/assets/syncignore-default.txt` before the asset merge; edit only the `docs/templates/` copy.
 
 ## Local Contracts
 

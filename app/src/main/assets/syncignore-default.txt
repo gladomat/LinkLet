@@ -1,0 +1,47 @@
+# LinkLet .syncignore — copy this file to the root of your vault as ".syncignore"
+#
+# Gitignore-lite syntax:
+#  - "#" starts a comment; blank lines are skipped.
+#  - "*" matches within one path segment; "?" matches one character.
+#  - "**" matches across segments (leading "**/" = any depth, trailing "/**" = everything under).
+#  - A pattern with an internal "/" is anchored to the vault root; a bare name matches anywhere.
+#  - A trailing "/" restricts the pattern to a directory and its contents.
+#  - "!"-negation is not supported.
+#
+# This file itself is never synced (its leading dot already excludes it) — keep a copy on
+# each device that needs these rules.
+
+# OS / editor junk (also covered by LinkLet's built-in blocklist; listed here for visibility)
+.DS_Store
+Thumbs.db
+desktop.ini
+__MACOSX
+.git/
+.trash/
+
+# Editor & tool backup/cache files
+*~
+*.bak
+*.swp
+*.tmp
+ltximg/
+_minted*/
+docs/
+.claude/
+.serena/
+raw/
+other/
+.stfolder*/
+
+
+# Databases, archives, and other binaries you likely don't want in your vault
+*.sqlite
+*.sqlite3
+*.db
+*.zip
+*.tar
+*.tar.gz
+*.7z
+
+# Third-party app backups
+*.pwb

@@ -22,6 +22,8 @@ Bidirectional WebDAV sync between the local vault and a remote server: change de
 - Remote change detection is hash/ETag-based; a path whose recorded hash matches the remote is never re-downloaded. Remediation for missed files therefore goes through the index cold scan, not through re-sync.
 - Conflict copies are real notes: they get their own `sync_state` row and index enqueue.
 - `SyncPathFilter` has no file-extension allowlist — every file under the vault root syncs by default, filtered only by a small built-in junk blocklist plus the optional user `.syncignore` (gitignore-lite, parsed by `SyncIgnoreRules`, reloaded fresh at the start of every `SyncEngine.run()` and set on `SyncPathFilter.ignoreRules`). Directory descent (`isDirectoryTraversable`) MUST NOT gate on file extension — it broke remote discovery of every non-root attachment folder once; do not reintroduce an extension check there.
+- `SyncIgnoreRules.parse()` (used by `SyncEngine`, hot path) and `SyncIgnoreRules.parseVerbose()` (used only by the in-app `.syncignore` editor's dropped-line diagnostics) must stay siblings — don't make `parse()` pay for diagnostics it doesn't need.
+- `SyncPathFilter.isBuiltInAllowed()` is the built-in-blocklist-only check (no `.syncignore` layer); `isNameAllowed`/`shouldInclude` layer `ignoreRules` on top. The `.syncignore` editor's impact preview uses `isBuiltInAllowed` to scope which locally-known paths a rule change could possibly affect.
 
 ## Work Guidance
 

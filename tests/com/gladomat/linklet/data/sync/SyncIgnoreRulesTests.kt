@@ -1,5 +1,6 @@
 package com.gladomat.linklet.data.sync
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -63,5 +64,37 @@ class SyncIgnoreRulesTests {
         assertTrue(rules.matches("cache/file.tmp"))
         assertTrue(rules.matches("a/b/cache/deep/file.tmp"))
         assertFalse(rules.matches("a/cachefile.tmp"))
+    }
+
+    @Test
+    fun `parseVerbose reports no dropped lines for comments, blanks, and valid rules`() {
+        val result = SyncIgnoreRules.parseVerbose(
+            """
+            # a comment
+
+            *.bak
+            """.trimIndent(),
+        )
+        assertTrue(result.droppedLines.isEmpty())
+        assertTrue(result.rules.matches("notes/x.bak"))
+    }
+
+    @Test
+    fun `parseVerbose reports a dropped line with its 1-based line number and raw text`() {
+        val result = SyncIgnoreRules.parseVerbose("*.bak\n/\n*.tmp\n")
+        assertEquals(1, result.droppedLines.size)
+        assertEquals(2, result.droppedLines.first().lineNumber)
+        assertEquals("/", result.droppedLines.first().rawText)
+        assertTrue(result.rules.matches("a.bak"))
+        assertTrue(result.rules.matches("a.tmp"))
+    }
+
+    @Test
+    fun `parse and parseVerbose agree on the compiled rules`() {
+        val text = "*.bak\n/\n*.tmp\n"
+        assertEquals(
+            SyncIgnoreRules.parse(text).matches("a.bak"),
+            SyncIgnoreRules.parseVerbose(text).rules.matches("a.bak"),
+        )
     }
 }
