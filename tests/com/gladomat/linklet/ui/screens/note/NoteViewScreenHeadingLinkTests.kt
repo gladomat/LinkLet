@@ -1,11 +1,13 @@
 package com.gladomat.linklet.ui.screens.note
 
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.text.TextLayoutResult
 import com.gladomat.linklet.data.model.LinkTarget
 import com.gladomat.linklet.data.model.Note
 import com.gladomat.linklet.data.model.NoteId
@@ -92,18 +94,29 @@ class NoteViewScreenHeadingLinkTests {
             }
         }
 
-        val headingNode = composeRule.onNodeWithText("Heading with alias link", substring = false)
+        val fullText = "Heading with alias link"
+        val headingNode = composeRule.onNodeWithText(fullText, substring = false)
         headingNode.assertExists()
 
         // ClickableText has no clickable-semantics action - it resolves taps to a character
-        // offset via detectTapGestures, so a plain performClick() (which falls back to tapping
-        // the node's geometric center) lands wherever the *middle of the whole heading string*
-        // happens to be, not necessarily inside the "alias" annotation. In "Heading with alias
-        // link", "alias" sits at roughly 57-78% of the string, past the midpoint - tap there
-        // explicitly instead of relying on the center to coincide with it.
-        val size = headingNode.fetchSemanticsNode().size
+        // offset itself via detectTapGestures, so hitting the "alias" annotation requires
+        // tapping the actual pixel position of that substring, not a guessed fraction of the
+        // node's width (font metrics/padding make that unreliable - a prior attempt at a fixed
+        // 65% guess still missed). Query the real TextLayoutResult via the semantics action
+        // Compose Text exposes for exactly this, and click the precise character position.
+        val layoutResults = mutableListOf<TextLayoutResult>()
+        val getLayoutAction = headingNode.fetchSemanticsNode().config.getOrNull(SemanticsActions.GetTextLayoutResult)
+        checkNotNull(getLayoutAction) { "Heading ClickableText did not expose a TextLayoutResult" }
+        check(getLayoutAction.action?.invoke(layoutResults) == true) { "Failed to fetch TextLayoutResult" }
+        val layoutResult = layoutResults.first()
+
+        val aliasStart = fullText.indexOf("alias")
+        check(aliasStart >= 0) { "\"alias\" not found in rendered heading text" }
+        val aliasMiddleCharIndex = aliasStart + "alias".length / 2
+        val targetRect = layoutResult.getBoundingBox(aliasMiddleCharIndex)
+
         headingNode.performTouchInput {
-            click(Offset(x = size.width * 0.65f, y = size.height / 2f))
+            click(targetRect.center)
         }
         composeRule.waitForIdle()
 
