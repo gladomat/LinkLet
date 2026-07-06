@@ -450,6 +450,37 @@ class NoteEditViewModelTests {
     }
 
     @Test
+    fun `typing in the query does not resubscribe the notes observer per keystroke`() = runTest {
+        var observeCount = 0
+        val repository = createRepository(content = "Content", onObserveNotes = { observeCount++ })
+        val viewModel = NoteEditViewModel(
+            repository = repository,
+            savedStateHandle = SavedStateHandle(mapOf(NoteEditViewModel.NoteArgs.NOTE_PATH to "path.org")),
+        )
+
+        advanceUntilIdle()
+        viewModel.openLinkPicker()
+        advanceUntilIdle()
+        val countAfterOpen = observeCount
+        assertTrue("opening the picker should subscribe at least once", countAfterOpen >= 1)
+
+        // Regression guard: a prior version keyed flatMapLatest on (query, isOpen)
+        // together, so every keystroke tore down and rebuilt the live notes
+        // subscription -- introducing enough latency per character typed to
+        // fight the IME and scramble/drop input. Typing must not resubscribe.
+        "hello".forEach { char ->
+            viewModel.updateLinkPickerQuery(viewModel.linkPickerState.value.query + char)
+            advanceUntilIdle()
+        }
+
+        assertEquals(
+            "typing must not tear down and rebuild the notes subscription",
+            countAfterOpen,
+            observeCount,
+        )
+    }
+
+    @Test
     fun `closeLinkPicker resets isOpen and query`() = runTest {
         val repository = createRepository(content = "Content")
         val viewModel = NoteEditViewModel(
@@ -610,9 +641,13 @@ private fun createRepository(
     saveResult: Result<Unit> = Result.success(Unit),
     onSave: (String, String) -> Unit = { _, _ -> },
     notes: List<NoteIndexEntry> = emptyList(),
+    onObserveNotes: () -> Unit = {},
 ): INoteRepository =
     object : INoteRepository {
-        override fun observeNotes() = MutableStateFlow(notes)
+        override fun observeNotes(): MutableStateFlow<List<NoteIndexEntry>> {
+            onObserveNotes()
+            return MutableStateFlow(notes)
+        }
         override fun observeIndexingProgress(pass: Int) =
             flowOf(IndexingProgress(completed = 0, total = 0))
         override fun observeIndexingFailures(pass: Int) = flowOf(0)

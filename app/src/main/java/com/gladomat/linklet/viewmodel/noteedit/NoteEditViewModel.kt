@@ -20,7 +20,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -60,14 +59,16 @@ class NoteEditViewModel @Inject constructor(
      * Only subscribes to `repository.observeNotes()` (a live full-table query)
      * while the picker is actually open, instead of for the whole edit session.
      */
+    // flatMapLatest keys ONLY on linkPickerOpen, so the live notes subscription
+    // is torn down/rebuilt on open/close, never on every keystroke. Query
+    // changes react via the inner combine() instead, which just recombines
+    // already-subscribed flows rather than resubscribing to the DB query.
     @OptIn(ExperimentalCoroutinesApi::class)
-    val linkPickerState: StateFlow<LinkPickerUiState> = combine(linkPickerQuery, linkPickerOpen) { query, isOpen ->
-        query to isOpen
-    }.flatMapLatest { (query, isOpen) ->
+    val linkPickerState: StateFlow<LinkPickerUiState> = linkPickerOpen.flatMapLatest { isOpen ->
         if (!isOpen) {
-            flowOf(LinkPickerUiState(isOpen = false, query = query, results = emptyList()))
+            linkPickerQuery.map { query -> LinkPickerUiState(isOpen = false, query = query, results = emptyList()) }
         } else {
-            repository.observeNotes().map { notes ->
+            combine(repository.observeNotes(), linkPickerQuery) { notes, query ->
                 val trimmedQuery = query.trim()
                 val results = notes
                     .filter {
