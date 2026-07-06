@@ -1,3 +1,5 @@
+<img src="docs/images/app-icon.svg" alt="LinkLet icon" width="72" height="72" align="left" />
+
 # LinkLet
 
 [![Android CI](https://github.com/gladomat/LinkLet/actions/workflows/android.yml/badge.svg)](https://github.com/gladomat/LinkLet/actions/workflows/android.yml)
@@ -12,6 +14,8 @@ Nextcloud, Syncthing, or similar.
 
 Most org-roam tooling assumes a desktop and Emacs. LinkLet reads the same vault folder your
 desktop already syncs. Read, edit, and follow `[[links]]` between notes on your phone.
+
+<br clear="left" />
 
 ## Table of Contents
 

@@ -16,6 +16,7 @@ Durable project documentation: QA records, design plans, research, and post-mort
 - `research/` — external research reports.
 - `github_issues.md` — issue-tracker snapshot (may be stale).
 - `templates/` — ready-to-copy user-facing config templates (e.g. `syncignore-default.txt`), referenced from the root `README.md`. `syncignore-default.txt` is also the single source of truth for the in-app `.syncignore` editor's seed content — a Gradle task (`app/build.gradle.kts`) copies it to `app/src/main/assets/syncignore-default.txt` before the asset merge; edit only the `docs/templates/` copy.
+- `images/` — static assets embedded in the root `README.md` (e.g. `app-icon.svg`, hand-derived from `app/src/main/res/drawable/ic_launcher_*.xml` since the app ships a vector adaptive icon, not a flat PNG/SVG export). Keep in sync if the launcher icon changes.
 
 ## Local Contracts
 
