@@ -164,18 +164,28 @@ private fun GraphCanvas(
         }
         counts
     }
-    val neighborPaths = remember(uiState.edges, selectedPath) {
+    // First- and second-order connections of the selected node, so a tap clearly confirms not
+    // just "this node" but "everything it reaches within 2 hops" - both tiers get their own
+    // highlight treatment below, distinct from each other and from the unrelated/dimmed rest.
+    val (firstOrderPaths, secondOrderPaths) = remember(uiState.edges, selectedPath) {
         if (selectedPath == null) {
-            emptySet()
+            emptySet<String>() to emptySet<String>()
         } else {
-            val neighbors = HashSet<String>()
+            val adjacency = HashMap<String, MutableSet<String>>()
             uiState.edges.forEach { edge ->
-                if (edge.source == selectedPath) neighbors += edge.target
-                if (edge.target == selectedPath) neighbors += edge.source
+                adjacency.getOrPut(edge.source) { mutableSetOf() }.add(edge.target)
+                adjacency.getOrPut(edge.target) { mutableSetOf() }.add(edge.source)
             }
-            neighbors
+            val firstOrder = adjacency[selectedPath].orEmpty().toSet()
+            val visited = firstOrder + selectedPath
+            val secondOrder = firstOrder
+                .flatMap { adjacency[it].orEmpty() }
+                .filterNot { it in visited }
+                .toSet()
+            firstOrder to secondOrder
         }
     }
+    val highlightedPaths = firstOrderPaths + secondOrderPaths
 
     // Selecting a search result (Design decision 10) pans/zooms the camera to that node.
     LaunchedEffect(uiState.cameraFocusRequest) {
@@ -202,10 +212,15 @@ private fun GraphCanvas(
     val latestSelectedPath by rememberUpdatedState(selectedPath)
 
     val edgeColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+    val highlightedEdgeColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.8f)
     val nodeColor = MaterialTheme.colorScheme.primary
     val pendingNodeColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
     val dimmedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f)
     val selectedColor = MaterialTheme.colorScheme.secondary
+    // Two distinct tiers so both "directly connected" and "connected-through-a-connection" read
+    // as clearly different from each other, not just both "not dimmed".
+    val firstOrderColor = MaterialTheme.colorScheme.tertiary
+    val secondOrderColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.55f)
     val labelColor = MaterialTheme.colorScheme.onBackground.toArgb()
 
     Canvas(
@@ -251,16 +266,24 @@ private fun GraphCanvas(
     ) {
         // One batched Path / single drawPath call for every edge, not one drawLine per edge
         // (Design decision 14) - Barnes-Hut only bounds the layout engine's cost, not render cost.
+        // Split into two batches (regular vs. highlighted) rather than one drawPath call per
+        // edge, so highlighting a selection still costs exactly two draw calls, not one per edge.
         val edgePath = Path()
+        val highlightEdgePath = Path()
         uiState.edges.forEach { edge ->
             val sourcePos = positions[edge.source] ?: return@forEach
             val targetPos = positions[edge.target] ?: return@forEach
             val start = toScreen(sourcePos, scale, panOffset)
             val end = toScreen(targetPos, scale, panOffset)
-            edgePath.moveTo(start.x, start.y)
-            edgePath.lineTo(end.x, end.y)
+            val edgeIsHighlighted = selectedPath != null &&
+                (edge.source == selectedPath || edge.source in highlightedPaths) &&
+                (edge.target == selectedPath || edge.target in highlightedPaths)
+            val targetPathObj = if (edgeIsHighlighted) highlightEdgePath else edgePath
+            targetPathObj.moveTo(start.x, start.y)
+            targetPathObj.lineTo(end.x, end.y)
         }
         drawPath(edgePath, color = edgeColor, style = Stroke(width = 1.dp.toPx()))
+        drawPath(highlightEdgePath, color = highlightedEdgeColor, style = Stroke(width = 2.dp.toPx()))
 
         val labelLegible = scale > LABEL_LEGIBLE_SCALE_THRESHOLD
         val textPaint = android.graphics.Paint().apply {
@@ -273,19 +296,30 @@ private fun GraphCanvas(
             val graphPos = positions[path] ?: return@forEach
             val screenPos = toScreen(graphPos, scale, panOffset)
             val isSelected = path == selectedPath
-            val isDimmed = selectedPath != null && !isSelected && path !in neighborPaths
+            val isFirstOrder = path in firstOrderPaths
+            val isSecondOrder = path in secondOrderPaths
+            val isDimmed = selectedPath != null && !isSelected && path !in highlightedPaths
             val degree = degreeByPath[path] ?: 0
             val baseRadius = (BASE_NODE_RADIUS_DP + DEGREE_RADIUS_SCALE_DP * ln((degree + 1).toFloat())).dp.toPx()
-            val radius = if (isSelected) baseRadius * SELECTED_HIT_RADIUS_MULTIPLIER else baseRadius
+            val radius = when {
+                isSelected -> baseRadius * SELECTED_HIT_RADIUS_MULTIPLIER
+                isFirstOrder -> baseRadius * FIRST_ORDER_RADIUS_MULTIPLIER
+                else -> baseRadius
+            }
             val color = when {
                 !node.linksReady -> pendingNodeColor // Design decision 11: pending, not a confirmed orphan
                 isSelected -> selectedColor
+                isFirstOrder -> firstOrderColor
+                isSecondOrder -> secondOrderColor
                 isDimmed -> dimmedColor
                 else -> nodeColor
             }
             drawCircle(color = color, radius = radius, center = screenPos)
 
-            if (isSelected || labelLegible) {
+            // First/second-order connections always show their label when a selection is
+            // active, regardless of zoom - the whole point is to let you read which notes are
+            // connected, not just see a colored dot.
+            if (isSelected || isFirstOrder || isSecondOrder || labelLegible) {
                 textPaint.textSize = (if (isSelected) SELECTED_LABEL_SP else LABEL_SP).sp.toPx()
                 textPaint.alpha = if (isDimmed) DIMMED_LABEL_ALPHA else OPAQUE_ALPHA
                 drawContext.canvas.nativeCanvas.drawText(
@@ -396,6 +430,7 @@ private const val MAX_SCALE = 8f
 private const val FOCUS_MIN_SCALE = 1f
 private const val HIT_TEST_RADIUS_PX = 32f
 private const val SELECTED_HIT_RADIUS_MULTIPLIER = 1.8f
+private const val FIRST_ORDER_RADIUS_MULTIPLIER = 1.3f
 private const val LABEL_LEGIBLE_SCALE_THRESHOLD = 0.6f
 private const val BASE_NODE_RADIUS_DP = 6f
 private const val DEGREE_RADIUS_SCALE_DP = 3f
