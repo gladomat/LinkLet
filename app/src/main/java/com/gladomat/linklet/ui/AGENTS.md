@@ -6,7 +6,7 @@ All visual code: `MainActivity` (single activity, NavHost with 9 routes), screen
 
 ## Ownership
 
-- `screens/` — one top-level `@Composable` per file (`NoteListScreen`, `note/NoteViewScreen`, `noteedit/`, `settings/`, `sync/`, `trash/`).
+- `screens/` — one top-level `@Composable` per file (`NoteListScreen`, `note/NoteViewScreen`, `noteedit/`, `settings/`, `sync/`, `trash/`). `noteedit/LinkPickerDialog` is the search-and-insert picker for adding an org-mode link to another note from the edit screen's toolbar.
 - `components/` — org-mode renderers (`OrgBlockRenderers`, `OrgTextFormatter`, inline images via `UriBitmapLoader`), `BacklinkList`.
 - `theme/` — colors, typography, `LinkLetAppTheme`.
 
@@ -17,6 +17,7 @@ All visual code: `MainActivity` (single activity, NavHost with 9 routes), screen
 - Drawer blocks (`OrgBlock.Drawer`) are handled upstream in `NoteViewScreen` (rendered as expandable pills); `OrgBlockView` deliberately no-ops on them. Any new caller that renders blocks directly must handle drawers itself or route through the screen-level handling.
 - The leading PROPERTIES drawer is metadata (parsed into `section.properties`), not content — it must not render as a visible block.
 - Avoid per-recomposition allocations in list items (e.g. `joinToString` without `remember`).
+- Any screen building an org-mode link to another note must call `OrgFileUtils.buildNoteLink()` (data/utils) rather than hand-rolling `[[id:...][label]]` / `[[file:...][label]]` syntax.
 - Screens must receive a pre-parsed `OrgDocument` from the ViewModel (e.g. `NoteViewUiState.Success.document`) rather than calling `parseOrgDocument(note.content)` themselves inside `remember` — parsing is expensive and must happen once, off the main thread, and be shared across every consumer of the same note.
 
 ## Verification

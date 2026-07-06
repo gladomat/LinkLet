@@ -424,4 +424,38 @@ class OrgFileUtilsTests {
         val extractedTitle = OrgFileUtils.extractTitle(withId)
         assertEquals("Original Title", extractedTitle)
     }
+
+    // ================================
+    // buildNoteLink Tests
+    // ================================
+
+    @Test
+    fun `buildNoteLink prefers id link when orgId present`() {
+        val link = OrgFileUtils.buildNoteLink(title = "Project Plan", orgId = "ABC-123", path = "notes/project.org")
+        assertEquals("[[id:ABC-123][Project Plan]]", link)
+    }
+
+    @Test
+    fun `buildNoteLink falls back to file link when orgId is null`() {
+        val link = OrgFileUtils.buildNoteLink(title = "Project Plan", orgId = null, path = "notes/project.org")
+        assertEquals("[[file:notes/project.org][Project Plan]]", link)
+    }
+
+    @Test
+    fun `buildNoteLink falls back to file link when orgId is blank`() {
+        val link = OrgFileUtils.buildNoteLink(title = "Project Plan", orgId = "   ", path = "notes/project.org")
+        assertEquals("[[file:notes/project.org][Project Plan]]", link)
+    }
+
+    @Test
+    fun `buildNoteLink omits label when title contains brackets`() {
+        val link = OrgFileUtils.buildNoteLink(title = "Weird [Title]", orgId = "ABC-123", path = "notes/project.org")
+        assertEquals("[[id:ABC-123]]", link)
+    }
+
+    @Test
+    fun `buildNoteLink omits label for file link when title contains brackets`() {
+        val link = OrgFileUtils.buildNoteLink(title = "Weird [Title]", orgId = null, path = "notes/project.org")
+        assertEquals("[[file:notes/project.org]]", link)
+    }
 }

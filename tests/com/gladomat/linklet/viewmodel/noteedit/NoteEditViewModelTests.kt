@@ -431,6 +431,166 @@ class NoteEditViewModelTests {
     }
 
     // ================================
+    // Link Picker Tests
+    // ================================
+
+    @Test
+    fun `openLinkPicker sets isOpen true`() = runTest {
+        val repository = createRepository(content = "Content")
+        val viewModel = NoteEditViewModel(
+            repository = repository,
+            savedStateHandle = SavedStateHandle(mapOf(NoteEditViewModel.NoteArgs.NOTE_PATH to "path.org")),
+        )
+
+        advanceUntilIdle()
+        viewModel.openLinkPicker()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.linkPickerState.value.isOpen)
+    }
+
+    @Test
+    fun `closeLinkPicker resets isOpen and query`() = runTest {
+        val repository = createRepository(content = "Content")
+        val viewModel = NoteEditViewModel(
+            repository = repository,
+            savedStateHandle = SavedStateHandle(mapOf(NoteEditViewModel.NoteArgs.NOTE_PATH to "path.org")),
+        )
+
+        advanceUntilIdle()
+        viewModel.openLinkPicker()
+        viewModel.updateLinkPickerQuery("something")
+        advanceUntilIdle()
+        assertTrue("picker should be open before closing", viewModel.linkPickerState.value.isOpen)
+
+        viewModel.closeLinkPicker()
+        advanceUntilIdle()
+
+        val state = viewModel.linkPickerState.value
+        assertFalse(state.isOpen)
+        assertEquals("", state.query)
+    }
+
+    @Test
+    fun `linkPickerState filters results by title query`() = runTest {
+        val notes = listOf(
+            NoteIndexEntry(id = NoteId("notes/alpha.org"), title = "Alpha Project", fileTags = emptyList(), deletedAt = null, linksReady = true),
+            NoteIndexEntry(id = NoteId("notes/beta.org"), title = "Beta Notes", fileTags = emptyList(), deletedAt = null, linksReady = true),
+        )
+        val repository = createRepository(content = "Content", notes = notes)
+        val viewModel = NoteEditViewModel(
+            repository = repository,
+            savedStateHandle = SavedStateHandle(mapOf(NoteEditViewModel.NoteArgs.NOTE_PATH to "path.org")),
+        )
+
+        advanceUntilIdle()
+        viewModel.openLinkPicker()
+        viewModel.updateLinkPickerQuery("alpha")
+        advanceUntilIdle()
+
+        val results = viewModel.linkPickerState.value.results
+        assertEquals(1, results.size)
+        assertEquals("Alpha Project", results[0].title)
+    }
+
+    @Test
+    fun `linkPickerState excludes soft-deleted notes`() = runTest {
+        val notes = listOf(
+            NoteIndexEntry(id = NoteId("notes/alpha.org"), title = "Alpha", fileTags = emptyList(), deletedAt = 123L, linksReady = true),
+        )
+        val repository = createRepository(content = "Content", notes = notes)
+        val viewModel = NoteEditViewModel(
+            repository = repository,
+            savedStateHandle = SavedStateHandle(mapOf(NoteEditViewModel.NoteArgs.NOTE_PATH to "path.org")),
+        )
+
+        advanceUntilIdle()
+        viewModel.openLinkPicker()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.linkPickerState.value.results.isEmpty())
+    }
+
+    @Test
+    fun `linkPickerState excludes the note currently being edited`() = runTest {
+        val notes = listOf(
+            NoteIndexEntry(id = NoteId("path.org"), title = "This Note", fileTags = emptyList(), deletedAt = null, linksReady = true),
+            NoteIndexEntry(id = NoteId("notes/other.org"), title = "Other Note", fileTags = emptyList(), deletedAt = null, linksReady = true),
+        )
+        val repository = createRepository(content = "Content", notes = notes)
+        val viewModel = NoteEditViewModel(
+            repository = repository,
+            savedStateHandle = SavedStateHandle(mapOf(NoteEditViewModel.NoteArgs.NOTE_PATH to "path.org")),
+        )
+
+        advanceUntilIdle()
+        viewModel.openLinkPicker()
+        advanceUntilIdle()
+
+        val results = viewModel.linkPickerState.value.results
+        assertEquals(1, results.size)
+        assertEquals("Other Note", results[0].title)
+    }
+
+    @Test
+    fun `insertLink inserts id link at cursor when orgId present`() = runTest {
+        val repository = createRepository(content = "before after")
+        val viewModel = NoteEditViewModel(
+            repository = repository,
+            savedStateHandle = SavedStateHandle(mapOf(NoteEditViewModel.NoteArgs.NOTE_PATH to "path.org")),
+        )
+
+        advanceUntilIdle()
+        val editing = viewModel.state.value as NoteEditUiState.Editing
+        viewModel.updateContent(editing.value.copy(selection = TextRange(6)))
+
+        viewModel.insertLink(
+            NoteIndexEntry(id = NoteId("notes/other.org"), title = "Other Note", fileTags = emptyList(), deletedAt = null, linksReady = true, orgId = "ORG-1"),
+        )
+
+        val result = (viewModel.state.value as NoteEditUiState.Editing).value.text
+        assertEquals("before[[id:ORG-1][Other Note]] after", result)
+    }
+
+    @Test
+    fun `insertLink inserts file link when orgId absent`() = runTest {
+        val repository = createRepository(content = "")
+        val viewModel = NoteEditViewModel(
+            repository = repository,
+            savedStateHandle = SavedStateHandle(mapOf(NoteEditViewModel.NoteArgs.NOTE_PATH to "path.org")),
+        )
+
+        advanceUntilIdle()
+        viewModel.insertLink(
+            NoteIndexEntry(id = NoteId("notes/other.org"), title = "Other Note", fileTags = emptyList(), deletedAt = null, linksReady = true),
+        )
+
+        val result = (viewModel.state.value as NoteEditUiState.Editing).value.text
+        assertEquals("[[file:notes/other.org][Other Note]]", result)
+    }
+
+    @Test
+    fun `insertLink closes the picker`() = runTest {
+        val repository = createRepository(content = "")
+        val viewModel = NoteEditViewModel(
+            repository = repository,
+            savedStateHandle = SavedStateHandle(mapOf(NoteEditViewModel.NoteArgs.NOTE_PATH to "path.org")),
+        )
+
+        advanceUntilIdle()
+        viewModel.openLinkPicker()
+        advanceUntilIdle()
+        assertTrue("picker should be open before inserting", viewModel.linkPickerState.value.isOpen)
+
+        viewModel.insertLink(
+            NoteIndexEntry(id = NoteId("notes/other.org"), title = "Other Note", fileTags = emptyList(), deletedAt = null, linksReady = true),
+        )
+        advanceUntilIdle()
+
+        assertFalse(viewModel.linkPickerState.value.isOpen)
+    }
+
+    // ================================
     // Helpers
     // ================================
 
@@ -449,9 +609,10 @@ private fun createRepository(
     content: String,
     saveResult: Result<Unit> = Result.success(Unit),
     onSave: (String, String) -> Unit = { _, _ -> },
+    notes: List<NoteIndexEntry> = emptyList(),
 ): INoteRepository =
     object : INoteRepository {
-        override fun observeNotes() = MutableStateFlow(emptyList<NoteIndexEntry>())
+        override fun observeNotes() = MutableStateFlow(notes)
         override fun observeIndexingProgress(pass: Int) =
             flowOf(IndexingProgress(completed = 0, total = 0))
         override fun observeIndexingFailures(pass: Int) = flowOf(0)

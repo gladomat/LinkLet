@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.Undo
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -87,6 +88,7 @@ fun NoteEditRoute(
     viewModel: NoteEditViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val linkPickerState by viewModel.linkPickerState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var showUnsavedChangesDialog by remember { mutableStateOf(false) }
 
@@ -150,8 +152,19 @@ fun NoteEditRoute(
             onIncreaseIndentation = viewModel::increaseIndentation,
             onDecreaseIndentation = viewModel::decreaseIndentation,
             onUndo = viewModel::undo,
+            onOpenLinkPicker = viewModel::openLinkPicker,
             snackbarHostState = snackbarHostState,
         )
+
+        if (linkPickerState.isOpen) {
+            LinkPickerDialog(
+                query = linkPickerState.query,
+                results = linkPickerState.results,
+                onQueryChange = viewModel::updateLinkPickerQuery,
+                onSelect = viewModel::insertLink,
+                onDismiss = viewModel::closeLinkPicker,
+            )
+        }
 
         // Only show dialog if we're in Editing state (not Saved, Loading, or Error)
         if (showUnsavedChangesDialog && state is NoteEditUiState.Editing) {
@@ -188,6 +201,7 @@ fun NoteEditScreen(
     onIncreaseIndentation: () -> Unit,
     onDecreaseIndentation: () -> Unit,
     onUndo: () -> Unit,
+    onOpenLinkPicker: () -> Unit,
     snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier,
 ) {
@@ -229,6 +243,7 @@ fun NoteEditScreen(
                         onApplyOrderedList = onApplyOrderedList,
                         onIncreaseIndentation = onIncreaseIndentation,
                         onDecreaseIndentation = onDecreaseIndentation,
+                        onOpenLinkPicker = onOpenLinkPicker,
                         modifier = Modifier
                             .padding(horizontal = 4.dp, vertical = 2.dp),
                     )
@@ -345,6 +360,7 @@ private fun FormattingToolbar(
     onApplyOrderedList: () -> Unit,
     onIncreaseIndentation: () -> Unit,
     onDecreaseIndentation: () -> Unit,
+    onOpenLinkPicker: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val toolbarScroll = rememberScrollState()
@@ -403,6 +419,13 @@ private fun FormattingToolbar(
             contentDescription = "Source block",
             tint = iconTint,
             onClick = onApplySrc,
+        )
+        ToolbarDivider()
+        ToolbarIconButton(
+            icon = Icons.Filled.Link,
+            contentDescription = "Add link",
+            tint = iconTint,
+            onClick = onOpenLinkPicker,
         )
     }
 }
@@ -569,6 +592,7 @@ private fun NoteEditScreenPreview() {
             onIncreaseIndentation = {},
             onDecreaseIndentation = {},
             onUndo = {},
+            onOpenLinkPicker = {},
             snackbarHostState = SnackbarHostState(),
         )
     }

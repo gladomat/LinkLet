@@ -70,6 +70,7 @@ import com.gladomat.linklet.data.model.NoteLink
 import com.gladomat.linklet.data.parser.org.OrgBlock
 import com.gladomat.linklet.data.parser.org.OrgDocument
 import com.gladomat.linklet.data.parser.org.OrgSection
+import com.gladomat.linklet.data.utils.OrgFileUtils
 import com.gladomat.linklet.domain.repository.LinkEntityDto
 import com.gladomat.linklet.domain.service.MatchRange
 import com.gladomat.linklet.domain.service.SearchOptions
@@ -215,12 +216,7 @@ fun NoteViewRoute(
             val note = (state as? NoteViewUiState.Success)?.note
             val orgId = note?.orgId?.takeUnless { it.isBlank() }
             if (note != null && orgId != null) {
-                val label = note.title.takeUnless { it.contains('[') || it.contains(']') }
-                val link = if (label != null) {
-                    "[[id:$orgId][$label]]"
-                } else {
-                    "[[id:$orgId]]"
-                }
+                val link = OrgFileUtils.buildNoteLink(title = note.title, orgId = orgId, path = note.id.path)
                 val clip = android.content.ClipData.newPlainText("ID Link", link)
                 clipboardManager.setPrimaryClip(clip)
                 android.widget.Toast.makeText(context, "Copied ID link", android.widget.Toast.LENGTH_SHORT).show()
@@ -232,12 +228,8 @@ fun NoteViewRoute(
             val note = (state as? NoteViewUiState.Success)?.note
             val relativePath = note?.id?.path?.takeUnless { it.isBlank() }
             if (note != null && relativePath != null) {
-                val label = note.title.takeUnless { it.contains('[') || it.contains(']') }
-                val link = if (label != null) {
-                    "[[file:$relativePath][$label]]"
-                } else {
-                    "[[file:$relativePath]]"
-                }
+                // orgId = null forces a file: link even if the note also has a stable id.
+                val link = OrgFileUtils.buildNoteLink(title = note.title, orgId = null, path = relativePath)
                 val clip = android.content.ClipData.newPlainText("File Link", link)
                 clipboardManager.setPrimaryClip(clip)
                 android.widget.Toast.makeText(context, "Copied file link", android.widget.Toast.LENGTH_SHORT).show()

@@ -9,4 +9,5 @@ data class NoteIndexEntry(
     val fileTags: List<String>,
     val deletedAt: Long?,
     val linksReady: Boolean,
+    val orgId: String? = null,
 )

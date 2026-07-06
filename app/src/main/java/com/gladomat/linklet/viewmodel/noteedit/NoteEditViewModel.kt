@@ -6,15 +6,23 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.gladomat.linklet.data.model.NoteIndexEntry
 import com.gladomat.linklet.data.utils.OrgFileUtils
 import com.gladomat.linklet.domain.repository.INoteRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.LocalDateTime
 import javax.inject.Inject
 import kotlin.collections.ArrayDeque
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 @HiltViewModel
@@ -43,6 +51,36 @@ class NoteEditViewModel @Inject constructor(
 
     // Track the initial content to detect changes
     private var initialContent: String = ""
+
+    private val linkPickerQuery = MutableStateFlow("")
+    private val linkPickerOpen = MutableStateFlow(false)
+
+    /**
+     * Searchable list of other notes to link to, filtered by [linkPickerQuery].
+     * Only subscribes to `repository.observeNotes()` (a live full-table query)
+     * while the picker is actually open, instead of for the whole edit session.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val linkPickerState: StateFlow<LinkPickerUiState> = combine(linkPickerQuery, linkPickerOpen) { query, isOpen ->
+        query to isOpen
+    }.flatMapLatest { (query, isOpen) ->
+        if (!isOpen) {
+            flowOf(LinkPickerUiState(isOpen = false, query = query, results = emptyList()))
+        } else {
+            repository.observeNotes().map { notes ->
+                val trimmedQuery = query.trim()
+                val results = notes
+                    .filter {
+                        it.deletedAt == null &&
+                            it.id.path != actualPath &&
+                            (trimmedQuery.isEmpty() || it.title.contains(trimmedQuery, ignoreCase = true))
+                    }
+                    .sortedBy { it.title.lowercase() }
+                    .take(LINK_PICKER_RESULT_LIMIT)
+                LinkPickerUiState(isOpen = true, query = query, results = results)
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, LinkPickerUiState())
 
     init {
         loadNote()
@@ -239,6 +277,25 @@ class NoteEditViewModel @Inject constructor(
         insertSnippet("\n1. ")
     }
 
+    fun openLinkPicker() {
+        linkPickerOpen.value = true
+    }
+
+    fun closeLinkPicker() {
+        linkPickerOpen.value = false
+        linkPickerQuery.value = ""
+    }
+
+    fun updateLinkPickerQuery(query: String) {
+        linkPickerQuery.value = query
+    }
+
+    /** Inserts an org-mode link to [entry] at the cursor and closes the picker. */
+    fun insertLink(entry: NoteIndexEntry) {
+        insertSnippet(OrgFileUtils.buildNoteLink(title = entry.title, orgId = entry.orgId, path = entry.id.path))
+        closeLinkPicker()
+    }
+
     fun increaseIndentation() {
         modifySelectedLines { line ->
             if (line.isBlank()) line else "    $line"
@@ -343,5 +400,13 @@ class NoteEditViewModel @Inject constructor(
         // Minimal template - drawer will be added on first save with generated ID
         private const val NEW_NOTE_TEMPLATE = "#+title: \n\n"
         private const val NEW_NOTE_DISPLAY_NAME = "New note"
+        private const val LINK_PICKER_RESULT_LIMIT = 50
     }
 }
+
+/** UI state for the "Add link" note search picker. */
+data class LinkPickerUiState(
+    val isOpen: Boolean = false,
+    val query: String = "",
+    val results: List<NoteIndexEntry> = emptyList(),
+)

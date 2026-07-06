@@ -203,4 +203,16 @@ object OrgFileUtils {
             truncateForUi(title)
         }
     }
+
+    /**
+     * Builds an org-mode link to another note, preferring a stable `id:` link
+     * (survives renames) and falling back to a `file:` link when no org id
+     * exists yet. The title is used as the visible label unless it contains
+     * `[` or `]`, which would break the link's bracket syntax.
+     */
+    fun buildNoteLink(title: String, orgId: String?, path: String): String {
+        val label = title.takeUnless { it.isBlank() || it.contains('[') || it.contains(']') }
+        val target = orgId?.takeUnless { it.isBlank() }?.let { "id:$it" } ?: "file:$path"
+        return if (label != null) "[[$target][$label]]" else "[[$target]]"
+    }
 }

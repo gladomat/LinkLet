@@ -455,6 +455,7 @@ class NoteRepositoryImpl(
             fileTags = fileTags,
             deletedAt = deletedAt,
             linksReady = linksReady,
+            orgId = orgId,
         )
 
     override suspend fun getAllTags(): Result<List<String>> = withContext(ioDispatcher) {
