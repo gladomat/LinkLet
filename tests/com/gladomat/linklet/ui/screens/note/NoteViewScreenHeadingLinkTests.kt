@@ -1,9 +1,11 @@
 package com.gladomat.linklet.ui.screens.note
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import com.gladomat.linklet.data.model.LinkTarget
 import com.gladomat.linklet.data.model.Note
 import com.gladomat.linklet.data.model.NoteId
@@ -90,8 +92,19 @@ class NoteViewScreenHeadingLinkTests {
             }
         }
 
-        composeRule.onNodeWithText("Heading with alias link", substring = false).assertExists()
-        composeRule.onNodeWithText("Heading with alias link").performClick()
+        val headingNode = composeRule.onNodeWithText("Heading with alias link", substring = false)
+        headingNode.assertExists()
+
+        // ClickableText has no clickable-semantics action - it resolves taps to a character
+        // offset via detectTapGestures, so a plain performClick() (which falls back to tapping
+        // the node's geometric center) lands wherever the *middle of the whole heading string*
+        // happens to be, not necessarily inside the "alias" annotation. In "Heading with alias
+        // link", "alias" sits at roughly 57-78% of the string, past the midpoint - tap there
+        // explicitly instead of relying on the center to coincide with it.
+        val size = headingNode.fetchSemanticsNode().size
+        headingNode.performTouchInput {
+            click(Offset(x = size.width * 0.65f, y = size.height / 2f))
+        }
         composeRule.waitForIdle()
 
         assertEquals("notes/target-note.org", openedLink)
