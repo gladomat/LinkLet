@@ -3,6 +3,8 @@ package com.gladomat.linklet.domain.repository
 import android.util.Log
 import android.os.SystemClock
 import com.gladomat.linklet.BuildConfig
+import com.gladomat.linklet.data.index.GraphPositionDao
+import com.gladomat.linklet.data.index.GraphPositionEntity
 import com.gladomat.linklet.data.index.IndexQueueDao
 import com.gladomat.linklet.data.index.IndexQueueEntity
 import com.gladomat.linklet.data.index.IndexQueueStatus
@@ -28,10 +30,12 @@ import com.gladomat.linklet.domain.repository.LinkEntityDto
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
@@ -47,6 +51,7 @@ class NoteRepositoryImpl(
     private val storage: IStorage,
     private val parser: IParser,
     private val noteDao: NoteDao,
+    private val graphPositionDao: GraphPositionDao,
     private val indexQueueDao: IndexQueueDao,
     private val syncScheduler: SyncScheduler,
     private val indexingScheduler: IndexingScheduler,
@@ -179,6 +184,89 @@ class NoteRepositoryImpl(
         }
     }
 
+    // Bulk sync (data/sync/AGENTS.md) can enqueue many index rows in a burst; without this,
+    // GraphSnapshot would recombine and re-feed the layout engine once per write during a big
+    // sync instead of once for the whole burst (docs/plans/2026-07-06-note-graph-view.md).
+    @OptIn(FlowPreview::class)
+    override fun observeGraph(center: NoteId?, hopDepth: Int): Flow<GraphSnapshot> =
+        combine(
+            noteDao.observeActiveNotes(),
+            noteDao.observeAllLinks(),
+            graphPositionDao.observeAll(),
+        ) { noteEntities, linkEntities, positionEntities -> Triple(noteEntities, linkEntities, positionEntities) }
+            .debounce(GRAPH_SNAPSHOT_DEBOUNCE_MILLIS)
+            .map { (noteEntities, linkEntities, positionEntities) ->
+                val titleByPath = noteEntities.associate { it.path to it.title }
+                val allNodes = noteEntities.map { it.toIndexEntry() }
+                val allEdges = linkEntities.map { link ->
+                    LinkEntityDto(
+                        source = link.source,
+                        target = link.target,
+                        alias = link.alias,
+                        sourceTitle = titleByPath[link.source],
+                    )
+                }
+                val allPositions = positionEntities.associate { it.path to GraphPoint(it.x, it.y) }
+
+                val (nodes, edges) = if (center != null) {
+                    filterToNeighborhood(allNodes, allEdges, center.path, hopDepth)
+                } else {
+                    allNodes to allEdges
+                }
+                val nodePaths = nodes.mapTo(HashSet(nodes.size)) { it.id.path }
+                GraphSnapshot(
+                    nodes = nodes,
+                    edges = edges,
+                    cachedPositions = allPositions.filterKeys { it in nodePaths },
+                )
+            }
+
+    override suspend fun saveGraphPositions(positions: Map<String, GraphPoint>): Result<Unit> =
+        withContext(ioDispatcher) {
+            runCatching {
+                val now = System.currentTimeMillis()
+                graphPositionDao.upsertAll(
+                    positions.map { (path, point) ->
+                        GraphPositionEntity(path = path, x = point.x, y = point.y, updatedAtEpochMillis = now)
+                    },
+                )
+            }
+        }
+
+    /**
+     * BFS from [centerPath] up to [hopDepth], traversing edges in both directions (a graph edge
+     * means "these two notes are connected", not "you may only walk it one way") - deliberately
+     * a different notion of "connected" than [getBacklinks]'s incoming-only join. See Design
+     * decision 13 in docs/plans/2026-07-06-note-graph-view.md.
+     */
+    private fun filterToNeighborhood(
+        nodes: List<NoteIndexEntry>,
+        edges: List<LinkEntityDto>,
+        centerPath: String,
+        hopDepth: Int,
+    ): Pair<List<NoteIndexEntry>, List<LinkEntityDto>> {
+        if (nodes.none { it.id.path == centerPath }) return emptyList<NoteIndexEntry>() to emptyList()
+
+        val adjacency = HashMap<String, MutableSet<String>>()
+        edges.forEach { edge ->
+            adjacency.getOrPut(edge.source) { mutableSetOf() }.add(edge.target)
+            adjacency.getOrPut(edge.target) { mutableSetOf() }.add(edge.source)
+        }
+
+        val visited = mutableSetOf(centerPath)
+        var frontier: Set<String> = setOf(centerPath)
+        for (hop in 1..hopDepth) {
+            val next = frontier.flatMap { adjacency[it].orEmpty() }.filterNot { it in visited }.toSet()
+            if (next.isEmpty()) break
+            visited += next
+            frontier = next
+        }
+
+        val filteredNodes = nodes.filter { it.id.path in visited }
+        val filteredEdges = edges.filter { it.source in visited && it.target in visited }
+        return filteredNodes to filteredEdges
+    }
+
     override suspend fun resolveStorageUri(path: String) = storage.resolveUri(path)
 
     override suspend fun saveNote(path: String, content: String): Result<Unit> = withContext(ioDispatcher) {
@@ -284,6 +372,11 @@ class NoteRepositoryImpl(
             if (isTrashPath(path)) {
                 deleteTrashInfoIfPresent(path)
             }
+            // Best-effort cache cleanup: the file is already gone, so a failure here must not
+            // turn an already-successful delete into a reported failure (a caller could retry
+            // and hit a confusing "file not found" on the now-nonexistent path).
+            runCatching { graphPositionDao.delete(path) }
+                .onFailure { error -> Log.w(TAG, "deleteNotePermanent() - Failed to clean up cached graph position for $path: ${error.message}", error) }
             indexingScheduler.schedulePass1()
             syncScheduler.scheduleImmediate()
         }
@@ -358,6 +451,12 @@ class NoteRepositoryImpl(
             validateFilename(newPath.substringAfterLast('/'))
             storage.renameNote(oldPath, newPath).getOrThrow()
             noteDao.renameNotePath(oldPath, newPath)
+            // Best-effort cache follow: the rename itself is already committed (source of
+            // truth: noteDao). A failure here just orphans one cached layout position - it
+            // self-heals (the node re-seeds fresh next graph open) - so it must not report the
+            // whole rename as failed.
+            runCatching { graphPositionDao.renamePath(oldPath, newPath) }
+                .onFailure { error -> Log.w(TAG, "renameNote() - Failed to follow rename in graph position cache: ${error.message}", error) }
 
             val content = storage.readNote(newPath).getOrThrow()
             val parsed = parser.parse(content = content, path = newPath)
@@ -626,6 +725,9 @@ class NoteRepositoryImpl(
         private const val LEGACY_TRASH_DIR = "_trash"
         // Stays comfortably under SQLite's ~999 bound-parameter limit per statement.
         private const val SQL_IN_CLAUSE_CHUNK_SIZE = 900
+        // Collapses a burst of sync/index writes into one GraphSnapshot recombine instead of
+        // re-feeding the layout engine once per write (docs/plans/2026-07-06-note-graph-view.md).
+        private const val GRAPH_SNAPSHOT_DEBOUNCE_MILLIS = 300L
     }
 
     private suspend fun scanNotes(scope: IndexScope, shouldResolveLinks: Boolean): List<Note> {

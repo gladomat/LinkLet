@@ -67,6 +67,7 @@ class NoteViewScreenHeadingLinkTests {
                     onShare = {},
                     onFavorite = {},
                     onCreateNote = {},
+                    onOpenGraph = {},
                     onRetry = {},
                     onDownload = {},
                     onDelete = {},

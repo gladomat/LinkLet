@@ -103,6 +103,20 @@ interface NoteDao {
         """,
     )
     suspend fun getBacklinks(path: String): List<LinkWithSourceTitle>
+
+    // Graph view (docs/plans/2026-07-06-note-graph-view.md): all edges between two currently
+    // active notes. The inner joins do double duty as the "unresolved/dangling link" filter -
+    // a link whose source or target note doesn't exist (never indexed) or is soft-deleted is
+    // dropped here, never reaching the graph as an edge to a phantom node.
+    @Query(
+        """
+        SELECT links.* FROM links
+        INNER JOIN notes AS sourceNote ON sourceNote.path = links.source
+        INNER JOIN notes AS targetNote ON targetNote.path = links.target
+        WHERE sourceNote.deletedAt IS NULL AND targetNote.deletedAt IS NULL
+        """,
+    )
+    fun observeAllLinks(): Flow<List<LinkEntity>>
 }
 
 data class LinkWithSourceTitle(

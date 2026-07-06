@@ -4,6 +4,7 @@ import android.net.Uri
 import com.gladomat.linklet.data.index.NoteAvailability
 import com.gladomat.linklet.data.model.IndexingProgress
 import com.gladomat.linklet.data.model.Note
+import com.gladomat.linklet.data.model.NoteId
 import com.gladomat.linklet.data.model.NoteIndexEntry
 import kotlinx.coroutines.flow.Flow
 
@@ -70,6 +71,21 @@ interface INoteRepository {
 
     /** Resolves a storage-relative path (note or attachment) to a readable [Uri]. */
     suspend fun resolveStorageUri(path: String): Result<Uri>
+
+    /**
+     * Observes the note graph (see docs/plans/2026-07-06-note-graph-view.md): every active note
+     * as a node, every link between two active notes as an edge, plus any cached layout
+     * positions from a previous session.
+     *
+     * When [center] is null, this is the whole-vault (global) graph. When [center] is set, the
+     * result is filtered to the [hopDepth]-hop neighborhood of that note, traversed in **both**
+     * link directions - this is deliberately not the same filter as [getBacklinks], which is
+     * incoming-links-only; the graph shows everything a note connects to, in either direction.
+     */
+    fun observeGraph(center: NoteId? = null, hopDepth: Int = 2): Flow<GraphSnapshot>
+
+    /** Persists the graph view's settled node positions so the next open doesn't re-seed from scratch. */
+    suspend fun saveGraphPositions(positions: Map<String, GraphPoint>): Result<Unit>
 }
 
 data class LinkEntityDto(
@@ -77,4 +93,16 @@ data class LinkEntityDto(
     val target: String,
     val alias: String?,
     val sourceTitle: String?,
+)
+
+/** A plain 2D point - deliberately not androidx.compose.ui.geometry.Offset, so the graph data
+ * layer and layout engine stay pure-Kotlin/pure-JVM-testable, matching this app's pure-JVM
+ * unit test tier (see data/graph/AGENTS.md / ForceLayoutEngine). Converted to Offset only at
+ * the Composable boundary. */
+data class GraphPoint(val x: Float, val y: Float)
+
+data class GraphSnapshot(
+    val nodes: List<NoteIndexEntry>,
+    val edges: List<LinkEntityDto>,
+    val cachedPositions: Map<String, GraphPoint>,
 )

@@ -91,6 +91,7 @@ fun NoteListRoute(
     onOpenTrash: () -> Unit,
     onCreateNote: () -> Unit,
     onOpenSyncStatus: () -> Unit,
+    onOpenGraph: () -> Unit,
     viewModel: NoteListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -126,6 +127,7 @@ fun NoteListRoute(
         onCreateNote = onCreateNote,
         onClearSnackbar = viewModel::clearSnackbar,
         onOpenSyncStatus = onOpenSyncStatus,
+        onOpenGraph = onOpenGraph,
     )
 }
 
@@ -154,6 +156,7 @@ fun NoteListScreen(
     onCreateNote: () -> Unit,
     onClearSnackbar: () -> Unit,
     onOpenSyncStatus: () -> Unit,
+    onOpenGraph: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val moreMenuExpanded = remember { androidx.compose.runtime.mutableStateOf(false) }
@@ -261,6 +264,13 @@ fun NoteListScreen(
                                 onClick = {
                                     moreMenuExpanded.value = false
                                     onOpenTrash()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Note Graph") },
+                                onClick = {
+                                    moreMenuExpanded.value = false
+                                    onOpenGraph()
                                 },
                             )
                         }
@@ -780,6 +790,7 @@ private fun NoteListLoadingPreview() {
                 onCreateNote = {},
                 onClearSnackbar = {},
                 onOpenSyncStatus = {},
+                onOpenGraph = {},
             )
         }
     }
@@ -832,6 +843,7 @@ private fun NoteListSuccessPreview() {
                 onCreateNote = {},
                 onClearSnackbar = {},
                 onOpenSyncStatus = {},
+                onOpenGraph = {},
             )
         }
     }
@@ -884,6 +896,7 @@ private fun NoteListSuccessWithConflictsPreview() {
                 onCreateNote = {},
                 onClearSnackbar = {},
                 onOpenSyncStatus = {},
+                onOpenGraph = {},
             )
         }
     }
@@ -916,6 +929,7 @@ private fun NoteListErrorPreview() {
                 onCreateNote = {},
                 onClearSnackbar = {},
                 onOpenSyncStatus = {},
+                onOpenGraph = {},
             )
         }
     }
@@ -948,6 +962,7 @@ private fun NoteListEmptyPreview() {
                 onCreateNote = {},
                 onClearSnackbar = {},
                 onOpenSyncStatus = {},
+                onOpenGraph = {},
             )
         }
     }

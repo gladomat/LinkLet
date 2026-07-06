@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Share
@@ -32,7 +33,7 @@ import com.gladomat.linklet.ui.theme.LinkLetAppTheme
 
 /**
  * Bottom navigation bar for the note view screen.
- * Contains Share, Favorite, Backlinks, and More actions.
+ * Contains Share, Favorite, Backlinks, Graph, and More actions.
  */
 @Composable
 fun NoteFooterBar(
@@ -41,6 +42,7 @@ fun NoteFooterBar(
     onShare: () -> Unit,
     onFavorite: () -> Unit,
     onBacklinks: () -> Unit,
+    onGraph: () -> Unit,
     onMore: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -106,6 +108,22 @@ fun NoteFooterBar(
         )
         NavigationBarItem(
             selected = false,
+            onClick = onGraph,
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Hub,
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
+                )
+            },
+            label = { Text("Graph") },
+            colors = NavigationBarItemDefaults.colors(
+                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            ),
+        )
+        NavigationBarItem(
+            selected = false,
             onClick = onMore,
             icon = {
                 Icon(
@@ -134,6 +152,7 @@ private fun NoteFooterBarPreview() {
                 onShare = {},
                 onFavorite = {},
                 onBacklinks = {},
+                onGraph = {},
                 onMore = {},
             )
         }
@@ -151,6 +170,7 @@ private fun NoteFooterBarDisabledBacklinksPreview() {
                 onShare = {},
                 onFavorite = {},
                 onBacklinks = {},
+                onGraph = {},
                 onMore = {},
             )
         }

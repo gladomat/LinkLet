@@ -137,5 +137,12 @@ class NoteViewSearchTests {
         override suspend fun updateNoteTags(path: String, tags: List<String>): Result<Unit> = Result.success(Unit)
         override suspend fun resolveStorageUri(path: String): Result<android.net.Uri> =
             Result.failure(UnsupportedOperationException("Not used in these tests"))
+        override fun observeGraph(
+            center: NoteId?,
+            hopDepth: Int,
+        ) = flowOf(com.gladomat.linklet.domain.repository.GraphSnapshot(emptyList(), emptyList(), emptyMap()))
+        override suspend fun saveGraphPositions(
+            positions: Map<String, com.gladomat.linklet.domain.repository.GraphPoint>,
+        ): Result<Unit> = Result.success(Unit)
     }
 }

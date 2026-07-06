@@ -68,6 +68,7 @@ class NoteViewScreenImageTests {
                     onShare = {},
                     onFavorite = {},
                     onCreateNote = {},
+                    onOpenGraph = {},
                     onRetry = {},
                     onDownload = {},
                     onDelete = {},

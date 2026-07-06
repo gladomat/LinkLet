@@ -2,6 +2,7 @@ package com.gladomat.linklet.app.di
 
 import android.content.Context
 import androidx.room.Room
+import com.gladomat.linklet.data.index.GraphPositionDao
 import com.gladomat.linklet.data.index.IndexQueueDao
 import com.gladomat.linklet.data.index.IndexingScheduler
 import com.gladomat.linklet.data.index.IndexingStateDao
@@ -63,6 +64,7 @@ object AppModule {
         storage,
         parser,
         database.noteDao(),
+        database.graphPositionDao(),
         indexQueueDao,
         syncScheduler,
         indexingScheduler,
@@ -76,6 +78,11 @@ object AppModule {
     fun provideNoteDao(
         database: NoteDatabase,
     ): NoteDao = database.noteDao()
+
+    @Provides
+    fun provideGraphPositionDao(
+        database: NoteDatabase,
+    ): GraphPositionDao = database.graphPositionDao()
 
     @Provides
     fun provideIndexQueueDao(
@@ -125,6 +132,7 @@ object AppModule {
         .addMigrations(NoteDatabase.MIGRATION_6_7)
         .addMigrations(NoteDatabase.MIGRATION_7_8)
         .addMigrations(NoteDatabase.MIGRATION_8_9)
+        .addMigrations(NoteDatabase.MIGRATION_9_10)
         .fallbackToDestructiveMigration()
         .build()
 }

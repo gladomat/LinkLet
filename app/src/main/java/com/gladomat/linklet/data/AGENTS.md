@@ -11,6 +11,7 @@ Everything below `data/` turns org files in the user's vault into queryable app 
 - `parser/` — org-mode parsing. `NoteMetadataParser` (cheap: title/id/filetags) feeds indexing pass 1; `org/OrgDocumentParser` (full block model) feeds the note view.
 - `index/` — Room database + two-pass indexing pipeline. Owned by `index/AGENTS.md`.
 - `sync/` — WebDAV sync engine, journal, conflict handling. Owned by `sync/AGENTS.md`.
+- `graph/` — pure-Kotlin force-directed layout engine for the note graph view. Owned by `graph/AGENTS.md`.
 - `settings/` — DataStore-backed repositories for WebDAV credentials, sync, and folder settings.
 - `utils/` — org path/file helpers (`OrgFileUtils`, `OrgPathResolver`). `OrgFileUtils.buildNoteLink(title, orgId, path)` is the single canonical place that builds `[[id:...][label]]` / `[[file:...][label]]` link syntax — any screen inserting or copying a link to another note must call it rather than hand-rolling the bracket/label escaping.
 
@@ -31,3 +32,4 @@ Everything below `data/` turns org files in the user's vault into queryable app 
 
 - `index/AGENTS.md` — index_queue semantics, pass 1/2 pipeline, worker budgets and continuations.
 - `sync/AGENTS.md` — sync_state lifecycle, operation journal, WebDAV specifics, indexing hand-off invariant.
+- `graph/AGENTS.md` — Barnes-Hut force layout engine (pure Kotlin, no Android deps, testable without Robolectric).

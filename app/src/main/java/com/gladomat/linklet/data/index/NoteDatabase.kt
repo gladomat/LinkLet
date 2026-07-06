@@ -27,8 +27,9 @@ import com.gladomat.linklet.data.sync.SyncStateTypeConverters
         SyncWatermarkEntity::class,
         CapabilitiesCacheEntity::class,
         OperationJournalEntity::class,
+        GraphPositionEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = false,
 )
 @TypeConverters(SyncStateTypeConverters::class, IndexTypeConverters::class)
@@ -41,6 +42,7 @@ abstract class NoteDatabase : RoomDatabase() {
     abstract fun syncWatermarkDao(): SyncWatermarkDao
     abstract fun capabilitiesCacheDao(): CapabilitiesCacheDao
     abstract fun operationJournalDao(): OperationJournalDao
+    abstract fun graphPositionDao(): GraphPositionDao
 
     companion object {
         val MIGRATION_2_3 = object : Migration(2, 3) {
@@ -217,6 +219,22 @@ abstract class NoteDatabase : RoomDatabase() {
                 database.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_operation_journal_rootId_path_status` " +
                         "ON `operation_journal` (`rootId`, `path`, `status`)",
+                )
+            }
+        }
+
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `graph_positions` (
+                        `path` TEXT NOT NULL,
+                        `x` REAL NOT NULL,
+                        `y` REAL NOT NULL,
+                        `updatedAtEpochMillis` INTEGER NOT NULL,
+                        PRIMARY KEY(`path`)
+                    )
+                    """.trimIndent(),
                 )
             }
         }

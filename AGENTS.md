@@ -333,6 +333,7 @@ Layout: single Gradle module `:app` (Kotlin, Compose, Hilt, Room, WorkManager); 
 - `app/src/main/java/com/gladomat/linklet/data/AGENTS.md` — data layer: model, storage (SAF), parser, settings, utils; indexes its own children:
   - `data/index/AGENTS.md` — index_queue semantics, two-pass pipeline, worker budgets/continuations.
   - `data/sync/AGENTS.md` — WebDAV sync engine, sync_state lifecycle, indexing hand-off invariant.
+  - `data/graph/AGENTS.md` — Barnes-Hut force layout engine for the note graph view (pure Kotlin, no Android deps).
 - `app/src/main/java/com/gladomat/linklet/ui/AGENTS.md` — Compose screens/components/theme conventions (drawer handling, remember keys).
 - `tests/AGENTS.md` — test wiring, arm64 Robolectric caveats, timing-robustness rules, CI parity.
 - `docs/AGENTS.md` — documentation ownership; `docs/QA_FEATURE_MATRIX.md` is the canonical QA record.

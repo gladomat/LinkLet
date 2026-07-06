@@ -37,3 +37,16 @@ data class LinkEntity(
     val sourceOrgId: String? = null,
     val targetOrgId: String? = null,
 )
+
+/**
+ * Cached last-settled position for a note's node in the graph view (see docs/plans/2026-07-06-note-graph-view.md).
+ * Reopening the graph loads these instead of re-running the force layout from a random seed;
+ * only nodes with no cached row (new notes) get seeded and nudged into place.
+ */
+@Entity(tableName = "graph_positions")
+data class GraphPositionEntity(
+    @PrimaryKey val path: String,
+    val x: Float,
+    val y: Float,
+    val updatedAtEpochMillis: Long,
+)

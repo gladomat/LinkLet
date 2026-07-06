@@ -14,6 +14,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.gladomat.linklet.ui.screens.NoteListRoute
+import com.gladomat.linklet.ui.screens.graph.GraphRoute
 import com.gladomat.linklet.ui.screens.note.NoteViewRoute
 import com.gladomat.linklet.ui.screens.trash.TrashRoute
 import com.gladomat.linklet.ui.screens.noteedit.NoteEditRoute
@@ -79,6 +80,9 @@ class MainActivity : ComponentActivity() {
                                         launchSingleTop = true
                                     }
                                 },
+                                onOpenGraph = {
+                                    navController.navigate(Routes.GRAPH)
+                                },
                             )
                         }
 
@@ -104,6 +108,9 @@ class MainActivity : ComponentActivity() {
                                     navController.navigate("${Routes.NOTE_EDIT}/${Uri.encode(Routes.NEW_NOTE_PATH)}") {
                                         launchSingleTop = true
                                     }
+                                },
+                                onOpenGraph = { path ->
+                                    navController.navigate("${Routes.GRAPH}?${Routes.GRAPH_CENTER_ARG}=${Uri.encode(path)}")
                                 },
                                 savedStateHandle = backStackEntry.savedStateHandle,
                             )
@@ -169,6 +176,26 @@ class MainActivity : ComponentActivity() {
                                 onNavigateBack = { navController.popBackStack() },
                             )
                         }
+
+                        composable(
+                            route = "${Routes.GRAPH}?${Routes.GRAPH_CENTER_ARG}={${Routes.GRAPH_CENTER_ARG}}",
+                            arguments = listOf(
+                                navArgument(Routes.GRAPH_CENTER_ARG) {
+                                    type = NavType.StringType
+                                    nullable = true
+                                    defaultValue = null
+                                },
+                            ),
+                        ) {
+                            GraphRoute(
+                                onOpenNote = { path ->
+                                    navController.navigate("${Routes.NOTE_VIEW}/${Uri.encode(path)}") {
+                                        launchSingleTop = true
+                                    }
+                                },
+                                onNavigateBack = { navController.popBackStack() },
+                            )
+                        }
                     }
                 }
             }
@@ -196,6 +223,8 @@ private object Routes {
     const val SYNC_IGNORE_EDITOR = "sync_ignore_editor"
     const val TRASH = "trash"
     const val SYNC_STATUS = "sync_status"
+    const val GRAPH = "graph"
+    const val GRAPH_CENTER_ARG = "center"
 }
 
 const val REFRESH_NOTE_KEY = "refresh_note"
