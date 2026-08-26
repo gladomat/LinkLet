@@ -3,6 +3,7 @@ package com.gladomat.linklet.data.storage
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import com.gladomat.linklet.data.settings.FolderSettingsRepository
 import java.io.File
@@ -16,6 +17,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
+
+private const val DIRECT_CHILD_ID_AUTHORITY = "com.android.externalstorage.documents"
 
 @Singleton
 class DocumentTreeStorageImpl @Inject constructor(
@@ -103,7 +106,14 @@ class DocumentTreeStorageImpl @Inject constructor(
 
     override suspend fun statNote(path: String): Result<StorageFileStat> = withContext(dispatcher) {
         runCatching {
-            val target = resolveFile(path) ?: throw IOException("File not found: $path")
+            val cachedUri = pathUriCache.get()[path]
+            val target = if (cachedUri != null) {
+                documentFileFor(cachedUri)
+            } else {
+                val resolved = resolveFile(path) ?: throw IOException("File not found: $path")
+                pathUriCache.get()[path] = resolved.uri
+                resolved
+            }
             if (!target.isFile) throw IOException("Not a file: $path")
             StorageFileStat(
                 lastModifiedEpochMillis = target.lastModified().takeIf { it > 0 },
@@ -119,7 +129,7 @@ class DocumentTreeStorageImpl @Inject constructor(
             if (fileName.isBlank()) {
                 throw IllegalArgumentException("Invalid filename in path: $path")
             }
-            val existing = parent.findFile(fileName)
+            val existing = findChild(parent, fileName)
             val target = if (existing != null && existing.isFile) {
                 existing
             } else {
@@ -130,8 +140,7 @@ class DocumentTreeStorageImpl @Inject constructor(
                     ?: throw IOException("Unable to create file: $path")
             }
             writeToDocument(target, content)
-            // Directory structure/content changed; clear cached snapshot.
-            pathUriCache.set(ConcurrentHashMap())
+            pathUriCache.get()[path] = target.uri
         }
     }
 
@@ -142,7 +151,7 @@ class DocumentTreeStorageImpl @Inject constructor(
             if (fileName.isBlank()) {
                 throw IllegalArgumentException("Invalid filename in path: $path")
             }
-            val existing = parent.findFile(fileName)
+            val existing = findChild(parent, fileName)
             val target = if (existing != null && existing.isFile) {
                 existing
             } else {
@@ -151,8 +160,7 @@ class DocumentTreeStorageImpl @Inject constructor(
                     ?: throw IOException("Unable to create file: $path")
             }
             writeBytesToDocument(target, content)
-            // Directory structure/content changed; clear cached snapshot.
-            pathUriCache.set(ConcurrentHashMap())
+            pathUriCache.get()[path] = target.uri
         }
     }
 
@@ -179,18 +187,19 @@ class DocumentTreeStorageImpl @Inject constructor(
                 val parent = resolveFile(oldDir)?.takeIf { it.isDirectory }
                     ?: baseDocumentFile()
                     ?: throw IllegalStateException("Folder not selected")
-                if (parent.findFile(newFileName) != null) {
+                if (findChild(parent, newFileName) != null) {
                     throw IOException("Target file already exists: $newPath")
                 }
                 if (!sourceFile.renameTo(newFileName)) {
                     throw IOException("Failed to rename file from $oldPath to $newPath")
                 }
-                pathUriCache.set(ConcurrentHashMap())
+                pathUriCache.get().remove(oldPath)
+                pathUriCache.get()[newPath] = sourceFile.uri
                 return@runCatching Unit
             }
 
             val parent = ensureParentDirectories(newPath)
-            if (parent.findFile(newFileName) != null) {
+            if (findChild(parent, newFileName) != null) {
                 throw IOException("Target file already exists: $newPath")
             }
             val newFile = parent.createFile("text/org", newFileName)
@@ -206,7 +215,8 @@ class DocumentTreeStorageImpl @Inject constructor(
                 newFile.delete()
                 throw IOException("Failed to delete source file after copy: $oldPath")
             }
-            pathUriCache.set(ConcurrentHashMap())
+            pathUriCache.get().remove(oldPath)
+            pathUriCache.get()[newPath] = newFile.uri
         }
     }
 
@@ -239,14 +249,75 @@ class DocumentTreeStorageImpl @Inject constructor(
         return documentFile
     }
 
+    private data class ChildEntry(val name: String, val uri: Uri, val isDirectory: Boolean)
+
+    /** One ContentResolver query per directory instead of one per child. */
+    private fun listChildren(dir: DocumentFile): List<ChildEntry> {
+        if (dir.uri.scheme == ContentResolver.SCHEME_FILE) {
+            return dir.listFiles().mapNotNull { c -> c.name?.let { ChildEntry(it, c.uri, c.isDirectory) } }
+        }
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+            dir.uri, DocumentsContract.getDocumentId(dir.uri),
+        )
+        val projection = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+        )
+        val out = ArrayList<ChildEntry>()
+        contentResolver.query(childrenUri, projection, null, null, null)?.use { c ->
+            while (c.moveToNext()) {
+                val id = c.getString(0)
+                val name = c.getString(1) ?: continue
+                val mime = c.getString(2)
+                out += ChildEntry(
+                    name = name,
+                    uri = DocumentsContract.buildDocumentUriUsingTree(dir.uri, id),
+                    isDirectory = mime == DocumentsContract.Document.MIME_TYPE_DIR,
+                )
+            }
+        }
+        return out
+    }
+
+    private fun findChild(dir: DocumentFile, name: String): DocumentFile? {
+        if (dir.uri.scheme == ContentResolver.SCHEME_FILE) return dir.findFile(name)
+        if (dir.uri.authority == DIRECT_CHILD_ID_AUTHORITY) {
+            // Direct single-document lookup: build the child's document id from the parent's
+            // and query it directly, avoiding a full directory listing on every path segment.
+            val childId = "${DocumentsContract.getDocumentId(dir.uri)}/$name"
+            val childUri = DocumentsContract.buildDocumentUriUsingTree(dir.uri, childId)
+            val exists = try {
+                contentResolver.query(childUri, arrayOf(DocumentsContract.Document.COLUMN_MIME_TYPE), null, null, null)
+                    ?.use { it.moveToFirst() } ?: false
+            } catch (e: Exception) {
+                false
+            }
+            return if (exists) DocumentFile.fromTreeUri(context, childUri) else null
+        }
+        // Other content providers may not support synthesizing child document ids this way;
+        // fall back to listing the directory and matching by name.
+        val entry = listChildren(dir).firstOrNull { it.name == name } ?: return null
+        return DocumentFile.fromTreeUri(context, entry.uri)
+    }
+
+    /** Wraps a [ChildEntry]'s URI back into a DocumentFile, for both schemes. */
+    private fun documentFileFor(uri: Uri): DocumentFile {
+        return if (uri.scheme == ContentResolver.SCHEME_FILE) {
+            DocumentFile.fromFile(File(uri.path!!))
+        } else {
+            DocumentFile.fromTreeUri(context, uri)
+        }
+    }
+
     private suspend fun resolveFile(path: String): DocumentFile? {
         val base = baseDocumentFile() ?: return null
         val segments = path.split('/').filter { it.isNotEmpty() }
         validateSegments(segments)
         var current: DocumentFile? = base
         for (segment in segments) {
-            current = current?.findFile(segment) ?: return null
-            if (current?.isFile == true && segment != segments.last()) {
+            current = findChild(current ?: return null, segment) ?: return null
+            if (current.isFile && segment != segments.last()) {
                 return null
             }
         }
@@ -260,7 +331,7 @@ class DocumentTreeStorageImpl @Inject constructor(
         val directorySegments = segments.dropLast(1)
         var current: DocumentFile = base
         for (segment in directorySegments) {
-            val existing = current.findFile(segment)
+            val existing = findChild(current, segment)
             current = when {
                 existing == null -> current.createDirectory(segment)
                     ?: throw IOException("Unable to create directory: $segment")
@@ -288,11 +359,35 @@ class DocumentTreeStorageImpl @Inject constructor(
             }
             return
         }
-        val children = document.listFiles()
-        for (child in children) {
-            val childName = child.name ?: continue
-            val nextPath = if (currentPath.isEmpty()) childName else "$currentPath/$childName"
-            traverse(child, nextPath, into, includeAllFiles, cache)
+        val children = listChildren(document)
+        for (entry in children) {
+            val nextPath = if (currentPath.isEmpty()) entry.name else "$currentPath/${entry.name}"
+            traverseEntry(entry, nextPath, into, includeAllFiles, cache)
+        }
+    }
+
+    /**
+     * Continues traversal from a [ChildEntry] whose name/isDirectory were already read from the
+     * parent directory's single cursor query, avoiding the per-child `.name`/`.isFile` IPC calls
+     * that [DocumentFile.listFiles] would otherwise require.
+     */
+    private fun traverseEntry(
+        entry: ChildEntry,
+        currentPath: String,
+        into: MutableList<String>,
+        includeAllFiles: Boolean,
+        cache: MutableMap<String, Uri>,
+    ) {
+        if (!entry.isDirectory) {
+            if (includeAllFiles || currentPath.endsWith(".org", ignoreCase = true)) {
+                into += currentPath
+                cache[currentPath] = entry.uri
+            }
+            return
+        }
+        for (child in listChildren(documentFileFor(entry.uri))) {
+            val nextPath = "$currentPath/${child.name}"
+            traverseEntry(child, nextPath, into, includeAllFiles, cache)
         }
     }
 
