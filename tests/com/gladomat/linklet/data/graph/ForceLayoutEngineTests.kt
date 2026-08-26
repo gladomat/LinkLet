@@ -1,5 +1,6 @@
 package com.gladomat.linklet.data.graph
 
+import kotlin.math.sqrt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -14,7 +15,7 @@ class ForceLayoutEngineTests {
     ): GraphLayoutState {
         var state = engine.seed(nodes, cachedPositions)
         var guard = 0
-        while (!engine.isConverged(state) && guard < 1000) {
+        while (!engine.isConverged(state) && guard < 2000) {
             state = engine.step(state, nodes, edges)
             guard++
         }
@@ -116,6 +117,130 @@ class ForceLayoutEngineTests {
 
         val distanceFromOrigin = finalState.positions.getValue("solo").length()
         assertTrue(distanceFromOrigin < 50f)
+    }
+
+    /** Deterministic preferential-attachment graph - a realistic hub/leaf mix, no randomness. */
+    private fun scaleFreeGraph(nodeCount: Int): Pair<List<String>, List<Pair<String, String>>> {
+        val nodes = (0 until nodeCount).map { "n$it" }
+        val edges = mutableListOf<Pair<String, String>>()
+        val attachmentPool = mutableListOf("n0")
+        for (i in 1 until nodeCount) {
+            repeat(1 + (i % 3)) { k ->
+                val target = attachmentPool[(i * 7 + k * 13) % attachmentPool.size]
+                if (target != "n$i") {
+                    edges += "n$i" to target
+                    attachmentPool += target
+                }
+            }
+            attachmentPool += "n$i"
+        }
+        return nodes to edges
+    }
+
+    @Test
+    fun `linked notes settle close together relative to the graph's overall size`() {
+        // The failure this guards against: with a long-range (inverse-linear) repulsion law the
+        // whole node set's combined push outweighs the springs, and edges stretch in proportion to
+        // the graph's size - measured at ~16x the typical node spacing here, i.e. edges spanning
+        // the entire canvas, which is what makes a selected note's links unreadable.
+        val (nodes, edges) = scaleFreeGraph(300)
+        val engine = ForceLayoutEngine()
+
+        val settled = runToConvergence(engine, nodes, edges)
+        val positions = settled.positions
+
+        val meanEdgeLength = edges
+            .map { (source, target) -> (positions.getValue(source) - positions.getValue(target)).length() }
+            .average()
+        // Typical node-to-node spacing: the radius the layout occupies, divided by the number of
+        // nodes across it. Comparing against this rather than an absolute pixel count keeps the
+        // assertion about the layout's *shape*, not about whatever the force constants are tuned to.
+        val graphRadius = nodes.maxOf { positions.getValue(it).length() }
+        val typicalSpacing = graphRadius / sqrt(nodes.size.toFloat())
+
+        assertTrue(
+            "edges average ${meanEdgeLength.toInt()}px against ${typicalSpacing.toInt()}px typical spacing " +
+                "(${"%.1f".format(meanEdgeLength / typicalSpacing)}x) - linked notes have drifted apart",
+            meanEdgeLength < typicalSpacing * 9f,
+        )
+    }
+
+    @Test
+    fun `a leaf stays near its hub instead of drifting out to the rim`() {
+        // A degree-1 note is held by one spring but pushed outward by every other node in the
+        // vault, and that repulsion grows with the vault while the single spring does not. Without
+        // the leaf spring boost, degree-1 notes settled at ~46% of the graph radius on this graph -
+        // visually, a note that is clearly linked to a central hub sitting way out near the edge.
+        val (nodes, edges) = scaleFreeGraph(400)
+        val engine = ForceLayoutEngine()
+
+        val positions = runToConvergence(engine, nodes, edges).positions
+
+        val degree = HashMap<String, Int>()
+        edges.forEach { (source, target) ->
+            degree[source] = (degree[source] ?: 0) + 1
+            degree[target] = (degree[target] ?: 0) + 1
+        }
+        val lengths = edges.map { (source, target) ->
+            Triple(source, target, (positions.getValue(source) - positions.getValue(target)).length())
+        }
+        val medianLength = lengths.map { it.third }.sorted()[lengths.size / 2]
+        val leafLengths = lengths.filter { (source, target, _) -> degree[source] == 1 || degree[target] == 1 }
+
+        assertTrue("expected some degree-1 notes in the fixture", leafLengths.size > 20)
+        val meanLeafLength = leafLengths.map { it.third }.average()
+        // Measured against the median edge rather than the graph radius: the radius depends on how
+        // many orphans the vault happens to contain, whereas "is a leaf's edge an outlier next to a
+        // normal edge" is exactly what you see when you select a note and read its links.
+        assertTrue(
+            "a leaf's edge averages ${meanLeafLength.toInt()}px against a ${medianLength.toInt()}px " +
+                "median edge (${"%.1f".format(meanLeafLength / medianLength)}x) - leaves are drifting out",
+            meanLeafLength < medianLength * 1.6f,
+        )
+    }
+
+    @Test
+    fun `unlinked notes still settle outside the connected core`() {
+        // The complement of the test above: pulling leaves in must not also drag orphans inward.
+        // A note with no links has nothing holding it among the connected ones, and showing that
+        // by leaving it on the rim is the intended reading of the graph, not a defect.
+        val (linked, edges) = scaleFreeGraph(300)
+        val orphans = (0 until 60).map { "orphan$it" }
+        val engine = ForceLayoutEngine()
+
+        val positions = runToConvergence(engine, linked + orphans, edges).positions
+
+        val meanLinkedRadius = linked.map { positions.getValue(it).length() }.average()
+        val meanOrphanRadius = orphans.map { positions.getValue(it).length() }.average()
+
+        assertTrue(
+            "orphans ($meanOrphanRadius) should sit well outside the connected core ($meanLinkedRadius)",
+            meanOrphanRadius > meanLinkedRadius * 2f,
+        )
+    }
+
+    @Test
+    fun `reopening a fully cached layout does not reheat it`() {
+        val engine = ForceLayoutEngine()
+        val nodes = listOf("a", "b", "c", "d")
+        val edges = listOf("a" to "b", "b" to "c", "c" to "d")
+        val settled = runToConvergence(engine, nodes, edges)
+
+        val reseeded = engine.seed(nodes, cachedPositions = settled.positions)
+
+        assertTrue("a layout with no fresh nodes must start cold", engine.isConverged(engine.step(reseeded, nodes, edges)))
+    }
+
+    @Test
+    fun `adding fresh nodes reheats the layout so it can rearrange`() {
+        val engine = ForceLayoutEngine()
+        val nodes = listOf("a", "b", "c", "d")
+        val settled = runToConvergence(engine, nodes, listOf("a" to "b", "b" to "c", "c" to "d"))
+        val grown = nodes + listOf("e", "f", "g", "h")
+
+        val reseeded = engine.seed(grown, cachedPositions = settled.positions)
+
+        assertTrue("half the node set is new - the layout must be free to move", reseeded.temperature > 1f)
     }
 
     @Test
