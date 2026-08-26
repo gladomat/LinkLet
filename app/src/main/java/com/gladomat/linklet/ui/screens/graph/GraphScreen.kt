@@ -153,8 +153,49 @@ private fun GraphCanvas(
     var scale by remember { mutableFloatStateOf(1f) }
     var panOffset by remember { mutableStateOf(Offset.Zero) }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
+    // Until the user takes the camera themselves, it keeps framing the whole graph - so opening
+    // the view shows the entire vault, and the framing follows the layout as it settles instead of
+    // locking onto whatever the first tick happened to look like. Node positions are centred on
+    // the origin, so without this the initial pan of (0, 0) puts the origin in the canvas's
+    // top-left corner and shows only the graph's bottom-right quadrant.
+    var userControlsCamera by remember { mutableStateOf(false) }
     val positions = uiState.positions
     val selectedPath = uiState.selectedPath
+
+    val graphBounds = remember(positions) {
+        if (positions.isEmpty()) {
+            null
+        } else {
+            var minX = Float.MAX_VALUE
+            var minY = Float.MAX_VALUE
+            var maxX = -Float.MAX_VALUE
+            var maxY = -Float.MAX_VALUE
+            positions.values.forEach { position ->
+                if (position.x < minX) minX = position.x
+                if (position.x > maxX) maxX = position.x
+                if (position.y < minY) minY = position.y
+                if (position.y > maxY) maxY = position.y
+            }
+            GraphBounds(minX, minY, maxX, maxY)
+        }
+    }
+    // The zoom floor is whatever frames the entire graph, never more than the fixed MIN_SCALE.
+    // A fixed floor alone can't guarantee "zoomed all the way out shows everything" - the layout's
+    // extent grows with the vault, so on a large one the floor would cut the graph off.
+    val fitScale = fitScale(graphBounds, canvasSize.width, canvasSize.height)
+    val minScale = minOf(MIN_SCALE, fitScale ?: MIN_SCALE)
+
+    // The auto-fit camera is derived, not stored: assigning to `scale`/`panOffset` during
+    // composition would feed a state write straight back into the recomposition that produced it.
+    // `scale`/`panOffset` hold the *user's* camera and only start being read once they take over.
+    val autoFit = if (userControlsCamera || graphBounds == null || fitScale == null) {
+        null
+    } else {
+        val (fitX, fitY) = fitPan(graphBounds, canvasSize.width, canvasSize.height, fitScale)
+        fitScale to Offset(fitX, fitY)
+    }
+    val effectiveScale = autoFit?.first ?: scale
+    val effectivePanOffset = autoFit?.second ?: panOffset
 
     val degreeByPath = remember(uiState.edges) {
         val counts = HashMap<String, Int>()
@@ -164,40 +205,45 @@ private fun GraphCanvas(
         }
         counts
     }
-    // First- and second-order connections of the selected node, so a tap clearly confirms not
-    // just "this node" but "everything it reaches within 2 hops" - both tiers get their own
-    // highlight treatment below, distinct from each other and from the unrelated/dimmed rest.
-    val (firstOrderPaths, secondOrderPaths) = remember(uiState.edges, selectedPath) {
+    // Level-of-detail ranking: which nodes exist at which zoom (see GraphLod.kt). Keyed on the
+    // node/edge set only - it must not be recomputed on the ~16ms position ticks.
+    val nodeLod = remember(uiState.nodes, degreeByPath) {
+        buildNodeLod(uiState.nodes.map { it.id.path }, degreeByPath)
+    }
+    // Label pass draws in importance order so hubs win the collision grid over leaf notes.
+    val nodesByImportance = remember(uiState.nodes, nodeLod) {
+        uiState.nodes.sortedBy { nodeLod[it.id.path]?.rank ?: Int.MAX_VALUE }
+    }
+    // First-order (directly connected) notes of the selected node get a highlight treatment.
+    // Second-order is deliberately not surfaced here - on a real vault it lights up so much of
+    // the graph that it stops meaning anything and just makes the view harder to read.
+    val firstOrderPaths = remember(uiState.edges, selectedPath) {
         if (selectedPath == null) {
-            emptySet<String>() to emptySet<String>()
+            emptySet<String>()
         } else {
             val adjacency = HashMap<String, MutableSet<String>>()
             uiState.edges.forEach { edge ->
                 adjacency.getOrPut(edge.source) { mutableSetOf() }.add(edge.target)
                 adjacency.getOrPut(edge.target) { mutableSetOf() }.add(edge.source)
             }
-            val firstOrder = adjacency[selectedPath].orEmpty().toSet()
-            val visited = firstOrder + selectedPath
-            val secondOrder = firstOrder
-                .flatMap { adjacency[it].orEmpty() }
-                .filterNot { it in visited }
-                .toSet()
-            firstOrder to secondOrder
+            adjacency[selectedPath].orEmpty().toSet()
         }
     }
-    val highlightedPaths = firstOrderPaths + secondOrderPaths
+    val highlightedPaths = firstOrderPaths
 
     // Selecting a search result (Design decision 10) pans/zooms the camera to that node.
     LaunchedEffect(uiState.cameraFocusRequest) {
         val request = uiState.cameraFocusRequest ?: return@LaunchedEffect
         val target = positions[request.path]
         if (target != null && canvasSize.width > 0 && canvasSize.height > 0) {
-            val focusedScale = scale.coerceAtLeast(FOCUS_MIN_SCALE)
+            val focusedScale = effectiveScale.coerceAtLeast(FOCUS_MIN_SCALE)
             scale = focusedScale
             panOffset = Offset(
                 canvasSize.width / 2f - target.x * focusedScale,
                 canvasSize.height / 2f - target.y * focusedScale,
             )
+            // Jumping to a search result is the user aiming the camera - stop auto-framing.
+            userControlsCamera = true
         }
         onCameraFocusHandled()
     }
@@ -207,8 +253,9 @@ private fun GraphCanvas(
     // it would cancel and relaunch detectTapGestures on every tick, discarding Compose's
     // gesture-detector/pointer-tracking state dozens of times a second.
     val latestPositions by rememberUpdatedState(positions)
-    val latestScale by rememberUpdatedState(scale)
-    val latestPanOffset by rememberUpdatedState(panOffset)
+    val latestMinScale by rememberUpdatedState(minScale)
+    val latestScale by rememberUpdatedState(effectiveScale)
+    val latestPanOffset by rememberUpdatedState(effectivePanOffset)
     val latestSelectedPath by rememberUpdatedState(selectedPath)
 
     val edgeColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
@@ -217,10 +264,7 @@ private fun GraphCanvas(
     val pendingNodeColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
     val dimmedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f)
     val selectedColor = MaterialTheme.colorScheme.secondary
-    // Two distinct tiers so both "directly connected" and "connected-through-a-connection" read
-    // as clearly different from each other, not just both "not dimmed".
     val firstOrderColor = MaterialTheme.colorScheme.tertiary
-    val secondOrderColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.55f)
     val labelColor = MaterialTheme.colorScheme.onBackground.toArgb()
 
     Canvas(
@@ -229,9 +273,22 @@ private fun GraphCanvas(
             .background(MaterialTheme.colorScheme.background)
             .onSizeChanged { canvasSize = it }
             .pointerInput(Unit) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    scale = (scale * zoom).coerceIn(MIN_SCALE, MAX_SCALE)
-                    panOffset += pan
+                detectTransformGestures { centroid, pan, zoom, _ ->
+                    // Start from wherever the auto-fit camera had got to, so the first pinch
+                    // continues the view on screen instead of snapping back to a stale stored one.
+                    val oldScale = latestScale
+                    val newScale = (oldScale * zoom).coerceIn(latestMinScale, MAX_SCALE)
+                    // Zoom must pivot on the gesture's centroid (pinch focal point), not the
+                    // canvas origin - otherwise every pinch also drags the graph towards
+                    // whatever graph-space point happens to sit at screen (0, 0), which reads as
+                    // the view sliding around instead of zooming in place like a photo. Using
+                    // newScale/oldScale (not the raw `zoom` factor) keeps the focal point fixed
+                    // even once scale saturates at MIN_SCALE/MAX_SCALE and further pinching would
+                    // otherwise have no scale effect but would still drift the pan.
+                    val effectiveZoom = newScale / oldScale
+                    panOffset = centroid + (latestPanOffset - centroid) * effectiveZoom + pan
+                    scale = newScale
+                    userControlsCamera = true
                 }
             }
             .pointerInput(Unit) {
@@ -268,39 +325,70 @@ private fun GraphCanvas(
         // (Design decision 14) - Barnes-Hut only bounds the layout engine's cost, not render cost.
         // Split into two batches (regular vs. highlighted) rather than one drawPath call per
         // edge, so highlighting a selection still costs exactly two draw calls, not one per edge.
+        val cullMargin = VIEWPORT_CULL_MARGIN_DP.dp.toPx()
+        val viewportWidth = size.width.toInt()
+        val viewportHeight = size.height.toInt()
+        val edgeAlphaMultiplier = lodEdgeAlphaMultiplier(effectiveScale)
+
         val edgePath = Path()
         val highlightEdgePath = Path()
         uiState.edges.forEach { edge ->
             val sourcePos = positions[edge.source] ?: return@forEach
             val targetPos = positions[edge.target] ?: return@forEach
-            val start = toScreen(sourcePos, scale, panOffset)
-            val end = toScreen(targetPos, scale, panOffset)
+            val start = toScreen(sourcePos, effectiveScale, effectivePanOffset)
+            val end = toScreen(targetPos, effectiveScale, effectivePanOffset)
+            if (!edgeIsWorthDrawing(
+                    start.x, start.y, end.x, end.y, viewportWidth, viewportHeight, cullMargin,
+                )
+            ) {
+                return@forEach
+            }
+            // Only edges incident to the selected node itself - an edge between two of its
+            // first-order notes (not touching the selection) stays unhighlighted, same as the
+            // second-order nodes it connects.
             val edgeIsHighlighted = selectedPath != null &&
-                (edge.source == selectedPath || edge.source in highlightedPaths) &&
-                (edge.target == selectedPath || edge.target in highlightedPaths)
+                (edge.source == selectedPath || edge.target == selectedPath)
             val targetPathObj = if (edgeIsHighlighted) highlightEdgePath else edgePath
             targetPathObj.moveTo(start.x, start.y)
             targetPathObj.lineTo(end.x, end.y)
         }
-        drawPath(edgePath, color = edgeColor, style = Stroke(width = 1.dp.toPx()))
+        drawPath(
+            edgePath,
+            color = edgeColor.copy(alpha = edgeColor.alpha * edgeAlphaMultiplier),
+            style = Stroke(width = 1.dp.toPx()),
+        )
         drawPath(highlightEdgePath, color = highlightedEdgeColor, style = Stroke(width = 2.dp.toPx()))
 
-        val labelLegible = scale > LABEL_LEGIBLE_SCALE_THRESHOLD
+        val labelLegible = effectiveScale > LABEL_LEGIBLE_SCALE_THRESHOLD
         val textPaint = android.graphics.Paint().apply {
             isAntiAlias = true
             color = labelColor
         }
+        val minRadius = MIN_NODE_RADIUS_DP.dp.toPx()
+        val labelOffset = LABEL_OFFSET_DP.dp.toPx()
+        // Labels are claimed against a shared occupancy grid, so a title only draws if nothing
+        // more important already took that patch of screen (see LabelGrid).
+        val labelGrid = LabelGrid(
+            cellWidthPx = LABEL_CELL_WIDTH_DP.dp.toPx(),
+            cellHeightPx = LABEL_CELL_HEIGHT_DP.dp.toPx(),
+        )
 
-        uiState.nodes.forEach { node ->
+        // Single pass in importance order: circles and labels share the same visibility/alpha
+        // computation, and the ordering is what lets hubs win the label grid over leaf notes.
+        nodesByImportance.forEach { node ->
             val path = node.id.path
             val graphPos = positions[path] ?: return@forEach
-            val screenPos = toScreen(graphPos, scale, panOffset)
+            val screenPos = toScreen(graphPos, effectiveScale, effectivePanOffset)
+            if (!isOnScreen(screenPos.x, screenPos.y, viewportWidth, viewportHeight, cullMargin)) {
+                return@forEach
+            }
             val isSelected = path == selectedPath
             val isFirstOrder = path in firstOrderPaths
-            val isSecondOrder = path in secondOrderPaths
             val isDimmed = selectedPath != null && !isSelected && path !in highlightedPaths
             val degree = degreeByPath[path] ?: 0
-            val baseRadius = (BASE_NODE_RADIUS_DP + DEGREE_RADIUS_SCALE_DP * ln((degree + 1).toFloat())).dp.toPx()
+            val unzoomedRadius =
+                (BASE_NODE_RADIUS_DP + DEGREE_RADIUS_SCALE_DP * ln((degree + 1).toFloat())).dp.toPx()
+            val baseRadius = lodNodeRadiusPx(unzoomedRadius, effectiveScale, minRadius)
             val radius = when {
                 isSelected -> baseRadius * SELECTED_HIT_RADIUS_MULTIPLIER
                 isFirstOrder -> baseRadius * FIRST_ORDER_RADIUS_MULTIPLIER
@@ -310,25 +398,30 @@ private fun GraphCanvas(
                 !node.linksReady -> pendingNodeColor // Design decision 11: pending, not a confirmed orphan
                 isSelected -> selectedColor
                 isFirstOrder -> firstOrderColor
-                isSecondOrder -> secondOrderColor
                 isDimmed -> dimmedColor
                 else -> nodeColor
             }
             drawCircle(color = color, radius = radius, center = screenPos)
 
-            // First/second-order connections always show their label when a selection is
-            // active, regardless of zoom - the whole point is to let you read which notes are
-            // connected, not just see a colored dot.
-            if (isSelected || isFirstOrder || isSecondOrder || labelLegible) {
-                textPaint.textSize = (if (isSelected) SELECTED_LABEL_SP else LABEL_SP).sp.toPx()
-                textPaint.alpha = if (isDimmed) DIMMED_LABEL_ALPHA else OPAQUE_ALPHA
-                drawContext.canvas.nativeCanvas.drawText(
-                    node.title,
-                    screenPos.x + radius + LABEL_OFFSET_DP.dp.toPx(),
-                    screenPos.y,
-                    textPaint,
-                )
-            }
+            // First-order connections always show their label when a selection is active,
+            // regardless of zoom - the whole point is to let you read which notes are connected,
+            // not just see a colored dot.
+            if (!isSelected && !isFirstOrder && !labelLegible) return@forEach
+            val label = truncateLabel(node.title)
+            val textSize = (if (isSelected) SELECTED_LABEL_SP else LABEL_SP).sp.toPx()
+            textPaint.textSize = textSize
+            val labelLeft = screenPos.x + radius + labelOffset
+            val labelWidth = textPaint.measureText(label)
+            // Labels sit on the text baseline, so the box they occupy starts above screenPos.y.
+            val claimed = labelGrid.tryClaim(
+                left = labelLeft,
+                top = screenPos.y - textSize,
+                widthPx = labelWidth,
+                heightPx = textSize,
+            )
+            if (!claimed && !isSelected) return@forEach
+            textPaint.alpha = if (isDimmed) DIMMED_LABEL_ALPHA else OPAQUE_ALPHA
+            drawContext.canvas.nativeCanvas.drawText(label, labelLeft, screenPos.y, textPaint)
         }
     }
 }
@@ -425,7 +518,7 @@ private fun TrivialGraphState(title: String) {
     }
 }
 
-private const val MIN_SCALE = 0.1f
+private val MIN_SCALE = LOD_MIN_SCALE
 private const val MAX_SCALE = 8f
 private const val FOCUS_MIN_SCALE = 1f
 private const val HIT_TEST_RADIUS_PX = 32f
@@ -433,6 +526,17 @@ private const val SELECTED_HIT_RADIUS_MULTIPLIER = 1.8f
 private const val FIRST_ORDER_RADIUS_MULTIPLIER = 1.3f
 private const val LABEL_LEGIBLE_SCALE_THRESHOLD = 0.6f
 private const val BASE_NODE_RADIUS_DP = 6f
+
+/** Floor for the zoom-scaled node radius: fully zoomed out, nodes become fine dots but stay visible. */
+private const val MIN_NODE_RADIUS_DP = 1.5f
+
+/** Slack around the viewport so a node just offscreen still contributes its edge and label. */
+private const val VIEWPORT_CULL_MARGIN_DP = 64f
+
+/** Label collision grid resolution - finer than a label, so claims track text boxes closely. */
+private const val LABEL_CELL_WIDTH_DP = 8f
+private const val LABEL_CELL_HEIGHT_DP = 6f
+
 private const val DEGREE_RADIUS_SCALE_DP = 3f
 private const val LABEL_SP = 12f
 private const val SELECTED_LABEL_SP = 16f

@@ -6,7 +6,7 @@ data class PrefetchBudget(
     val maxFiles: Int = 50,
     val maxTotalBytes: Long = 5 * 1024 * 1024, // 5 MB
     val maxFileSizeBytes: Long = 512 * 1024, // 512 KB per file
-    val allowedExtensions: Set<String> = setOf("org"),
+    val allowedExtensions: Set<String> = setOf("org", "png", "jpg", "jpeg"),
 )
 
 data class PrefetchCandidate(

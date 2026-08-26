@@ -15,7 +15,7 @@ class QuadTreeTests {
             val dy = from.y - other.y
             val distance = sqrt(dx * dx + dy * dy)
             if (distance >= 0.01f) {
-                val magnitude = strength / distance
+                val magnitude = strength / (distance * distance)
                 total += Vector2(dx / distance, dy / distance) * magnitude
             }
         }

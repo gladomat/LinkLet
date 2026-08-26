@@ -25,6 +25,14 @@ __MACOSX
 *.swp
 *.tmp
 ltximg/
+_minted*/
+docs/
+.claude/
+.serena/
+raw/
+other/
+.stfolder*/
+
 
 # Databases, archives, and other binaries you likely don't want in your vault
 *.sqlite
