@@ -270,10 +270,16 @@ class IndexPass1Processor @Inject constructor(
                                 fingerprintMtime = fingerprintMtime,
                                 fingerprintSize = fingerprintSize,
                                 linksReady = false,
-                                contentText = content,
                             ),
                         ),
                     )
+                    // Bodies live in note_content (org files only), not in the notes row —
+                    // a large body in `notes` breaks every SELECT * via the 2 MB CursorWindow.
+                    if (current.path.endsWith(".org", ignoreCase = true)) {
+                        noteDao.upsertNoteContent(
+                            NoteContentEntity(path = current.path, contentText = content),
+                        )
+                    }
                     indexQueueDao.upsert(
                         current.copy(
                             status = IndexQueueStatus.DONE,

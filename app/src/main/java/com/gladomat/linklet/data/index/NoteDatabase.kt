@@ -19,6 +19,7 @@ import com.gladomat.linklet.data.sync.SyncStateTypeConverters
 @Database(
     entities = [
         NoteEntity::class,
+        NoteContentEntity::class,
         LinkEntity::class,
         SyncStateEntity::class,
         IndexQueueEntity::class,
@@ -29,7 +30,7 @@ import com.gladomat.linklet.data.sync.SyncStateTypeConverters
         OperationJournalEntity::class,
         GraphPositionEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = false,
 )
 @TypeConverters(SyncStateTypeConverters::class, IndexTypeConverters::class)
@@ -253,6 +254,54 @@ abstract class NoteDatabase : RoomDatabase() {
                     WHERE pass = 1 AND status = 'DONE'
                     """.trimIndent(),
                 )
+            }
+        }
+
+        // v11 stored the note body directly in notes.contentText. That breaks every
+        // `SELECT * FROM notes` once a row exceeds SQLite's 2 MB CursorWindow (pass 1 also
+        // indexes non-org files, so multi-MB binary payloads landed in the column) — the app
+        // crashed on launch. Move bodies to a dedicated note_content table (org files only)
+        // and rebuild notes without the column (minSdk 26 SQLite has no DROP COLUMN).
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `note_content` (
+                        `path` TEXT NOT NULL,
+                        `contentText` TEXT NOT NULL,
+                        PRIMARY KEY(`path`)
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL(
+                    """
+                    INSERT OR REPLACE INTO note_content (path, contentText)
+                    SELECT path, contentText FROM notes
+                    WHERE contentText IS NOT NULL AND path LIKE '%.org'
+                    """.trimIndent(),
+                )
+                database.execSQL(
+                    """
+                    CREATE TABLE `notes_new` (
+                        `path` TEXT NOT NULL, `title` TEXT NOT NULL, `orgId` TEXT,
+                        `fileTags` TEXT NOT NULL, `deletedAt` INTEGER,
+                        `fingerprintMtime` INTEGER, `fingerprintSize` INTEGER,
+                        `linksReady` INTEGER NOT NULL, `availability` TEXT NOT NULL,
+                        `source` TEXT NOT NULL, PRIMARY KEY(`path`)
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL(
+                    """
+                    INSERT INTO notes_new (path, title, orgId, fileTags, deletedAt,
+                        fingerprintMtime, fingerprintSize, linksReady, availability, source)
+                    SELECT path, title, orgId, fileTags, deletedAt,
+                        fingerprintMtime, fingerprintSize, linksReady, availability, source
+                    FROM notes
+                    """.trimIndent(),
+                )
+                database.execSQL("DROP TABLE notes")
+                database.execSQL("ALTER TABLE notes_new RENAME TO notes")
             }
         }
     }
