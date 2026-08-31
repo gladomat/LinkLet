@@ -112,6 +112,7 @@ class NoteListViewModelTests {
         val viewModel = NoteListViewModel(
             repository,
             indexingScheduler,
+            mockk<com.gladomat.linklet.data.index.IndexQueueDao>(relaxed = true),
             syncScheduler,
             syncStatusRepository,
             application,
@@ -164,6 +165,7 @@ class NoteListViewModelTests {
         val viewModel = NoteListViewModel(
             repository,
             indexingScheduler,
+            mockk<com.gladomat.linklet.data.index.IndexQueueDao>(relaxed = true),
             syncScheduler,
             syncStatusRepository,
             application,
@@ -217,6 +219,7 @@ class NoteListViewModelTests {
         val viewModel = NoteListViewModel(
             repository,
             indexingScheduler,
+            mockk<com.gladomat.linklet.data.index.IndexQueueDao>(relaxed = true),
             syncScheduler,
             syncStatusRepository,
             application,
@@ -274,6 +277,7 @@ class NoteListViewModelTests {
         val viewModel = NoteListViewModel(
             repository,
             indexingScheduler,
+            mockk<com.gladomat.linklet.data.index.IndexQueueDao>(relaxed = true),
             syncScheduler,
             syncStatusRepository,
             application,
@@ -338,6 +342,7 @@ class NoteListViewModelTests {
         val viewModel = NoteListViewModel(
             repository,
             indexingScheduler,
+            mockk<com.gladomat.linklet.data.index.IndexQueueDao>(relaxed = true),
             syncScheduler,
             syncStatusRepository,
             application,
@@ -398,6 +403,7 @@ class NoteListViewModelTests {
         val viewModel = NoteListViewModel(
             repository,
             indexingScheduler,
+            mockk<com.gladomat.linklet.data.index.IndexQueueDao>(relaxed = true),
             syncScheduler,
             syncStatusRepository,
             application,
@@ -463,6 +469,7 @@ class NoteListViewModelTests {
         val viewModel = NoteListViewModel(
             repository,
             indexingScheduler,
+            mockk<com.gladomat.linklet.data.index.IndexQueueDao>(relaxed = true),
             syncScheduler,
             syncStatusRepository,
             application,

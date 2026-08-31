@@ -7,6 +7,7 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.gladomat.linklet.data.model.IndexingProgress
 import com.gladomat.linklet.data.model.NoteIndexEntry
+import com.gladomat.linklet.data.index.IndexQueueDao
 import com.gladomat.linklet.data.index.IndexingScheduler
 import com.gladomat.linklet.data.sync.SyncScheduler
 import com.gladomat.linklet.data.sync.SyncWork
@@ -30,6 +31,7 @@ import kotlinx.coroutines.launch
 class NoteListViewModel @Inject constructor(
     private val repository: INoteRepository,
     private val indexingScheduler: IndexingScheduler,
+    private val indexQueueDao: IndexQueueDao,
     private val syncScheduler: SyncScheduler,
     private val syncStatusRepository: SyncStatusRepository,
     private val application: Application,
@@ -157,6 +159,10 @@ class NoteListViewModel @Inject constructor(
 
     fun retryLinkIndexing() {
         viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            indexQueueDao.resetFailed(pass = 1, now = now)
+            indexQueueDao.resetFailed(pass = 2, now = now)
+            indexingScheduler.schedulePass1()
             indexingScheduler.schedulePass2()
         }
     }
