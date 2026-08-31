@@ -62,7 +62,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.gladomat.linklet.domain.service.SearchOptions
+import com.gladomat.linklet.data.settings.ThemeId
 import com.gladomat.linklet.ui.theme.LinkLetAppTheme
+import com.gladomat.linklet.ui.theme.ThemeRegistry
 
 /**
  * Sticky header for the note view screen.
@@ -442,7 +444,7 @@ private fun NoteHeaderPreview() {
 @Preview
 @Composable
 private fun NoteHeaderDarkPreview() {
-    LinkLetAppTheme(darkTheme = true) {
+    LinkLetAppTheme(theme = ThemeRegistry.resolve(ThemeId.CATPPUCCIN_MOCHA)) {
         NoteHeader(
             filename = "oolong_tea_brewing.org",
             lastModified = "Today at 10:42 AM",

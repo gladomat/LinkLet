@@ -8,8 +8,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gladomat.linklet.data.index.IndexResetService
 import com.gladomat.linklet.data.index.SyncStateDao
+import com.gladomat.linklet.data.settings.AppearanceSettingsRepository
 import com.gladomat.linklet.data.settings.FolderSettingsRepository
 import com.gladomat.linklet.data.settings.SyncSettingsRepository
+import com.gladomat.linklet.data.settings.ThemeId
+import com.gladomat.linklet.data.settings.ThemeMode
+import com.gladomat.linklet.data.settings.ThemePalette
 import com.gladomat.linklet.data.sync.SyncScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -29,6 +33,7 @@ class SettingsViewModel @Inject constructor(
     private val syncStateDao: SyncStateDao,
     private val syncSettingsRepository: SyncSettingsRepository,
     private val indexResetService: IndexResetService,
+    private val appearanceSettingsRepository: AppearanceSettingsRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsUiState())
@@ -58,6 +63,25 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             syncSettingsRepository.syncIntervalMinutesFlow.collectLatest { interval ->
                 _state.update { it.copy(syncIntervalMinutes = interval) }
+            }
+        }
+
+        // Observe the appearance choices; MainActivity applies them via AppearanceViewModel
+        viewModelScope.launch {
+            appearanceSettingsRepository.themeModeFlow.collectLatest { mode ->
+                _state.update { it.copy(themeMode = mode) }
+            }
+        }
+
+        viewModelScope.launch {
+            appearanceSettingsRepository.themePaletteFlow.collectLatest { palette ->
+                _state.update { it.copy(themePalette = palette) }
+            }
+        }
+
+        viewModelScope.launch {
+            appearanceSettingsRepository.themeIdFlow.collectLatest { themeId ->
+                _state.update { it.copy(themeId = themeId) }
             }
         }
     }
@@ -141,6 +165,24 @@ class SettingsViewModel @Inject constructor(
     fun updateSyncInterval(minutes: Long) {
         viewModelScope.launch {
             syncSettingsRepository.setSyncIntervalMinutes(minutes)
+        }
+    }
+
+    fun updateThemeMode(mode: ThemeMode) {
+        viewModelScope.launch {
+            appearanceSettingsRepository.setThemeMode(mode)
+        }
+    }
+
+    fun updateThemeId(themeId: ThemeId) {
+        viewModelScope.launch {
+            appearanceSettingsRepository.setThemeId(themeId)
+        }
+    }
+
+    fun updateThemePalette(palette: ThemePalette) {
+        viewModelScope.launch {
+            appearanceSettingsRepository.setThemePalette(palette)
         }
     }
 }

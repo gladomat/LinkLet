@@ -29,7 +29,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gladomat.linklet.data.settings.ThemeId
 import com.gladomat.linklet.ui.theme.LinkLetAppTheme
+import com.gladomat.linklet.ui.theme.ThemeRegistry
 
 /**
  * Bottom navigation bar for the note view screen.
@@ -162,7 +164,7 @@ private fun NoteFooterBarPreview() {
 @Preview
 @Composable
 private fun NoteFooterBarDisabledBacklinksPreview() {
-    LinkLetAppTheme(darkTheme = true) {
+    LinkLetAppTheme(theme = ThemeRegistry.resolve(ThemeId.CATPPUCCIN_MOCHA)) {
         Surface {
             NoteFooterBar(
                 isFavorite = true,

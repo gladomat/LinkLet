@@ -27,7 +27,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gladomat.linklet.data.settings.ThemeId
 import com.gladomat.linklet.ui.theme.LinkLetAppTheme
+import com.gladomat.linklet.ui.theme.ThemeRegistry
 
 /**
  * Dialog for renaming a note file.
@@ -150,7 +152,7 @@ private fun RenameNoteDialogPreview() {
 @Preview
 @Composable
 private fun RenameNoteDialogDarkPreview() {
-    LinkLetAppTheme(darkTheme = true) {
+    LinkLetAppTheme(theme = ThemeRegistry.resolve(ThemeId.CATPPUCCIN_MOCHA)) {
         Surface {
             RenameNoteDialog(
                 currentFilename = "20231215-project-notes.org",

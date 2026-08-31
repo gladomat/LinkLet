@@ -16,7 +16,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gladomat.linklet.data.settings.ThemeId
 import com.gladomat.linklet.ui.theme.LinkLetAppTheme
+import com.gladomat.linklet.ui.theme.LocalThemeTokens
+import com.gladomat.linklet.ui.theme.ThemeRegistry
 
 /**
  * Horizontal row of tag pills.
@@ -50,10 +53,10 @@ private fun TagPill(
         style = MaterialTheme.typography.labelMedium.copy(
             fontWeight = FontWeight.Medium,
         ),
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = LocalThemeTokens.current.tagFg,
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .background(LocalThemeTokens.current.tagBg)
             .padding(horizontal = 12.dp, vertical = 6.dp),
     )
 }
@@ -74,7 +77,7 @@ private fun TagRowPreview() {
 @Preview
 @Composable
 private fun TagRowDarkPreview() {
-    LinkLetAppTheme(darkTheme = true) {
+    LinkLetAppTheme(theme = ThemeRegistry.resolve(ThemeId.CATPPUCCIN_MOCHA)) {
         Surface {
             TagRow(
                 tags = listOf("tea", "brewing", "lifestyle", "productivity", "wellness"),

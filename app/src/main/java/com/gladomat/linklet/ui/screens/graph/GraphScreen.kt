@@ -54,6 +54,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gladomat.linklet.data.graph.Vector2
 import com.gladomat.linklet.data.model.NoteIndexEntry
 import com.gladomat.linklet.ui.theme.LinkLetAppTheme
+import com.gladomat.linklet.ui.theme.LocalThemeTokens
 import com.gladomat.linklet.viewmodel.graph.CameraFocusRequest
 import com.gladomat.linklet.viewmodel.graph.GraphUiState
 import com.gladomat.linklet.viewmodel.graph.GraphViewModel
@@ -258,19 +259,21 @@ private fun GraphCanvas(
     val latestPanOffset by rememberUpdatedState(effectivePanOffset)
     val latestSelectedPath by rememberUpdatedState(selectedPath)
 
-    val edgeColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
-    val highlightedEdgeColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.8f)
-    val nodeColor = MaterialTheme.colorScheme.primary
-    val pendingNodeColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-    val dimmedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f)
-    val selectedColor = MaterialTheme.colorScheme.secondary
-    val firstOrderColor = MaterialTheme.colorScheme.tertiary
-    val labelColor = MaterialTheme.colorScheme.onBackground.toArgb()
+    val tokens = LocalThemeTokens.current
+    val edgeColor = tokens.graphEdge
+    val highlightedEdgeColor = tokens.accent.copy(alpha = 0.8f)
+    val nodeColor = tokens.graphNode
+    val pendingNodeColor = tokens.graphNodeUnresolved
+    // Dimmed = non-highlighted node; --text-faint is the contract's inactive-element token.
+    val dimmedColor = tokens.textFaint
+    val selectedColor = tokens.graphNodeHover
+    val firstOrderColor = tokens.accent
+    val labelColor = tokens.textNormal.toArgb()
 
     Canvas(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(tokens.bgPrimary)
             .onSizeChanged { canvasSize = it }
             .pointerInput(Unit) {
                 detectTransformGestures { centroid, pan, zoom, _ ->

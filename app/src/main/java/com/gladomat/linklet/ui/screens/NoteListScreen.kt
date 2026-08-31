@@ -76,7 +76,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gladomat.linklet.data.model.IndexingProgress
 import com.gladomat.linklet.data.model.NoteId
+import com.gladomat.linklet.data.settings.ThemeId
 import com.gladomat.linklet.ui.theme.LinkLetAppTheme
+import com.gladomat.linklet.ui.theme.ThemeRegistry
 import com.gladomat.linklet.viewmodel.ConflictInfo
 import com.gladomat.linklet.viewmodel.NoteListItemUiModel
 import com.gladomat.linklet.viewmodel.NoteListSnackbarAction
@@ -852,7 +854,7 @@ private fun NoteListSuccessPreview() {
 @Preview
 @Composable
 private fun NoteListSuccessWithConflictsPreview() {
-    LinkLetAppTheme(darkTheme = true) {
+    LinkLetAppTheme(theme = ThemeRegistry.resolve(ThemeId.CATPPUCCIN_MOCHA)) {
         Surface {
             NoteListScreen(
                 state = NoteListUiState.Success(

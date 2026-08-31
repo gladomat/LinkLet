@@ -12,7 +12,7 @@ Everything below `data/` turns org files in the user's vault into queryable app 
 - `index/` — Room database + two-pass indexing pipeline. Owned by `index/AGENTS.md`.
 - `sync/` — WebDAV sync engine, journal, conflict handling. Owned by `sync/AGENTS.md`.
 - `graph/` — pure-Kotlin force-directed layout engine for the note graph view. Owned by `graph/AGENTS.md`.
-- `settings/` — DataStore-backed repositories for WebDAV credentials, sync, and folder settings.
+- `settings/` — DataStore-backed repositories for WebDAV credentials, sync, folder, and appearance settings. `AppearanceSettingsRepository` persists the active `ThemeId` (AMBERLINK/EVERFOREST/MODUS_OPERANDI/CATPPUCCIN_MOCHA/TOKYO_NIGHT), which `ui/theme/ThemeRegistry` resolves to a token set. Stored by enum name, falling back to `AMBERLINK` when the stored value is unknown, so removing or renaming an entry degrades instead of crashing. `ThemeMode`/`ThemePalette` in the same file are the superseded light-dark and accent-palette settings: still persisted, no longer read by the UI.
 - `utils/` — org path/file helpers (`OrgFileUtils`, `OrgPathResolver`). `OrgFileUtils.buildNoteLink(title, orgId, path)` is the single canonical place that builds `[[id:...][label]]` / `[[file:...][label]]` link syntax — any screen inserting or copying a link to another note must call it rather than hand-rolling the bracket/label escaping.
 
 ## Local Contracts

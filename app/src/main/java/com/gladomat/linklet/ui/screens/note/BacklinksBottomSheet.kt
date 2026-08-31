@@ -29,7 +29,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.gladomat.linklet.domain.repository.LinkEntityDto
+import com.gladomat.linklet.data.settings.ThemeId
 import com.gladomat.linklet.ui.theme.LinkLetAppTheme
+import com.gladomat.linklet.ui.theme.ThemeRegistry
 
 /**
  * Bottom sheet dialog showing backlinks to the current note.
@@ -200,7 +202,7 @@ private fun BacklinksBottomSheetPreview() {
 @Preview
 @Composable
 private fun BacklinksBottomSheetEmptyPreview() {
-    LinkLetAppTheme(darkTheme = true) {
+    LinkLetAppTheme(theme = ThemeRegistry.resolve(ThemeId.CATPPUCCIN_MOCHA)) {
         Surface {
             BacklinksBottomSheet(
                 backlinks = emptyList(),
