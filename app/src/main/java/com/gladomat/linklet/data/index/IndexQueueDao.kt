@@ -116,6 +116,23 @@ interface IndexQueueDao {
     )
     suspend fun requeueStaleRunning(pass: Int, staleBefore: Long, now: Long): Int
 
+    /**
+     * Explicit user-initiated retry: give every FAILED entry for [pass] a fresh retry budget.
+     */
+    @Query(
+        """
+        UPDATE index_queue
+        SET status = 'PENDING',
+            attempts = 0,
+            lastError = NULL,
+            lockedAtEpochMillis = NULL,
+            nextAttemptAtEpochMillis = NULL,
+            updatedAtEpochMillis = :now
+        WHERE pass = :pass AND status = 'FAILED'
+        """,
+    )
+    suspend fun resetFailed(pass: Int, now: Long): Int
+
     @Query("SELECT COUNT(*) FROM index_queue WHERE pass = :pass AND status = 'RUNNING'")
     suspend fun countRunning(pass: Int): Int
 

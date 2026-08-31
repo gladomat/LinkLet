@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -201,6 +202,12 @@ fun NoteListScreen(
                         )
                     },
                     actions = {
+                        IconButton(onClick = onOpenGraph) {
+                            Icon(
+                                imageVector = Icons.Filled.Hub,
+                                contentDescription = "Open note graph",
+                            )
+                        }
                         IconButton(
                             onClick = { moreMenuExpanded.value = true },
                         ) {
