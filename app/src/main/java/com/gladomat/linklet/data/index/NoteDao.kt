@@ -13,6 +13,12 @@ data class OrgIdToPath(
     val path: String,
 )
 
+/** Projection for batch path -> org-id lookups (avoids N+1 queries when resolving path links). */
+data class PathToOrgId(
+    val path: String,
+    val orgId: String,
+)
+
 @Dao
 interface NoteDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -69,6 +75,9 @@ interface NoteDao {
     @Query("SELECT orgId FROM notes WHERE path = :path LIMIT 1")
     suspend fun findOrgIdByPath(path: String): String?
 
+    @Query("SELECT path, orgId FROM notes WHERE path IN (:paths) AND orgId IS NOT NULL")
+    suspend fun findOrgIdsByPaths(paths: List<String>): List<PathToOrgId>
+
     @Query("SELECT availability FROM notes WHERE path = :path LIMIT 1")
     suspend fun getNoteAvailability(path: String): NoteAvailability?
 
@@ -117,6 +126,19 @@ interface NoteDao {
         """,
     )
     fun observeAllLinks(): Flow<List<LinkEntity>>
+
+    /** Case-insensitive substring search over indexed note content; returns matching paths. */
+    @Query(
+        """
+        SELECT c.path FROM note_content c
+        JOIN notes n ON n.path = c.path
+        WHERE n.deletedAt IS NULL AND c.contentText LIKE '%' || :query || '%' ESCAPE '\'
+        """,
+    )
+    suspend fun searchContentPaths(query: String): List<String>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertNoteContent(content: NoteContentEntity)
 }
 
 data class LinkWithSourceTitle(

@@ -104,12 +104,15 @@ class FakeNoteDao : NoteDao {
     override suspend fun listNotesNeedingLinks(): List<NoteEntity> = emptyList()
     override fun observeActiveNotes() = kotlinx.coroutines.flow.flowOf(notes.toList())
     override fun observeAllLinks() = kotlinx.coroutines.flow.flowOf(emptyList<com.gladomat.linklet.data.index.LinkEntity>())
+    override suspend fun searchContentPaths(query: String): List<String> = emptyList()
+    override suspend fun upsertNoteContent(content: com.gladomat.linklet.data.index.NoteContentEntity) = Unit
     override suspend fun markDeleted(path: String, deletedAt: Long) = Unit
     override suspend fun updateLinksReady(path: String, linksReady: Boolean) = Unit
     override suspend fun getAllFileTagsSerialized(): List<String> = emptyList()
     override suspend fun findPathByOrgId(orgId: String): String? = null
     override suspend fun findPathsByOrgIds(orgIds: List<String>): List<com.gladomat.linklet.data.index.OrgIdToPath> = emptyList()
     override suspend fun findOrgIdByPath(path: String): String? = null
+    override suspend fun findOrgIdsByPaths(paths: List<String>): List<com.gladomat.linklet.data.index.PathToOrgId> = emptyList()
     override suspend fun updateNotePath(oldPath: String, newPath: String) = Unit
     override suspend fun updateLinksSource(oldPath: String, newPath: String) = Unit
     override suspend fun updateLinksTarget(oldPath: String, newPath: String) = Unit

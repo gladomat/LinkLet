@@ -7,7 +7,7 @@ Turns vault files into rows in the Room database (`NoteDatabase`) via a durable,
 ## Ownership
 
 - `IndexQueueDao` / `IndexQueueEntity` — the `index_queue` table, keyed by (path, pass). Statuses: PENDING → RUNNING → DONE / FAILED. `MAX_ATTEMPTS = 5`; a FAILED row at the cap is terminal and skipped. The only escape hatch is `resetFailed(pass, now)` (FAILED → PENDING, attempts = 0), invoked by the user-facing Retry button (`NoteListViewModel.retryLinkIndexing`) for both passes.
-- `IndexPass1Processor` / `IndexPass2Processor` — queue drainers.
+- `IndexPass1Processor` / `IndexPass2Processor` — queue drainers. Pass 1 also writes the full note body into the separate `note_content` table (`.org` files only) for SQL `LIKE`-based content search (`NoteDao.searchContentPaths` joins it against active `notes`; used by `NoteListViewModel`). Bodies must NEVER live in a `notes` column: list queries do `SELECT *`, and one row over SQLite's 2 MB CursorWindow crashes every observer (shipped briefly in v11, fixed by migration 11→12).
 - `worker/IndexPass1Worker`, `worker/IndexPass2Worker` — WorkManager wrappers (unique work, scheduled by `IndexingScheduler`).
 - `GraphPositionDao` / `GraphPositionEntity` and `NoteDao.observeAllLinks()` live here alongside the indexing pipeline (same Room database, `NoteDatabase`) but are **not** indexing-pipeline logic - they're the graph view's position cache and edge query (`docs/plans/2026-07-06-note-graph-view.md`). `NoteRepositoryImpl.observeGraph()` is the actual owner of graph assembly; this folder only holds the DB-level pieces it reads from.
 
@@ -23,7 +23,7 @@ The pipeline assumes the app process can die at any moment. Every step must pers
 - `run()` returns `Outcome(scanTruncated)`; the worker schedules a continuation when the sweep was truncated OR pending rows remain. Workers run in ~20 s budget slices and chain via `enqueueUniqueWork(APPEND_OR_REPLACE)` — never rely on `Result.retry()` backoff for forward progress.
 - The sweep must never flip a PENDING/RUNNING row to DONE (a concurrent sync may have re-enqueued the path).
 - Change detection is fingerprint-based (`fingerprintMtime` + `fingerprintSize` vs `statNote`). A missing file during processing is a tombstone (`markDeleted` + pass 2 DELETE), not a retry.
-- `[[id:...]]` link resolution (org-id → path) must go through a batched `NoteDao` query (e.g. `findPathsByOrgIds`), never one query per link — that N+1 shape is a known perf bug class in this pipeline. `IndexPass2Processor`'s per-link `findPathByOrgId`/`findOrgIdByPath` loop still has this N+1 shape and is a known follow-up, not yet fixed.
+- `[[id:...]]` link resolution (org-id → path) must go through a batched `NoteDao` query (e.g. `findPathsByOrgIds`), never one query per link — that N+1 shape is a known perf bug class in this pipeline. `IndexPass2Processor`'s UPSERT branch batch-resolves both directions up front (`findOrgIdsByPaths` for `Path` targets, `findPathsByOrgIds` for `Id` targets, each chunked at 900 for the SQLite `IN`-clause limit) before mapping links, instead of one DAO call per link.
 
 ## Work Guidance
 
