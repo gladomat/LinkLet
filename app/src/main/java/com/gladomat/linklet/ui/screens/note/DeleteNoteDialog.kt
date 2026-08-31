@@ -21,7 +21,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.gladomat.linklet.data.settings.ThemeId
 import com.gladomat.linklet.ui.theme.LinkLetAppTheme
+import com.gladomat.linklet.ui.theme.ThemeRegistry
 
 /**
  * Confirmation dialog for deleting a note.
@@ -124,7 +126,7 @@ private fun DeleteNoteDialogPreview() {
 @Preview
 @Composable
 private fun DeleteNoteDialogWithBacklinksPreview() {
-    LinkLetAppTheme(darkTheme = true) {
+    LinkLetAppTheme(theme = ThemeRegistry.resolve(ThemeId.CATPPUCCIN_MOCHA)) {
         Surface {
             DeleteNoteDialog(
                 filename = "important-note.org",

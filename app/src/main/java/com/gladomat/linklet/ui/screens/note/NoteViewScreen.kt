@@ -80,6 +80,7 @@ import com.gladomat.linklet.ui.components.ORG_EXTERNAL_LINK_ANNOTATION_TAG
 import com.gladomat.linklet.ui.components.ORG_LINK_ANNOTATION_TAG
 import com.gladomat.linklet.ui.components.OrgBlockView
 import com.gladomat.linklet.ui.components.OrgTextPalette
+import com.gladomat.linklet.ui.theme.LocalThemeTokens
 import com.gladomat.linklet.ui.components.applyHighlights
 import com.gladomat.linklet.ui.components.buildOrgContentAnnotatedString
 import com.gladomat.linklet.ui.theme.LinkLetAppTheme
@@ -560,29 +561,20 @@ private fun SuccessState(
             }
         },
     ) { paddingValues ->
-        val colorScheme = MaterialTheme.colorScheme
-        val palette = remember(
-            colorScheme.primary,
-            colorScheme.secondary,
-            colorScheme.tertiary,
-            colorScheme.onSurfaceVariant,
-            colorScheme.surfaceVariant,
-            colorScheme.onSurface,
-            colorScheme.secondaryContainer,
-            colorScheme.tertiaryContainer,
-        ) {
+        val tokens = LocalThemeTokens.current
+        val palette = remember(tokens) {
             OrgTextPalette(
-                headingLevel1 = colorScheme.primary,
-                headingLevel2 = colorScheme.secondary,
-                headingLevel3 = colorScheme.tertiary,
-                bulletColor = colorScheme.onSurfaceVariant,
-                linkColor = colorScheme.secondary,
-                codeBackground = colorScheme.surfaceVariant,
-                codeTextColor = colorScheme.onSurface,
-                verbatimBackground = colorScheme.surfaceVariant,
-                verbatimTextColor = colorScheme.onSurface,
-                searchHighlightBackground = colorScheme.secondaryContainer.copy(alpha = 0.6f),
-                activeSearchHighlightBackground = colorScheme.tertiaryContainer.copy(alpha = 0.7f),
+                headingLevel1 = tokens.heading1,
+                headingLevel2 = tokens.heading2,
+                headingLevel3 = tokens.heading3,
+                bulletColor = tokens.textMuted,
+                linkColor = tokens.linkInternal,
+                codeBackground = tokens.codeBg,
+                codeTextColor = tokens.codeFg,
+                verbatimBackground = tokens.verbatimBg,
+                verbatimTextColor = tokens.verbatimFg,
+                searchHighlightBackground = tokens.searchHighlight,
+                activeSearchHighlightBackground = tokens.searchHighlightActive,
             )
         }
 

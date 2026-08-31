@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.net.Uri
 import android.content.Intent
 import androidx.activity.ComponentActivity
+import androidx.activity.viewModels
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.MaterialTheme
@@ -23,6 +24,8 @@ import com.gladomat.linklet.ui.screens.settings.SyncIgnoreEditorRoute
 import com.gladomat.linklet.ui.screens.settings.WebDavSettingsRoute
 import com.gladomat.linklet.ui.screens.sync.SyncStatusRoute
 import com.gladomat.linklet.ui.theme.LinkLetAppTheme
+import com.gladomat.linklet.ui.theme.ThemeRegistry
+import com.gladomat.linklet.viewmodel.settings.AppearanceViewModel
 import com.gladomat.linklet.viewmodel.note.NoteViewViewModel
 import com.gladomat.linklet.viewmodel.noteedit.NoteEditViewModel
 import com.gladomat.linklet.data.sync.SyncStatusNavigation
@@ -35,13 +38,15 @@ import androidx.compose.runtime.getValue
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     private val navTargetFlow = MutableStateFlow<String?>(null)
+    private val appearanceViewModel: AppearanceViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         handleIntent(intent)
         setContent {
-            LinkLetAppTheme {
+            val themeId by appearanceViewModel.themeId.collectAsStateWithLifecycle()
+            LinkLetAppTheme(theme = ThemeRegistry.resolve(themeId)) {
                 val navController = rememberNavController()
                 val navTarget by navTargetFlow.collectAsStateWithLifecycle()
                 LaunchedEffect(navTarget) {

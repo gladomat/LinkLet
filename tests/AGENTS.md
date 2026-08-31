@@ -11,6 +11,8 @@ All unit and Robolectric tests. This top-level `tests/` directory is wired into 
 - Coroutines: `MainDispatcherRule` + `runTest`; Flows via Turbine; mocking via MockK. Room tests use `Room.inMemoryDatabaseBuilder`.
 - No emulator or device dependence — everything must pass headless on CI.
 - Timing-sensitive tests (worker budgets, sweeps) must be host-speed-robust: sleeps ≥2× the budget under test, no exact-count assertions on budget-truncated work.
+- DataStore: never assert on the process-wide `preferencesDataStore` delegate from a `runTest` body — the singleton outlives a Robolectric test and does its IO on `Dispatchers.IO`, which hangs under `StandardTestDispatcher` on CI. Build a per-test `PreferenceDataStoreFactory.create(scope = CoroutineScope(dispatcherRule.dispatcher + Job()))` over `TemporaryFolder` and pass it to the repository's `DataStore` constructor (see `SettingsViewModelTests`).
+- Compose tests that render a screen consuming `LocalThemeTokens` must wrap content in `LinkLetAppTheme`, not bare `MaterialTheme` — the token local has no default and throws during composition.
 - Shared fakes live next to their tests (e.g. `FakeStorage` in `IndexPass1ProcessorTests`); prefer extending an existing fake over writing a parallel one.
 
 ## Verification

@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -45,7 +47,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gladomat.linklet.ui.components.SyncDirectoryChangeDialog
+import com.gladomat.linklet.data.settings.ThemeId
 import com.gladomat.linklet.ui.theme.LinkLetAppTheme
+import com.gladomat.linklet.ui.theme.ThemeRegistry
 import com.gladomat.linklet.viewmodel.settings.SettingsUiState
 import com.gladomat.linklet.viewmodel.settings.SettingsViewModel
 
@@ -90,6 +94,7 @@ fun SettingsRoute(
         onManualSync = viewModel::requestManualSync,
         onTogglePeriodicSync = viewModel::togglePeriodicSync,
         onUpdateSyncInterval = viewModel::updateSyncInterval,
+        onSelectTheme = viewModel::updateThemeId,
         snackbarHostState = snackbarHostState,
     )
 }
@@ -104,6 +109,7 @@ fun SettingsScreen(
     onManualSync: () -> Unit,
     onTogglePeriodicSync: (Boolean) -> Unit,
     onUpdateSyncInterval: (Long) -> Unit,
+    onSelectTheme: (ThemeId) -> Unit,
     snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier,
 ) {
@@ -124,6 +130,7 @@ fun SettingsScreen(
             modifier = modifier
                 .fillMaxSize()
                 .padding(padding)
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp),
         ) {
             Text(
@@ -253,6 +260,59 @@ fun SettingsScreen(
                     }
                 }
             }
+
+            // Appearance Section
+            Spacer(modifier = Modifier.height(24.dp))
+            Text(
+                text = "Appearance",
+                style = MaterialTheme.typography.titleLarge,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedCard(
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                ) {
+                    Text(
+                        text = "Theme",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    var themeMenuExpanded by remember { mutableStateOf(false) }
+                    val activeTheme = ThemeRegistry.resolve(state.themeId)
+                    Button(
+                        onClick = { themeMenuExpanded = true },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = activeTheme.label,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Icon(
+                            imageVector = Icons.Filled.ArrowDropDown,
+                            contentDescription = null,
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = themeMenuExpanded,
+                        onDismissRequest = { themeMenuExpanded = false },
+                    ) {
+                        ThemeRegistry.themes.forEach { theme ->
+                            DropdownMenuItem(
+                                text = { Text(theme.label) },
+                                onClick = {
+                                    onSelectTheme(theme.id)
+                                    themeMenuExpanded = false
+                                },
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -273,6 +333,7 @@ private fun SettingsScreenPreview() {
                 onManualSync = {},
                 onTogglePeriodicSync = {},
                 onUpdateSyncInterval = {},
+                onSelectTheme = {},
                 snackbarHostState = SnackbarHostState(),
             )
         }

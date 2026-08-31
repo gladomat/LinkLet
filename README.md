@@ -48,6 +48,11 @@ desktop already syncs. Read, edit, and follow `[[links]]` between notes on your 
   phone and on your desktop; LinkLet reconciles both.
 - In-note search (literal, whole-word, regex) with match highlighting and navigation.
 - Section drawers/pills for collapsing large notes (properties, logbooks, etc.).
+- Theme picker in **Settings → Appearance**: Amberlink (LinkLet's own palette, the default) plus
+  Everforest, Modus Operandi, Catppuccin Mocha and Tokyo Night, transcribed from their upstream
+  palettes. Every color in the app — org syntax
+  highlighting and the graph view included — comes from one token contract, and a contrast check
+  keeps every theme at WCAG AA.
 - User-editable `.syncignore` rules through an in-app editor (gitignore-lite syntax). Keep
   backups, archives, and other junk out of sync without touching a file manager.
 

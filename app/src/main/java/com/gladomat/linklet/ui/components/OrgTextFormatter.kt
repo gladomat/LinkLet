@@ -21,9 +21,6 @@ private val UrlRegex = OrgLinkParsing.UrlRegex
 const val ORG_LINK_ANNOTATION_TAG = "org-link"
 const val ORG_EXTERNAL_LINK_ANNOTATION_TAG = "org-external-link"
 
-private val DefaultMatchHighlight = Color(0xFFFFF59D) // light yellow
-private val DefaultActiveHighlight = Color(0xFFFFCC80) // orange
-
 data class OrgTextPalette(
     val headingLevel1: Color,
     val headingLevel2: Color,
@@ -55,21 +52,6 @@ fun buildOrgContentAnnotatedString(
         }
     }
 }
-
-/**
- * Applies highlight spans over [text] using the default match/active styles.
- */
-fun applyHighlights(
-    text: String,
-    ranges: List<IntRange>,
-    activeRange: IntRange?,
-): AnnotatedString = applyHighlights(
-    base = AnnotatedString(text),
-    ranges = ranges,
-    activeRange = activeRange,
-    matchBackground = DefaultMatchHighlight,
-    activeBackground = DefaultActiveHighlight,
-)
 
 /**
  * Applies highlight spans over an existing [AnnotatedString] while preserving all existing spans/annotations.
