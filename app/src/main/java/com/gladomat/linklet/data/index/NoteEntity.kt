@@ -27,7 +27,17 @@ data class NoteEntity(
     val linksReady: Boolean = false,
     val availability: NoteAvailability = NoteAvailability.AVAILABLE,
     val source: NoteSource = NoteSource.LOCAL,
-    val contentText: String? = null,
+)
+
+/**
+ * Full note body, kept out of `notes` on purpose: list queries do `SELECT *`, and a large
+ * body in the row blows SQLite's 2 MB CursorWindow (observed with 14 MB binary payloads).
+ * Content search reads only `path` from here via an indexed LIKE join.
+ */
+@Entity(tableName = "note_content")
+data class NoteContentEntity(
+    @PrimaryKey val path: String,
+    val contentText: String,
 )
 
 @Entity(tableName = "links", primaryKeys = ["source", "target"])

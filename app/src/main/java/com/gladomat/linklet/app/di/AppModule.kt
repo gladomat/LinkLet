@@ -134,6 +134,7 @@ object AppModule {
         .addMigrations(NoteDatabase.MIGRATION_8_9)
         .addMigrations(NoteDatabase.MIGRATION_9_10)
         .addMigrations(NoteDatabase.MIGRATION_10_11)
+        .addMigrations(NoteDatabase.MIGRATION_11_12)
         .fallbackToDestructiveMigration()
         .build()
 }

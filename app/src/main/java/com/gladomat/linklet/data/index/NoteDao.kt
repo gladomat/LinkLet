@@ -128,8 +128,17 @@ interface NoteDao {
     fun observeAllLinks(): Flow<List<LinkEntity>>
 
     /** Case-insensitive substring search over indexed note content; returns matching paths. */
-    @Query("SELECT path FROM notes WHERE deletedAt IS NULL AND contentText LIKE '%' || :query || '%' ESCAPE '\\' COLLATE NOCASE")
+    @Query(
+        """
+        SELECT c.path FROM note_content c
+        JOIN notes n ON n.path = c.path
+        WHERE n.deletedAt IS NULL AND c.contentText LIKE '%' || :query || '%' ESCAPE '\'
+        """,
+    )
     suspend fun searchContentPaths(query: String): List<String>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertNoteContent(content: NoteContentEntity)
 }
 
 data class LinkWithSourceTitle(
