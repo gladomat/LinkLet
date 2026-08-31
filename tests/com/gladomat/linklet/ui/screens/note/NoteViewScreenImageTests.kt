@@ -1,7 +1,6 @@
 package com.gladomat.linklet.ui.screens.note
 
 import android.net.Uri
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -22,6 +21,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import com.gladomat.linklet.testing.Aarch64RobolectricTestRunner
+import com.gladomat.linklet.ui.theme.LinkLetAppTheme
 import org.robolectric.annotation.Config
 
 @RunWith(Aarch64RobolectricTestRunner::class)
@@ -55,7 +55,7 @@ class NoteViewScreenImageTests {
         )
 
         composeRule.setContent {
-            MaterialTheme {
+            LinkLetAppTheme {
                 NoteViewScreen(
                     state = state,
                     searchState = NoteViewViewModel.NoteSearchState(),
