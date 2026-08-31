@@ -9,6 +9,7 @@ import com.gladomat.linklet.data.model.IndexingProgress
 import com.gladomat.linklet.data.model.NoteIndexEntry
 import com.gladomat.linklet.data.index.IndexQueueDao
 import com.gladomat.linklet.data.index.IndexingScheduler
+import com.gladomat.linklet.data.index.NoteDao
 import com.gladomat.linklet.data.sync.SyncScheduler
 import com.gladomat.linklet.data.sync.SyncWork
 import com.gladomat.linklet.data.sync.SyncStatusRepository
@@ -16,10 +17,12 @@ import com.gladomat.linklet.data.sync.worker.SyncWorker
 import com.gladomat.linklet.domain.repository.INoteRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
@@ -27,11 +30,13 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+@OptIn(FlowPreview::class)
 @HiltViewModel
 class NoteListViewModel @Inject constructor(
     private val repository: INoteRepository,
     private val indexingScheduler: IndexingScheduler,
     private val indexQueueDao: IndexQueueDao,
+    private val noteDao: NoteDao,
     private val syncScheduler: SyncScheduler,
     private val syncStatusRepository: SyncStatusRepository,
     private val application: Application,
@@ -44,15 +49,21 @@ class NoteListViewModel @Inject constructor(
     private val _snackbarMessage = MutableStateFlow<String?>(null)
     private val _snackbarAction = MutableStateFlow<NoteListSnackbarAction?>(null)
 
+    // Paths whose indexed content matches the current search query (debounced SQL LIKE search).
+    private val contentMatches = MutableStateFlow<Set<String>>(emptySet())
+
     private val workManager = WorkManager.getInstance(application)
+
+    private val notesAndQuery = combine(searchQuery, sortOption, contentMatches) { query, sort, matches ->
+        Triple(query, sort, matches)
+    }
 
     val state: StateFlow<NoteListUiState> = combine(
         repository.observeNotes(),
-        searchQuery,
-        sortOption,
+        notesAndQuery,
         errorState,
         hasLoaded,
-    ) { notes, query, sort, error, loaded ->
+    ) { notes, (query, sort, matches), error, loaded ->
         when {
             error != null -> NoteListUiState.Error(error)
             loaded -> {
@@ -60,11 +71,15 @@ class NoteListViewModel @Inject constructor(
                 val filteredNotes = if (trimmedQuery.isEmpty()) {
                     notes
                 } else {
-                    notes.filter { it.matchesQuery(trimmedQuery) }
+                    notes.filter { it.matchesQuery(trimmedQuery) || it.id.path in matches }
                 }
                 val sortedNotes = filteredNotes.sortedBy(sort)
                 val uiModels = sortedNotes.map { note ->
-                    val snippet = if (trimmedQuery.isEmpty()) null else note.snippetForQuery(trimmedQuery)
+                    val snippet = if (trimmedQuery.isEmpty()) {
+                        null
+                    } else {
+                        note.snippetForQuery(trimmedQuery) ?: if (note.id.path in matches) "Content match" else null
+                    }
                     note.toUiModel(snippet)
                 }
                 NoteListUiState.Success(uiModels)
@@ -127,6 +142,17 @@ class NoteListViewModel @Inject constructor(
         syncScheduler.scheduleImmediate()
 
         viewModelScope.launch {
+            searchQuery.debounce(250).collect { query ->
+                val trimmed = query.trim()
+                contentMatches.value = if (trimmed.isEmpty()) {
+                    emptySet()
+                } else {
+                    noteDao.searchContentPaths(trimmed.escapeLikeWildcards()).toSet()
+                }
+            }
+        }
+
+        viewModelScope.launch {
             combine(indexingFailuresPass1, indexingFailuresPass2) { pass1, pass2 -> pass1 to pass2 }
                 .distinctUntilChanged()
                 .collect { (pass1, pass2) ->
@@ -183,6 +209,9 @@ class NoteListViewModel @Inject constructor(
         _snackbarMessage.value = null
         _snackbarAction.value = null
     }
+
+    private fun String.escapeLikeWildcards(): String =
+        replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
     private fun NoteIndexEntry.matchesQuery(rawQuery: String): Boolean {
         val query = rawQuery.lowercase()

@@ -29,7 +29,7 @@ import com.gladomat.linklet.data.sync.SyncStateTypeConverters
         OperationJournalEntity::class,
         GraphPositionEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = false,
 )
 @TypeConverters(SyncStateTypeConverters::class, IndexTypeConverters::class)
@@ -234,6 +234,23 @@ abstract class NoteDatabase : RoomDatabase() {
                         `updatedAtEpochMillis` INTEGER NOT NULL,
                         PRIMARY KEY(`path`)
                     )
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE `notes` ADD COLUMN `contentText` TEXT")
+                // Backfill: pass 1 only reprocesses notes whose fingerprint changed, so existing
+                // notes would keep contentText = NULL (invisible to content search) forever.
+                // Re-enqueue every DONE pass-1 row once; the next indexing run repopulates them.
+                database.execSQL(
+                    """
+                    UPDATE index_queue
+                    SET status = 'PENDING', attempts = 0, lastError = NULL,
+                        lockedAtEpochMillis = NULL, nextAttemptAtEpochMillis = NULL
+                    WHERE pass = 1 AND status = 'DONE'
                     """.trimIndent(),
                 )
             }

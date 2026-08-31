@@ -270,6 +270,7 @@ class IndexPass1Processor @Inject constructor(
                                 fingerprintMtime = fingerprintMtime,
                                 fingerprintSize = fingerprintSize,
                                 linksReady = false,
+                                contentText = content,
                             ),
                         ),
                     )

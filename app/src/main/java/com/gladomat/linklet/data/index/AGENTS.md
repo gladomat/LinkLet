@@ -7,7 +7,7 @@ Turns vault files into rows in the Room database (`NoteDatabase`) via a durable,
 ## Ownership
 
 - `IndexQueueDao` / `IndexQueueEntity` — the `index_queue` table, keyed by (path, pass). Statuses: PENDING → RUNNING → DONE / FAILED. `MAX_ATTEMPTS = 5`; a FAILED row at the cap is terminal and skipped. The only escape hatch is `resetFailed(pass, now)` (FAILED → PENDING, attempts = 0), invoked by the user-facing Retry button (`NoteListViewModel.retryLinkIndexing`) for both passes.
-- `IndexPass1Processor` / `IndexPass2Processor` — queue drainers.
+- `IndexPass1Processor` / `IndexPass2Processor` — queue drainers. Pass 1 also writes `NoteEntity.contentText` (full note body) for SQL `LIKE`-based content search (`NoteDao.searchContentPaths`, used by `NoteListViewModel`); nullable, so notes not yet reindexed after the `contentText` column was added (migration 10→11) have no content search hit until their next pass-1 run.
 - `worker/IndexPass1Worker`, `worker/IndexPass2Worker` — WorkManager wrappers (unique work, scheduled by `IndexingScheduler`).
 - `GraphPositionDao` / `GraphPositionEntity` and `NoteDao.observeAllLinks()` live here alongside the indexing pipeline (same Room database, `NoteDatabase`) but are **not** indexing-pipeline logic - they're the graph view's position cache and edge query (`docs/plans/2026-07-06-note-graph-view.md`). `NoteRepositoryImpl.observeGraph()` is the actual owner of graph assembly; this folder only holds the DB-level pieces it reads from.
 
