@@ -24,12 +24,20 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 
 private const val TAG = "WebDavSync"
 private const val ENCODED_SLASH_PLACEHOLDER = "__ENC_SLASH__"
+
+// Bounds parallel PROPFINDs per BFS level against the server during remote discovery.
+private const val DISCOVERY_PROPFIND_CONCURRENCY = 6
 
 @Singleton
 class WebDavRemoteSyncProvider @Inject constructor(
@@ -402,32 +410,44 @@ class WebDavRemoteSyncProvider @Inject constructor(
         return encoded.replace(ENCODED_SLASH_PLACEHOLDER, "%2F")
     }
 
-    private fun listAllRemoteResources(
+    private suspend fun listAllRemoteResources(
         sardine: Sardine,
         settings: WebDavSettings,
     ): List<com.thegrizzlylabs.sardineandroid.DavResource> {
         val resources = mutableListOf<com.thegrizzlylabs.sardineandroid.DavResource>()
         val visitedDirs = mutableSetOf<String>()
-        val queue = ArrayDeque<String>()
-        queue.add("")
+        val semaphore = Semaphore(DISCOVERY_PROPFIND_CONCURRENCY)
+        var level = listOf("")
 
-        while (queue.isNotEmpty()) {
-            val relativeDir = queue.removeFirst()
-            val url = buildUrl(settings, relativeDir)
-            metrics.increment(SyncMetricKeys.HTTP_PROPFIND)
-            val entries = sardine.list(url, 1)
-            entries.forEach { resource ->
-                if (resource.isDirectory) {
-                    val dirPath = relativePathFromUrl(resource.href.toString(), settings)
-                    if (!dirPath.isNullOrBlank() && visitedDirs.add(dirPath)) {
-                        if (SyncPathFilter.isDirectoryTraversable(dirPath)) {
-                            queue.add(dirPath)
+        while (level.isNotEmpty()) {
+            val entriesPerDir = coroutineScope {
+                level.map { relativeDir ->
+                    async(dispatcher) {
+                        semaphore.withPermit {
+                            val url = buildUrl(settings, relativeDir)
+                            metrics.increment(SyncMetricKeys.HTTP_PROPFIND)
+                            sardine.list(url, 1)
                         }
                     }
-                    return@forEach
-                }
-                resources.add(resource)
+                }.awaitAll()
             }
+
+            val nextLevel = mutableListOf<String>()
+            entriesPerDir.forEach { entries ->
+                entries.forEach { resource ->
+                    if (resource.isDirectory) {
+                        val dirPath = relativePathFromUrl(resource.href.toString(), settings)
+                        if (!dirPath.isNullOrBlank() && visitedDirs.add(dirPath)) {
+                            if (SyncPathFilter.isDirectoryTraversable(dirPath)) {
+                                nextLevel.add(dirPath)
+                            }
+                        }
+                        return@forEach
+                    }
+                    resources.add(resource)
+                }
+            }
+            level = nextLevel
         }
 
         return resources

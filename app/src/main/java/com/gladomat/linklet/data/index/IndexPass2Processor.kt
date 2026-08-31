@@ -101,14 +101,34 @@ class IndexPass2Processor @Inject constructor(
                             val content = storage.readNote(current.path).getOrThrow()
                             val parsed = parser.parse(content = content, path = current.path)
                             val sourceOrgId = noteDao.findOrgIdByPath(current.path)
+
+                            // Batch-resolve link targets instead of one DAO query per link (N+1).
+                            val pathTargets = parsed.links.map { it.target }
+                                .filterIsInstance<LinkTarget.Path>()
+                                .map { it.value }
+                                .distinct()
+                            val pathOrgIds = mutableMapOf<String, String?>()
+                            pathTargets.forEach { pathOrgIds[it] = null }
+                            pathTargets.chunked(SQL_IN_CLAUSE_CHUNK_SIZE).forEach { chunk ->
+                                noteDao.findOrgIdsByPaths(chunk).forEach { pathOrgIds[it.path] = it.orgId }
+                            }
+
+                            val idTargets = parsed.links.map { it.target }
+                                .filterIsInstance<LinkTarget.Id>()
+                                .map { it.value }
+                                .distinct()
+                                .filterNot { orgIdCache.containsKey(it) }
+                            idTargets.chunked(SQL_IN_CLAUSE_CHUNK_SIZE).forEach { chunk ->
+                                val found = noteDao.findPathsByOrgIds(chunk).associate { it.orgId to it.path }
+                                chunk.forEach { orgId -> orgIdCache[orgId] = found[orgId] }
+                            }
+
                             var hasUnresolvedIdLinks = false
                             val resolvedLinks = parsed.links.mapNotNull { link ->
                                 val target = link.target
                                 val resolved = when (target) {
-                                    is LinkTarget.Path -> target.value to noteDao.findOrgIdByPath(target.value)
-                                    is LinkTarget.Id -> orgIdCache.getOrPut(target.value) {
-                                        noteDao.findPathByOrgId(target.value)
-                                    }?.let { it to target.value }
+                                    is LinkTarget.Path -> target.value to pathOrgIds[target.value]
+                                    is LinkTarget.Id -> orgIdCache[target.value]?.let { it to target.value }
                                 } ?: run {
                                     hasUnresolvedIdLinks = true
                                     return@mapNotNull null
@@ -198,5 +218,8 @@ class IndexPass2Processor @Inject constructor(
         private const val PASS_2 = 2
         private const val MAX_ATTEMPTS = 5
         private const val LEASE_TIMEOUT_MILLIS = 10 * 60 * 1000L
+
+        // SQLite caps bound parameters (default limit 999); stay under it for batched IN queries.
+        private const val SQL_IN_CLAUSE_CHUNK_SIZE = 900
     }
 }
