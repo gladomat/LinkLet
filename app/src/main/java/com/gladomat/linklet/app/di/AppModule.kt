@@ -133,6 +133,7 @@ object AppModule {
         .addMigrations(NoteDatabase.MIGRATION_7_8)
         .addMigrations(NoteDatabase.MIGRATION_8_9)
         .addMigrations(NoteDatabase.MIGRATION_9_10)
+        .addMigrations(NoteDatabase.MIGRATION_10_11)
         .fallbackToDestructiveMigration()
         .build()
 }

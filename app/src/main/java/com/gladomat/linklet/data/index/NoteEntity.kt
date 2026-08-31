@@ -27,6 +27,7 @@ data class NoteEntity(
     val linksReady: Boolean = false,
     val availability: NoteAvailability = NoteAvailability.AVAILABLE,
     val source: NoteSource = NoteSource.LOCAL,
+    val contentText: String? = null,
 )
 
 @Entity(tableName = "links", primaryKeys = ["source", "target"])

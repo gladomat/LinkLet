@@ -126,6 +126,10 @@ interface NoteDao {
         """,
     )
     fun observeAllLinks(): Flow<List<LinkEntity>>
+
+    /** Case-insensitive substring search over indexed note content; returns matching paths. */
+    @Query("SELECT path FROM notes WHERE deletedAt IS NULL AND contentText LIKE '%' || :query || '%' ESCAPE '\\' COLLATE NOCASE")
+    suspend fun searchContentPaths(query: String): List<String>
 }
 
 data class LinkWithSourceTitle(

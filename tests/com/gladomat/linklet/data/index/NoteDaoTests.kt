@@ -54,4 +54,16 @@ class NoteDaoTests {
         assertEquals("a.org", backlinks.first().source)
         assertEquals("Alias", backlinks.first().alias)
     }
+
+    @Test
+    fun `searchContentPaths matches content case-insensitively`() = runTest {
+        val notes = listOf(
+            NoteEntity(path = "a.org", title = "A", contentText = "notes about a kubernetes cluster"),
+            NoteEntity(path = "b.org", title = "B", contentText = null),
+        )
+        dao.insertNotes(notes)
+
+        assertEquals(listOf("a.org"), dao.searchContentPaths("kubernetes"))
+        assertEquals(listOf("a.org"), dao.searchContentPaths("KUBER"))
+    }
 }
