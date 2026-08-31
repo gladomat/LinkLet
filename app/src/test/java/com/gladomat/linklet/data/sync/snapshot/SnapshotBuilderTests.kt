@@ -110,6 +110,7 @@ class FakeNoteDao : NoteDao {
     override suspend fun findPathByOrgId(orgId: String): String? = null
     override suspend fun findPathsByOrgIds(orgIds: List<String>): List<com.gladomat.linklet.data.index.OrgIdToPath> = emptyList()
     override suspend fun findOrgIdByPath(path: String): String? = null
+    override suspend fun findOrgIdsByPaths(paths: List<String>): List<com.gladomat.linklet.data.index.PathToOrgId> = emptyList()
     override suspend fun updateNotePath(oldPath: String, newPath: String) = Unit
     override suspend fun updateLinksSource(oldPath: String, newPath: String) = Unit
     override suspend fun updateLinksTarget(oldPath: String, newPath: String) = Unit
