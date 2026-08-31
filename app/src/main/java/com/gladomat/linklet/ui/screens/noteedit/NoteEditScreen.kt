@@ -316,8 +316,8 @@ private fun EditingState(
             ),
             singleLine = false,
             keyboardOptions = KeyboardOptions(
-                capitalization = KeyboardCapitalization.None,
-                autoCorrect = false,
+                capitalization = KeyboardCapitalization.Sentences,
+                autoCorrect = true,
             ),
         )
     }
