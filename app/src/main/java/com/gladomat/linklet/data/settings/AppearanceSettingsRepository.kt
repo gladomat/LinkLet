@@ -1,6 +1,7 @@
 package com.gladomat.linklet.data.settings
 
 import android.content.Context
+import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -40,11 +41,12 @@ enum class ThemeId {
 }
 
 @Singleton
-class AppearanceSettingsRepository @Inject constructor(
-    @ApplicationContext private val context: Context,
+class AppearanceSettingsRepository(
+    private val dataStore: DataStore<Preferences>,
 ) {
 
-    private val dataStore = context.appearanceSettingsDataStore
+    @Inject
+    constructor(@ApplicationContext context: Context) : this(context.appearanceSettingsDataStore)
 
     private object Keys {
         val THEME_MODE: Preferences.Key<String> = stringPreferencesKey("theme_mode")
